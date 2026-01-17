@@ -2,14 +2,12 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import LoadingSpinner from './LoadingSpinner';
 
 export default function Header() {
-  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
@@ -33,11 +31,15 @@ export default function Header() {
 
   const handleSignOut = async () => {
     setSigningOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/');
-    router.refresh();
-    setSigningOut(false);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      // Use hard redirect to ensure cookies are cleared and page fully refreshes
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Sign out error:', error);
+      setSigningOut(false);
+    }
   };
 
   return (

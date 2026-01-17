@@ -58,5 +58,14 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
+  // Redirect authenticated users away from login page
+  if (request.nextUrl.pathname === '/login') {
+    if (user && !error) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/dashboard';
+      return NextResponse.redirect(url);
+    }
+  }
+
   return supabaseResponse;
 }
