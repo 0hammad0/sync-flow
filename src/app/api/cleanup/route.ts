@@ -102,18 +102,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Clean up expired receive sessions
-    const { count: sessionsDeleted } = await serviceClient
+    await serviceClient
       .from('receive_sessions')
       .delete()
-      .lt('expires_at', new Date().toISOString())
-      .select('*', { count: 'exact', head: true });
+      .lt('expires_at', new Date().toISOString());
 
     return NextResponse.json({
       success: true,
       message: 'Cleanup completed',
       filesDeleted: deletedCount,
       filesTotal: expiredFiles.length,
-      sessionsDeleted: sessionsDeleted || 0,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
