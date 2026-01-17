@@ -105,6 +105,11 @@ export async function getFileByToken(token: string): Promise<DownloadInfo> {
     if (file.expires_at) {
       const expiryDate = new Date(file.expires_at);
       if (expiryDate < new Date()) {
+        // Auto-delete expired anonymous files to free storage
+        if (!file.owner_id) {
+          await serviceClient.storage.from(BUCKET_NAME).remove([file.file_path]);
+          await serviceClient.from('files').delete().eq('token', token);
+        }
         return { success: false, error: 'expired' };
       }
     }
@@ -191,6 +196,26 @@ export async function incrementDownloadCount(token: string): Promise<{ success: 
   }
 }
 
+export async function getUserFileCount(userId: string): Promise<number> {
+  try {
+    const serviceClient = createServiceClient();
+    const { count, error } = await serviceClient
+      .from('files')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_id', userId);
+
+    if (error) {
+      console.error('Get user file count error:', error);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (error) {
+    console.error('Get user file count error:', error);
+    return 0;
+  }
+}
+
 export async function getUserFiles(): Promise<FileRecord[]> {
   try {
     const supabase = await createClient();
@@ -216,6 +241,61 @@ export async function getUserFiles(): Promise<FileRecord[]> {
   } catch (error) {
     console.error('Get user files error:', error);
     return [];
+  }
+}
+
+export async function reshareFile(
+  token: string,
+  expiresInHours: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    const serviceClient = createServiceClient();
+
+    // Fetch file record to verify ownership
+    const { data: fileRecord, error: fetchError } = await serviceClient
+      .from('files')
+      .select('owner_id')
+      .eq('token', token)
+      .single();
+
+    if (fetchError || !fileRecord) {
+      return { success: false, error: 'File not found' };
+    }
+
+    if (fileRecord.owner_id !== user.id) {
+      return { success: false, error: 'Not authorized to modify this file' };
+    }
+
+    // Calculate new expiry time
+    let expiresAt: string | null = null;
+    if (expiresInHours && expiresInHours > 0) {
+      const expiryDate = new Date();
+      expiryDate.setHours(expiryDate.getHours() + expiresInHours);
+      expiresAt = expiryDate.toISOString();
+    }
+
+    // Update the file's expiry
+    const { error: updateError } = await serviceClient
+      .from('files')
+      .update({ expires_at: expiresAt })
+      .eq('token', token);
+
+    if (updateError) {
+      console.error('Update expiry error:', updateError);
+      return { success: false, error: 'Failed to update file expiry' };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Reshare file error:', error);
+    return { success: false, error: 'An unexpected error occurred' };
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { generateToken, sanitizeFileName, getBaseUrl } from '@/lib/utils';
+import { generateToken, sanitizeFileName, getBaseUrl, MAX_USER_FILES } from '@/lib/utils';
+import { getUserFileCount } from '@/actions/files';
 
 const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfers';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -54,6 +55,21 @@ export async function POST(request: NextRequest) {
 
     // Get current user (may be null for anonymous uploads)
     const { data: { user } } = await supabase.auth.getUser();
+
+    // Check file limit for authenticated users
+    if (user) {
+      const fileCount = await getUserFileCount(user.id);
+      if (fileCount >= MAX_USER_FILES) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `You've reached the limit of ${MAX_USER_FILES} files. Please delete some files from your dashboard to upload more.`,
+            limitReached: true
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     // Generate unique token and file path
     const token = generateToken();

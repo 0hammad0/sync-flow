@@ -1,5 +1,8 @@
 import { randomBytes } from 'crypto';
 
+// Constants
+export const MAX_USER_FILES = 10;
+
 export function generateToken(): string {
   return randomBytes(16).toString('hex');
 }
@@ -23,11 +26,19 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function getBaseUrl(): string {
+  // First check explicit app URL (works on both client and server)
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL;
   }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+
+  // Server-side: use Vercel URL
+  if (typeof window === 'undefined') {
+    if (process.env.VERCEL_URL) {
+      return `https://${process.env.VERCEL_URL}`;
+    }
+    return 'http://localhost:3000';
   }
-  return 'http://localhost:3000';
+
+  // Client-side: use current origin
+  return window.location.origin;
 }

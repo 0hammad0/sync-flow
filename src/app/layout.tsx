@@ -13,8 +13,18 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+function getMetadataBaseUrl(): URL {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return new URL(process.env.NEXT_PUBLIC_APP_URL);
+  }
+  if (process.env.VERCEL_URL) {
+    return new URL(`https://${process.env.VERCEL_URL}`);
+  }
+  return new URL("http://localhost:3000");
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: getMetadataBaseUrl(),
   title: {
     default: "SyncFlow - Fast & Secure File Sharing",
     template: "%s | SyncFlow",
