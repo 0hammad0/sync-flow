@@ -1,18 +1,23 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { generateToken, getBaseUrl } from '@/lib/utils';
 
 // POST - Create a new receive session
 export async function POST() {
   try {
+    const supabase = await createClient();
     const serviceClient = createServiceClient();
     const sessionToken = generateToken();
+
+    // Check if user is logged in
+    const { data: { user } } = await supabase.auth.getUser();
 
     const { error } = await serviceClient
       .from('receive_sessions')
       .insert({
         session_token: sessionToken,
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 minutes
+        receiver_id: user?.id || null, // Save user ID if logged in
       });
 
     if (error) {

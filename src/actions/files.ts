@@ -4,7 +4,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { generateToken, sanitizeFileName, getBaseUrl } from '@/lib/utils';
 import { UploadResult, DownloadInfo, FileRecord } from '@/types';
 
-const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfers';
+const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfer-bucket';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const SIGNED_URL_EXPIRY = 3600; // 1 hour in seconds
 
@@ -327,16 +327,17 @@ export async function deleteFile(token: string): Promise<{ success: boolean; err
       return { success: false, error: 'Not authorized to delete this file' };
     }
 
-    // Delete from storage
+    // Delete from storage first
     const { error: storageError } = await serviceClient.storage
       .from(BUCKET_NAME)
       .remove([file.file_path]);
 
     if (storageError) {
       console.error('Storage delete error:', storageError);
+      return { success: false, error: 'Failed to delete file from storage' };
     }
 
-    // Delete from database
+    // Delete from database only after storage deletion succeeds
     const { error: dbError } = await serviceClient
       .from('files')
       .delete()
@@ -344,7 +345,7 @@ export async function deleteFile(token: string): Promise<{ success: boolean; err
 
     if (dbError) {
       console.error('Database delete error:', dbError);
-      return { success: false, error: 'Failed to delete file' };
+      return { success: false, error: 'Failed to delete file record' };
     }
 
     return { success: true };

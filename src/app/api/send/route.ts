@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { generateToken, sanitizeFileName } from '@/lib/utils';
+import { generateToken, sanitizeFileName, MAX_USER_FILES } from '@/lib/utils';
+import { getUserFileCount } from '@/actions/files';
 
-const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfers';
+const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfer-bucket';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export async function POST(request: NextRequest) {
@@ -58,6 +59,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check file limit if receiver is a logged-in user
+    if (session.receiver_id) {
+      const fileCount = await getUserFileCount(session.receiver_id);
+      if (fileCount >= MAX_USER_FILES) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `The receiver has reached their file limit (${MAX_USER_FILES} files). They need to delete some files first.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Generate unique token and file path
     const fileToken = generateToken();
     const sanitizedName = sanitizeFileName(originalName);
@@ -83,7 +98,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert file metadata
+    // Insert file metadata - assign to receiver if they were logged in
     const { error: dbError } = await serviceClient
       .from('files')
       .insert({
@@ -92,7 +107,7 @@ export async function POST(request: NextRequest) {
         original_name: originalName,
         size: file.size,
         mime_type: mimeType || 'application/octet-stream',
-        owner_id: null, // Anonymous upload
+        owner_id: session.receiver_id || null, // Assign to receiver if logged in
         is_encrypted: false,
       });
 

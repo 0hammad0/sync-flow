@@ -1,4 +1,5 @@
 import UploadForm from '@/components/UploadForm';
+import AuthCTA from '@/components/AuthCTA';
 import Link from 'next/link';
 
 export default function Home() {
@@ -70,22 +71,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
-          <div className="flex items-start gap-3">
-            <span className="text-blue-500 text-lg">💡</span>
-            <div>
-              <p className="text-sm text-blue-800 font-medium">
-                Want to manage your files?
-              </p>
-              <p className="text-xs text-blue-600 mt-0.5">
-                <Link href="/login" className="underline hover:no-underline">
-                  Sign in
-                </Link>
-                {' '}to view, organize, and delete your uploaded files anytime.
-              </p>
-            </div>
-          </div>
-        </div>
+        <AuthCTA />
 
         <div className="mt-6 text-center text-xs text-gray-400">
           <p>Files are stored securely with encrypted connections.</p>

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import LoadingSpinner from './LoadingSpinner';
+import { Smartphone } from 'lucide-react';
 
 export default function Header() {
   const [user, setUser] = useState<User | null>(null);
@@ -69,6 +70,14 @@ export default function Header() {
           ) : user ? (
             <>
               <Link
+                href="/receive"
+                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
+                title="Receive files from your phone"
+              >
+                <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span>Receive</span>
+              </Link>
+              <Link
                 href="/dashboard"
                 className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 transition-colors duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-md hover:bg-gray-100"
               >
@@ -90,12 +99,22 @@ export default function Header() {
               </button>
             </>
           ) : (
-            <Link
-              href="/login"
-              className="text-xs sm:text-sm bg-gray-900 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-md hover:bg-gray-800 cursor-pointer btn-hover transition-colors duration-200"
-            >
-              Sign In
-            </Link>
+            <>
+              <Link
+                href="/receive"
+                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
+                title="Receive files from your phone"
+              >
+                <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span>Receive</span>
+              </Link>
+              <Link
+                href="/login"
+                className="text-xs sm:text-sm bg-gray-900 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-gray-800 cursor-pointer btn-hover transition-colors duration-200"
+              >
+                Sign In
+              </Link>
+            </>
           )}
         </nav>
       </div>
