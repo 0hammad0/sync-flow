@@ -124,6 +124,36 @@ export async function getFileByToken(token: string): Promise<DownloadInfo> {
       ? file.max_downloads - file.download_count
       : null;
 
+    // First verify the file actually exists in storage
+    // (signed URLs can be generated for non-existent files)
+    const { data: fileExists, error: existsError } = await serviceClient.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(file.file_path, 5); // Short-lived URL just to check
+
+    if (existsError) {
+      console.error('File existence check error:', existsError);
+      // If file doesn't exist in storage, clean up the orphan database record
+      if (existsError.message?.includes('not found') || existsError.message?.includes('Object')) {
+        console.log(`Cleaning up orphan database record for token: ${token}`);
+        await serviceClient.from('files').delete().eq('token', token);
+      }
+      return { success: false, error: 'File not found in storage' };
+    }
+
+    // Verify by attempting a HEAD request to the signed URL
+    try {
+      const headResponse = await fetch(fileExists.signedUrl, { method: 'HEAD' });
+      if (!headResponse.ok) {
+        console.error(`File not found in storage for token: ${token}, status: ${headResponse.status}`);
+        // Clean up orphan database record
+        await serviceClient.from('files').delete().eq('token', token);
+        return { success: false, error: 'File not found in storage' };
+      }
+    } catch (fetchError) {
+      console.error('Error verifying file existence:', fetchError);
+      // Continue - the file might still be accessible
+    }
+
     // Generate signed URL for download
     const { data: signedUrlData, error: signedUrlError } = await serviceClient.storage
       .from(BUCKET_NAME)

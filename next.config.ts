@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  // Optimize CSS loading
+  optimizePackageImports: ['lucide-react'],
 };
 
 export default nextConfig;

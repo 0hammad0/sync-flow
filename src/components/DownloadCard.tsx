@@ -26,12 +26,14 @@ export default function DownloadCard({
   isEncrypted,
   createdAt,
   expiresAt,
-  downloadsRemaining,
+  downloadsRemaining: initialDownloadsRemaining,
   token,
 }: DownloadCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+  const [currentDownloadsRemaining, setCurrentDownloadsRemaining] = useState(initialDownloadsRemaining);
+  const [fileDeleted, setFileDeleted] = useState(false);
 
   const isImage = mimeType.startsWith('image/');
   const isPdf = mimeType === 'application/pdf';
@@ -103,9 +105,6 @@ export default function DownloadCard({
     setDownloadError(null);
 
     try {
-      // Increment download count
-      await incrementDownloadCount(token);
-
       if (isEncrypted) {
         // Get encryption key from URL fragment
         const keyBase64 = getKeyFromUrl();
@@ -122,10 +121,10 @@ export default function DownloadCard({
           return;
         }
 
-        // Fetch encrypted file
+        // Fetch encrypted file FIRST (before incrementing count)
         const response = await fetch(signedUrl);
         if (!response.ok) {
-          throw new Error('Failed to download file');
+          throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
         }
 
         const encryptedData = await response.arrayBuffer();
@@ -147,21 +146,63 @@ export default function DownloadCard({
 
         // Clean up blob URL
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+        // Increment download count AFTER successful download
+        // This ensures the file isn't deleted before download completes
+        const result = await incrementDownloadCount(token);
+
+        // Update UI with new count
+        if (currentDownloadsRemaining !== null) {
+          const newCount = currentDownloadsRemaining - 1;
+          setCurrentDownloadsRemaining(newCount);
+          if (result.selfDestruct || newCount <= 0) {
+            setFileDeleted(true);
+          }
+        }
       } else {
-        // Direct download for non-encrypted files
+        // For non-encrypted files, fetch the file first to ensure we have it
+        const response = await fetch(signedUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
         const link = document.createElement('a');
-        link.href = signedUrl;
+        link.href = blobUrl;
         link.download = fileName;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        // Clean up blob URL
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+        // Increment download count AFTER successful download
+        const result = await incrementDownloadCount(token);
+
+        // Update UI with new count
+        if (currentDownloadsRemaining !== null) {
+          const newCount = currentDownloadsRemaining - 1;
+          setCurrentDownloadsRemaining(newCount);
+          if (result.selfDestruct || newCount <= 0) {
+            setFileDeleted(true);
+          }
+        }
       }
     } catch (error) {
       console.error('Download error:', error);
-      if (error instanceof Error && error.message.includes('decrypt')) {
-        setDownloadError('Failed to decrypt file. The key may be invalid.');
+      if (error instanceof Error) {
+        if (error.message.includes('decrypt')) {
+          setDownloadError('Failed to decrypt file. The key may be invalid.');
+        } else if (error.message.includes('404') || error.message.includes('400') || error.message.includes('not found')) {
+          setDownloadError('File not found in storage. It may have been deleted. Please refresh the page.');
+        } else {
+          setDownloadError('Failed to download file. Please refresh the page and try again.');
+        }
       } else {
-        setDownloadError('Failed to download file. Please try again.');
+        setDownloadError('Failed to download file. Please refresh the page and try again.');
       }
     }
 
@@ -199,9 +240,11 @@ export default function DownloadCard({
               Encrypted
             </span>
           )}
-          {downloadsRemaining !== null && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-              {downloadsRemaining} download{downloadsRemaining !== 1 ? 's' : ''} left
+          {currentDownloadsRemaining !== null && (
+            <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full ${
+              currentDownloadsRemaining <= 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+            }`}>
+              {currentDownloadsRemaining <= 0 ? 'No downloads left' : `${currentDownloadsRemaining} download${currentDownloadsRemaining !== 1 ? 's' : ''} left`}
             </span>
           )}
         </div>
@@ -229,22 +272,31 @@ export default function DownloadCard({
         </div>
       )}
 
-      <button
-        onClick={handleDownload}
-        disabled={isDownloading}
-        className={`w-full text-center px-4 py-3 sm:py-3.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base flex items-center justify-center gap-2 ${
-          isDownloading ? 'opacity-75 cursor-not-allowed' : ''
-        }`}
-      >
-        {isDownloading ? (
-          <>
-            <LoadingSpinner size="sm" className="text-white" />
-            <span>{isEncrypted ? 'Decrypting...' : 'Downloading...'}</span>
-          </>
-        ) : (
-          'Download File'
-        )}
-      </button>
+      {fileDeleted ? (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-xs text-green-700 font-medium">Download complete!</p>
+          <p className="text-xs text-green-600 mt-1">
+            This file has reached its download limit and has been automatically deleted for security.
+          </p>
+        </div>
+      ) : (
+        <button
+          onClick={handleDownload}
+          disabled={isDownloading || currentDownloadsRemaining === 0}
+          className={`w-full text-center px-4 py-3 sm:py-3.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base flex items-center justify-center gap-2 ${
+            isDownloading || currentDownloadsRemaining === 0 ? 'opacity-75 cursor-not-allowed' : ''
+          }`}
+        >
+          {isDownloading ? (
+            <>
+              <LoadingSpinner size="sm" className="text-white" />
+              <span>{isEncrypted ? 'Decrypting...' : 'Downloading...'}</span>
+            </>
+          ) : (
+            'Download File'
+          )}
+        </button>
+      )}
 
       <div className="mt-4 sm:mt-5 space-y-2">
         <p className="text-[10px] sm:text-xs text-gray-400 text-center">
