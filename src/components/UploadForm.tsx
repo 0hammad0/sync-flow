@@ -13,11 +13,20 @@ import CopyButton from './CopyButton';
 import LoadingSpinner from './LoadingSpinner';
 import ProgressBar from './ProgressBar';
 import QRModal from './QRModal';
+import { Mail, Lock } from 'lucide-react';
 
 const ALLOWED_TYPES_TEXT = 'All file types supported';
 const MAX_SIZE_TEXT = 'Maximum file size: 50MB';
 
-const EXPIRY_OPTIONS = [
+// Guest options - limited
+const GUEST_EXPIRY_OPTIONS = [
+  { value: '1', label: '1 hour' },
+  { value: '24', label: '24 hours' },
+  { value: '168', label: '7 days' },
+];
+
+// Full options for logged-in users
+const USER_EXPIRY_OPTIONS = [
   { value: '', label: 'Never expires' },
   { value: '1', label: '1 hour' },
   { value: '24', label: '24 hours' },
@@ -25,7 +34,11 @@ const EXPIRY_OPTIONS = [
   { value: '720', label: '30 days' },
 ];
 
-export default function UploadForm() {
+interface UploadFormProps {
+  isAuthenticated?: boolean;
+}
+
+export default function UploadForm({ isAuthenticated = false }: UploadFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -40,10 +53,17 @@ export default function UploadForm() {
   });
   const [encryptionEnabled, setEncryptionEnabled] = useState(true);
   const encryptionSupported = useMemo(() => isEncryptionSupported(), []);
-  const [expiryHours, setExpiryHours] = useState<string>('');
+  // Default to 24 hours for guests, empty (never) for logged-in users
+  const [expiryHours, setExpiryHours] = useState<string>(isAuthenticated ? '' : '24');
+  const expiryOptions = isAuthenticated ? USER_EXPIRY_OPTIONS : GUEST_EXPIRY_OPTIONS;
   const [maxDownloads, setMaxDownloads] = useState<string>('');
   const [showQRModal, setShowQRModal] = useState(false);
   const [fileName, setFileName] = useState<string>('');
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -194,11 +214,50 @@ export default function UploadForm() {
     setShareUrl(null);
     setError(null);
     setUploadProgress({ stage: 'idle', percent: 0 });
-    setExpiryHours('');
+    setExpiryHours(isAuthenticated ? '' : '24');
     setMaxDownloads('');
     setFileName('');
+    setShowEmailForm(false);
+    setRecipientEmail('');
+    setEmailSent(false);
+    setEmailSending(false);
+    setEmailError(null);
     if (inputRef.current) {
       inputRef.current.value = '';
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!recipientEmail || !shareUrl) return;
+
+    setEmailSending(true);
+    setEmailError(null);
+
+    try {
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipientEmail,
+          fileName,
+          downloadLink: shareUrl,
+          isEncrypted: encryptionEnabled && encryptionSupported,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setEmailSent(true);
+        setShowEmailForm(false);
+        setRecipientEmail('');
+      } else {
+        setEmailError(result.error || 'Failed to send email');
+      }
+    } catch {
+      setEmailError('Failed to send email. Please try again.');
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -307,13 +366,18 @@ export default function UploadForm() {
                   onChange={(e) => setExpiryHours(e.target.value)}
                   className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {EXPIRY_OPTIONS.map((option) => (
+                  {expiryOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
               </div>
+              {!isAuthenticated && (
+                <p className="text-xs text-gray-500">
+                  <a href="/login" className="text-blue-600 hover:underline">Sign in</a> for more expiration options (Never, 30 days)
+                </p>
+              )}
 
               {/* Max Downloads */}
               <div className="flex items-center justify-between gap-4">
@@ -412,26 +476,13 @@ export default function UploadForm() {
           </p>
 
           {encryptionEnabled && encryptionSupported && (
-            <div className="mb-4 flex items-center justify-center gap-2 text-xs text-purple-600">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
+            <div className="mb-4 flex items-center justify-center gap-2 text-sm text-purple-600">
+              <Lock className="w-4 h-4" />
               <span>End-to-end encrypted - key is in the link</span>
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-white border border-gray-200 rounded-lg">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2 p-3 sm:p-3 bg-white border border-gray-200 rounded-lg">
             <input
               type="text"
               value={shareUrl}
@@ -439,7 +490,7 @@ export default function UploadForm() {
               className="flex-1 text-xs sm:text-sm text-gray-700 bg-transparent outline-none truncate text-center sm:text-left py-2 sm:py-0"
               aria-label="Share link"
             />
-            <div className="flex gap-2">
+            <div className="flex gap-2 justify-center sm:justify-end">
               <CopyButton text={shareUrl} />
               <button
                 onClick={() => setShowQRModal(true)}
@@ -462,7 +513,7 @@ export default function UploadForm() {
                   <rect x="14" y="14" width="7" height="7" />
                   <rect x="3" y="14" width="7" height="7" />
                 </svg>
-                <span className="hidden sm:inline">QR</span>
+                <span>QR</span>
               </button>
             </div>
           </div>
@@ -470,6 +521,70 @@ export default function UploadForm() {
           <p className="mt-3 text-xs text-gray-500">
             Tip: Sign in to manage your uploads and track download activity.
           </p>
+
+          {/* Email Sharing Section */}
+          {!showEmailForm ? (
+            <button
+              onClick={() => { setShowEmailForm(true); setEmailError(null); }}
+              disabled={emailSending}
+              className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer text-sm font-medium"
+            >
+              <Mail className="w-4 h-4" />
+              Send via Email
+            </button>
+          ) : (
+            <div className="mt-4 p-4 bg-white border border-gray-200 rounded-lg animate-fade-in">
+              <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700 mb-2 text-left">
+                Recipient&apos;s email address
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="recipientEmail"
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="recipient@example.com"
+                  disabled={emailSending}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                  onKeyDown={(e) => e.key === 'Enter' && !emailSending && handleSendEmail()}
+                />
+                <button
+                  onClick={handleSendEmail}
+                  disabled={!recipientEmail || emailSending}
+                  className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2 ${
+                    recipientEmail && !emailSending
+                      ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                      : 'bg-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {emailSending ? (
+                    <>
+                      <LoadingSpinner size="sm" className="text-white" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    'Send'
+                  )}
+                </button>
+              </div>
+              {emailError && (
+                <p className="mt-2 text-xs text-red-600">{emailError}</p>
+              )}
+              <button
+                onClick={() => { setShowEmailForm(false); setEmailError(null); }}
+                disabled={emailSending}
+                className="mt-2 text-xs text-gray-500 hover:text-gray-700 cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {emailSent && (
+            <p className="mt-3 text-xs text-green-600 flex items-center justify-center gap-1">
+              <span>✓</span> Email sent successfully!
+            </p>
+          )}
 
           <button
             onClick={handleReset}

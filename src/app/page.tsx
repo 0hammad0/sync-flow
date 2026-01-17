@@ -1,8 +1,12 @@
 import UploadForm from '@/components/UploadForm';
 import AuthCTA from '@/components/AuthCTA';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const isAuthenticated = !!user;
   return (
     <div className="py-4 sm:py-6 md:py-8 animate-fade-in">
       <div className="text-center mb-6 sm:mb-8 px-4">
@@ -16,7 +20,7 @@ export default function Home() {
         </p>
       </div>
 
-      <UploadForm />
+      <UploadForm isAuthenticated={isAuthenticated} />
 
       <div className="mt-10 sm:mt-12 md:mt-16 max-w-xl mx-auto px-4">
         <div className="border-t border-gray-200 pt-8">
