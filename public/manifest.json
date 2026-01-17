@@ -1,0 +1,17 @@
+{
+  "name": "SyncFlow",
+  "short_name": "SyncFlow",
+  "description": "Fast & secure file sharing with end-to-end encryption",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
