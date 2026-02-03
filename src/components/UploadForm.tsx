@@ -16,7 +16,7 @@ import QRModal from './QRModal';
 import { Mail, Lock } from 'lucide-react';
 
 const ALLOWED_TYPES_TEXT = 'All file types supported';
-const MAX_SIZE_TEXT = 'Maximum file size: 50MB';
+const MAX_SIZE_TEXT = 'Maximum file size: 100MB';
 
 // Guest options - limited
 const GUEST_EXPIRY_OPTIONS = [

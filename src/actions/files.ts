@@ -5,7 +5,7 @@ import { generateToken, sanitizeFileName, getBaseUrl } from '@/lib/utils';
 import { UploadResult, DownloadInfo, FileRecord } from '@/types';
 
 const BUCKET_NAME = process.env.STORAGE_BUCKET || 'file-transfer-bucket';
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const SIGNED_URL_EXPIRY = 3600; // 1 hour in seconds
 
 export async function uploadFile(formData: FormData): Promise<UploadResult> {
@@ -17,7 +17,7 @@ export async function uploadFile(formData: FormData): Promise<UploadResult> {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return { success: false, error: 'File size exceeds 50MB limit' };
+      return { success: false, error: 'File size exceeds 100MB limit' };
     }
 
     const supabase = await createClient();
