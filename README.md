@@ -11,7 +11,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Supabase-Backend-green?style=flat-square&logo=supabase" alt="Supabase">
+  <img src="https://img.shields.io/badge/Firebase-Auth%20%2B%20Firestore-FFCA28?style=flat-square&logo=firebase" alt="Firebase">
+  <img src="https://img.shields.io/badge/Cloudflare-R2-F38020?style=flat-square&logo=cloudflare" alt="Cloudflare R2">
   <img src="https://img.shields.io/badge/Tailwind-CSS-38B2AC?style=flat-square&logo=tailwind-css" alt="Tailwind CSS">
 </p>
 
@@ -29,31 +30,48 @@
 - **No Account Required** — Anonymous uploads supported
 - **Magic Link Auth** — Passwordless sign-in via email
 
+## Tech Stack
+
+| Technology | Purpose |
+|------------|---------|
+| [Next.js 16](https://nextjs.org/) | React framework (App Router) |
+| [TypeScript](https://www.typescriptlang.org/) | Type safety |
+| [Firebase Auth](https://firebase.google.com/docs/auth) | Email-link (passwordless) sign-in |
+| [Firestore](https://firebase.google.com/docs/firestore) | File metadata + receive sessions |
+| [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) | File body storage (S3-compatible, zero egress fees) |
+| [Tailwind CSS](https://tailwindcss.com/) | Styling |
+| Web Crypto API | AES-256-GCM encryption |
+| [qrcode.react](https://npmjs.com/package/qrcode.react) | QR code generation |
+
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- A [Supabase](https://supabase.com) account (free tier works)
+- Node.js 20+
+- A [Firebase](https://console.firebase.google.com/) project (free Spark plan works)
+- A [Cloudflare](https://dash.cloudflare.com/) account with R2 enabled
 
-### 1. Clone the repository
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/yourusername/syncflow.git
 cd syncflow
-```
-
-### 2. Install dependencies
-
-```bash
 npm install
 ```
 
-### 3. Set up Supabase
+### 2. Set up Firebase
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to **Settings** → **API** and copy your credentials
-3. Create a storage bucket named `file-transfer-bucket` (set to **private**)
+1. Create a project at [console.firebase.google.com](https://console.firebase.google.com/)
+2. Enable **Authentication** → **Email/Password** → toggle **Email link (passwordless sign-in)** ON
+3. Create a **Firestore database** (production mode is fine — the app uses the Admin SDK server-side)
+4. In **Project settings** → **Service accounts** → **Generate new private key** → save the JSON
+
+### 3. Set up Cloudflare R2
+
+1. Enable R2 in the Cloudflare dashboard
+2. Create a bucket (e.g. `syncflow-files`, Standard storage, Public Access disabled)
+3. Create an **Account API token** with **Object Read & Write** scoped to that bucket
+4. Note your **Account ID**, the bucket name, the **Access Key ID**, and the **Secret Access Key**
 
 ### 4. Configure environment variables
 
@@ -61,97 +79,45 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` with your Supabase credentials:
+Edit `.env.local`:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-STORAGE_BUCKET=file-transfer-bucket
+# Firebase — public (client SDK)
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<project-id>.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=<project-id>
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=<project-id>.firebasestorage.app
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+
+# Firebase Admin (server) — from the service-account JSON
+FIREBASE_PROJECT_ID=<project-id>
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@<project-id>.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Cloudflare R2
+R2_ACCOUNT_ID=...
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_BUCKET=syncflow-files
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+
+# SMTP (optional — used for "Send via email" share links)
+SMTP_USER=you@gmail.com
+SMTP_PASS=<gmail-app-password>
+
+# Optional: production URL used in share-link emails
+# NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 ```
 
-### 5. Run database migrations
+### 5. Create Firestore composite indexes
 
-In the Supabase SQL Editor, run these migrations in order:
+The app issues two multi-field queries that need composite indexes:
 
-<details>
-<summary><strong>1. Initial schema</strong> (click to expand)</summary>
+- `files: (owner_id ASC, expires_at ASC)` — used by the cleanup cron
+- `files: (owner_id ASC, created_at DESC)` — used by the dashboard listing
 
-```sql
--- Files metadata table
-CREATE TABLE files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  token VARCHAR(32) UNIQUE NOT NULL,
-  file_path TEXT NOT NULL,
-  original_name TEXT NOT NULL,
-  size BIGINT NOT NULL,
-  mime_type TEXT NOT NULL,
-  owner_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Enable RLS
-ALTER TABLE files ENABLE ROW LEVEL SECURITY;
-
--- Policies
-CREATE POLICY "Anyone can insert files" ON files FOR INSERT WITH CHECK (true);
-CREATE POLICY "Anyone can read files" ON files FOR SELECT USING (true);
-CREATE POLICY "Owners can delete files" ON files FOR DELETE USING (auth.uid() = owner_id);
-```
-
-</details>
-
-<details>
-<summary><strong>2. Encryption & Expiry</strong> (click to expand)</summary>
-
-```sql
--- Add encryption, expiry, and download tracking
-ALTER TABLE files
-ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN DEFAULT FALSE,
-ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS max_downloads INTEGER DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS download_count INTEGER DEFAULT 0;
-
-CREATE INDEX IF NOT EXISTS idx_files_expires_at ON files(expires_at) WHERE expires_at IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION increment_download_count(file_token VARCHAR(32))
-RETURNS INTEGER AS $$
-DECLARE new_count INTEGER;
-BEGIN
-  UPDATE files SET download_count = download_count + 1
-  WHERE token = file_token
-  RETURNING download_count INTO new_count;
-  RETURN new_count;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-</details>
-
-<details>
-<summary><strong>3. Phone to PC Transfer</strong> (click to expand)</summary>
-
-```sql
--- Receive sessions for phone-to-PC transfers
-CREATE TABLE IF NOT EXISTS receive_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_token VARCHAR(32) UNIQUE NOT NULL,
-  file_token VARCHAR(32) DEFAULT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '10 minutes')
-);
-
-CREATE INDEX IF NOT EXISTS idx_receive_sessions_token ON receive_sessions(session_token);
-CREATE INDEX IF NOT EXISTS idx_receive_sessions_expires ON receive_sessions(expires_at);
-
-ALTER TABLE receive_sessions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Anyone can create receive sessions" ON receive_sessions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Anyone can read receive sessions" ON receive_sessions FOR SELECT USING (true);
-CREATE POLICY "Anyone can update receive sessions" ON receive_sessions FOR UPDATE USING (true);
-```
-
-</details>
+Easiest: hit each query once in development and click the "Create index" URL Firestore prints in the error. Or deploy `firestore.indexes.json` via the Firebase CLI: `firebase deploy --only firestore:indexes`.
 
 ### 6. Start the development server
 
@@ -159,7 +125,7 @@ CREATE POLICY "Anyone can update receive sessions" ON receive_sessions FOR UPDAT
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000).
 
 ## Usage
 
@@ -181,61 +147,51 @@ Open [http://localhost:3000](http://localhost:3000)
 
 1. Sign in with your email (magic link)
 2. View all your uploads in the dashboard
-3. Copy links or delete files
+3. Copy links, extend expiry, or delete files
 
 ## Project Structure
 
 ```
 src/
 ├── app/                    # Next.js App Router
-│   ├── api/                # API routes
-│   │   ├── upload/         # File upload endpoint
+│   ├── api/
+│   │   ├── upload/         # File upload endpoint (R2 + Firestore)
+│   │   ├── send/           # Phone upload endpoint
 │   │   ├── receive/        # Receive session endpoints
-│   │   └── send/           # Phone upload endpoint
+│   │   ├── session/        # Mint/clear Firebase session cookie
+│   │   ├── send-email/     # Email a share link via nodemailer
+│   │   └── cleanup/        # Cron: delete expired anonymous files
+│   ├── auth/callback/      # Firebase email-link completion
 │   ├── dashboard/          # User's files
 │   ├── login/              # Magic link login
 │   ├── receive/            # QR code for receiving
 │   ├── send/[sessionToken] # Mobile upload page
 │   └── share/[token]/      # Download page
 ├── components/             # React components
-├── actions/                # Server Actions
-├── lib/                    # Utilities
-│   ├── crypto.ts           # Encryption (AES-256-GCM)
-│   ├── supabase/           # Supabase clients
+├── actions/                # Server actions
+├── lib/
+│   ├── crypto.ts           # AES-256-GCM (Web Crypto API)
+│   ├── firebase/
+│   │   ├── admin.ts        # Firebase Admin SDK init
+│   │   ├── client.ts       # Firebase web SDK init
+│   │   ├── session.ts      # httpOnly session-cookie helpers
+│   │   ├── files.ts        # Firestore CRUD for files / receive_sessions
+│   │   └── proxy.ts        # Route protection
+│   ├── r2.ts               # Cloudflare R2 client + signed URLs
 │   └── utils.ts            # Helpers
 └── types/                  # TypeScript types
 ```
-
-## Tech Stack
-
-| Technology | Purpose |
-|------------|---------|
-| [Next.js 16](https://nextjs.org/) | React framework |
-| [TypeScript](https://www.typescriptlang.org/) | Type safety |
-| [Supabase](https://supabase.com) | Auth, Storage, Database |
-| [Tailwind CSS](https://tailwindcss.com/) | Styling |
-| Web Crypto API | AES-256-GCM encryption |
-| [qrcode.react](https://npmjs.com/package/qrcode.react) | QR code generation |
 
 ## Security
 
 | Feature | Description |
 |---------|-------------|
-| Private Storage | Files stored in private Supabase bucket |
+| Private R2 bucket | Public Access disabled; downloads only via signed URLs |
 | Signed URLs | Download links expire after 1 hour |
 | E2E Encryption | Keys stored in URL fragment, never sent to server |
-| Row Level Security | Database-level access control |
+| Firebase session cookies | `httpOnly`, validated server-side via Admin SDK |
+| Firestore security rules | Writes server-only via Admin SDK |
 | CSRF Protection | Built into Next.js Server Actions |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
-| `STORAGE_BUCKET` | Yes | Storage bucket name |
-| `NEXT_PUBLIC_APP_URL` | No | Production URL for share links |
 
 ## Scripts
 
@@ -252,15 +208,10 @@ npm run lint     # Run ESLint
 
 1. Push to GitHub
 2. Import project in [Vercel](https://vercel.com)
-3. Add environment variables
+3. Add all environment variables from `.env.local` (note: `FIREBASE_PRIVATE_KEY` newline handling — paste as-is including the literal `\n` sequences inside double quotes)
 4. Deploy
 
-### Other Platforms
-
-```bash
-npm run build
-npm start
-```
+The included `vercel.json` schedules `/api/cleanup` daily at 03:00 UTC to purge expired anonymous files.
 
 ## Contributing
 
@@ -273,5 +224,5 @@ MIT
 ---
 
 <p align="center">
-  Built with <a href="https://nextjs.org">Next.js</a> and <a href="https://supabase.com">Supabase</a>
+  Built with <a href="https://nextjs.org">Next.js</a>, <a href="https://firebase.google.com">Firebase</a>, and <a href="https://www.cloudflare.com/developer-platform/r2/">Cloudflare R2</a>
 </p>

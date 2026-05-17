@@ -1,11 +1,10 @@
 import UploadForm from '@/components/UploadForm';
 import AuthCTA from '@/components/AuthCTA';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { currentUser } from '@/lib/firebase/session';
 
 export default async function Home() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await currentUser();
   const isAuthenticated = !!user;
   return (
     <div className="py-4 sm:py-6 md:py-8 animate-fade-in">

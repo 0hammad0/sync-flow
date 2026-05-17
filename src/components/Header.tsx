@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { createClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { clientAuth } from '@/lib/firebase/client';
 import LoadingSpinner from './LoadingSpinner';
 import { Smartphone } from 'lucide-react';
 
@@ -14,28 +14,18 @@ export default function Header() {
   const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
-
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+    const unsub = onAuthStateChanged(clientAuth(), (u) => {
+      setUser(u);
       setLoading(false);
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    return () => unsub();
   }, []);
 
   const handleSignOut = async () => {
     setSigningOut(true);
     try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      // Use hard redirect to ensure cookies are cleared and page fully refreshes
+      await signOut(clientAuth());
+      await fetch('/api/session', { method: 'DELETE' });
       window.location.href = '/';
     } catch (error) {
       console.error('Sign out error:', error);

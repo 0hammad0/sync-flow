@@ -1,45 +1,32 @@
 import { NextResponse } from 'next/server';
-import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { generateToken, getBaseUrl } from '@/lib/utils';
+import { currentUser } from '@/lib/firebase/session';
+import { createReceiveSession } from '@/lib/firebase/files';
 
-// POST - Create a new receive session
+const TTL_MS = 10 * 60 * 1000;
+
 export async function POST() {
   try {
-    const supabase = await createClient();
-    const serviceClient = createServiceClient();
     const sessionToken = generateToken();
+    const user = await currentUser();
 
-    // Check if user is logged in
-    const { data: { user } } = await supabase.auth.getUser();
-
-    const { error } = await serviceClient
-      .from('receive_sessions')
-      .insert({
-        session_token: sessionToken,
-        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 minutes
-        receiver_id: user?.id || null, // Save user ID if logged in
-      });
-
-    if (error) {
-      console.error('Create receive session error:', error);
-      return NextResponse.json(
-        { success: false, error: 'Failed to create receive session' },
-        { status: 500 }
-      );
-    }
+    await createReceiveSession({
+      session_token: sessionToken,
+      receiver_id: user?.uid ?? null,
+      ttlMs: TTL_MS,
+    });
 
     const sendUrl = `${getBaseUrl()}/send/${sessionToken}`;
-
     return NextResponse.json({
       success: true,
       sessionToken,
       sendUrl,
-      expiresIn: 600, // 10 minutes in seconds
+      expiresIn: Math.floor(TTL_MS / 1000),
     });
   } catch (error) {
     console.error('Create receive session error:', error);
     return NextResponse.json(
-      { success: false, error: 'An unexpected error occurred' },
+      { success: false, error: 'Failed to create receive session' },
       { status: 500 }
     );
   }

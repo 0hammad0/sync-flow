@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { onAuthStateChanged, sendSignInLinkToEmail } from 'firebase/auth';
+import { clientAuth } from '@/lib/firebase/client';
 import { getBaseUrl } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import Link from 'next/link';
+
+const STORED_EMAIL_KEY = 'syncflow.emailForSignIn';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,18 +18,14 @@ export default function LoginPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
+    const unsub = onAuthStateChanged(clientAuth(), (user) => {
       if (user) {
         router.replace('/dashboard');
       } else {
         setCheckingAuth(false);
       }
-    };
-
-    checkUser();
+    });
+    return () => unsub();
   }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -34,21 +33,19 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${getBaseUrl()}/auth/callback`,
-      },
-    });
-
-    if (error) {
-      setMessage({ type: 'error', text: error.message });
-    } else {
+    try {
+      await sendSignInLinkToEmail(clientAuth(), email, {
+        url: `${getBaseUrl()}/auth/callback`,
+        handleCodeInApp: true,
+      });
+      window.localStorage.setItem(STORED_EMAIL_KEY, email);
       setMessage({
         type: 'success',
-        text: 'Check your email for the magic link!',
+        text: 'Check your email for the sign-in link!',
       });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : 'Failed to send sign-in link';
+      setMessage({ type: 'error', text });
     }
 
     setLoading(false);
@@ -67,7 +64,7 @@ export default function LoginPage() {
       <div className="text-center mb-6 sm:mb-8">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Sign In</h1>
         <p className="text-sm sm:text-base text-gray-600">
-          Enter your email to receive a magic link
+          Enter your email to receive a sign-in link
         </p>
         <p className="text-xs text-gray-400 mt-1">
           No password needed — we&apos;ll email you a secure link
@@ -110,7 +107,7 @@ export default function LoginPage() {
               <span>Sending...</span>
             </>
           ) : (
-            'Send Magic Link'
+            'Send Sign-In Link'
           )}
         </button>
       </form>

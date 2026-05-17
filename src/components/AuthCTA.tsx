@@ -1,36 +1,24 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
-import type { User } from '@supabase/supabase-js';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { clientAuth } from '@/lib/firebase/client';
 
 export default function AuthCTA() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+    const unsub = onAuthStateChanged(clientAuth(), (u) => {
+      setUser(u);
       setLoading(false);
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    return () => unsub();
   }, []);
 
-  if (loading) {
-    return null;
-  }
+  if (loading) return null;
 
-  // Show dashboard link for logged-in users
   if (user) {
     return (
       <div className="mt-4 p-4 bg-green-50 border border-green-100 rounded-lg">
@@ -52,7 +40,6 @@ export default function AuthCTA() {
     );
   }
 
-  // Show sign-in prompt for guests
   return (
     <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
       <div className="flex items-start gap-3">

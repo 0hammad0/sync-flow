@@ -1,60 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { getFile, getReceiveSession } from '@/lib/firebase/files';
 
-// GET - Check receive session status
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ sessionToken: string }> }
 ) {
   try {
     const { sessionToken } = await params;
-    const serviceClient = createServiceClient();
+    const session = await getReceiveSession(sessionToken);
 
-    // Get session
-    const { data: session, error } = await serviceClient
-      .from('receive_sessions')
-      .select('*')
-      .eq('session_token', sessionToken)
-      .single();
-
-    if (error || !session) {
-      return NextResponse.json(
-        { success: false, error: 'Session not found' },
-        { status: 404 }
-      );
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
-    // Check if expired
     if (new Date(session.expires_at) < new Date()) {
-      return NextResponse.json(
-        { success: false, error: 'Session expired' },
-        { status: 410 }
-      );
+      return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
     }
 
-    // Check if file has been uploaded
     if (session.file_token) {
-      // Get file info
-      const { data: file } = await serviceClient
-        .from('files')
-        .select('original_name, size, mime_type, token, is_encrypted')
-        .eq('token', session.file_token)
-        .single();
-
+      const file = await getFile(session.file_token);
       return NextResponse.json({
         success: true,
         status: 'completed',
-        file: file ? {
-          name: file.original_name,
-          size: file.size,
-          mimeType: file.mime_type,
-          token: file.token,
-          isEncrypted: file.is_encrypted,
-        } : null,
+        file: file
+          ? {
+              name: file.original_name,
+              size: file.size,
+              mimeType: file.mime_type,
+              token: file.token,
+              isEncrypted: file.is_encrypted,
+            }
+          : null,
       });
     }
 
-    // Still waiting
     return NextResponse.json({
       success: true,
       status: 'waiting',
