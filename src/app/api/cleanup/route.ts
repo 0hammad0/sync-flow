@@ -4,6 +4,7 @@ import {
   deleteFile as fsDeleteFile,
   listExpiredAnonymousFiles,
 } from '@/lib/firebase/files';
+import { deleteExpiredRooms } from '@/lib/firebase/chat';
 import { deleteObject } from '@/lib/r2';
 
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -25,35 +26,36 @@ export async function POST(request: NextRequest) {
     const expired = await listExpiredAnonymousFiles(100);
     const sessionsDeleted = await deleteExpiredReceiveSessions();
 
-    if (expired.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No expired files to clean up',
-        filesDeleted: 0,
-        sessionsDeleted,
-      });
-    }
-
-    let deletedCount = 0;
+    let filesDeleted = 0;
     const errors: string[] = [];
-
     for (const file of expired) {
       try {
         await deleteObject(file.file_path);
         await fsDeleteFile(file.token);
-        deletedCount++;
+        filesDeleted++;
       } catch (err) {
         console.error(`Cleanup error for ${file.token}:`, err);
         errors.push(file.token);
       }
     }
 
+    let roomsDeleted = 0;
+    try {
+      roomsDeleted = await deleteExpiredRooms();
+    } catch (err) {
+      console.error('Chat-room cleanup error:', err);
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'Cleanup completed',
-      filesDeleted: deletedCount,
+      message:
+        filesDeleted + roomsDeleted + sessionsDeleted === 0
+          ? 'Nothing to clean up'
+          : 'Cleanup completed',
+      filesDeleted,
       filesTotal: expired.length,
       sessionsDeleted,
+      roomsDeleted,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {

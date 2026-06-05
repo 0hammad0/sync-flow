@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateToken, sanitizeFileName, getBaseUrl, MAX_USER_FILES } from '@/lib/utils';
+import { generateToken, sanitizeFileName, getRequestOrigin, MAX_USER_FILES } from '@/lib/utils';
 import { currentUser } from '@/lib/firebase/session';
 import { countOwnerFiles, createFile } from '@/lib/firebase/files';
 import { deleteObject, putObject } from '@/lib/r2';
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const shareUrl = `${getBaseUrl()}/share/${token}`;
+    const shareUrl = `${getRequestOrigin(request.headers)}/share/${token}`;
     return NextResponse.json({ success: true, shareUrl, token });
   } catch (error) {
     console.error('Upload error:', error);

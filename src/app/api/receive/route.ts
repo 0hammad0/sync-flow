@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
-import { generateToken, getBaseUrl } from '@/lib/utils';
+import { NextRequest, NextResponse } from 'next/server';
+import { generateToken, getRequestOrigin } from '@/lib/utils';
 import { currentUser } from '@/lib/firebase/session';
 import { createReceiveSession } from '@/lib/firebase/files';
 
 const TTL_MS = 10 * 60 * 1000;
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const sessionToken = generateToken();
     const user = await currentUser();
@@ -16,7 +16,7 @@ export async function POST() {
       ttlMs: TTL_MS,
     });
 
-    const sendUrl = `${getBaseUrl()}/send/${sessionToken}`;
+    const sendUrl = `${getRequestOrigin(request.headers)}/send/${sessionToken}`;
     return NextResponse.json({
       success: true,
       sessionToken,

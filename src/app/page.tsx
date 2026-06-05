@@ -74,6 +74,29 @@ export default async function Home() {
           </div>
         </div>
 
+        {/* Chat rooms */}
+        <div className="mt-4 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-lg">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">💬</span>
+              <div>
+                <p className="text-sm text-emerald-800 font-medium">
+                  Need to chat with someone?
+                </p>
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  Create a temporary room and share the code. Auto-deletes when it expires.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/chat"
+              className="shrink-0 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              Chat
+            </Link>
+          </div>
+        </div>
+
         <AuthCTA />
 
         <div className="mt-6 text-center text-xs text-gray-400">

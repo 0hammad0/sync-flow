@@ -1,4 +1,12 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const accountId = process.env.R2_ACCOUNT_ID;
@@ -39,6 +47,39 @@ export async function putObject(key: string, body: Buffer | Uint8Array, contentT
 
 export async function deleteObject(key: string): Promise<void> {
   await r2().send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+}
+
+/**
+ * Delete every object under a prefix (e.g. `chat/{roomCode}/`). Pages through
+ * ListObjectsV2 and batch-deletes 1000 at a time. Returns objects deleted.
+ */
+export async function deletePrefix(prefix: string): Promise<number> {
+  if (!prefix || prefix === '/') throw new Error('deletePrefix: refusing empty prefix');
+  let deleted = 0;
+  let continuationToken: string | undefined;
+  do {
+    const page = await r2().send(
+      new ListObjectsV2Command({
+        Bucket: R2_BUCKET,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+    const keys = (page.Contents ?? [])
+      .map((o) => o.Key)
+      .filter((k): k is string => !!k);
+    if (keys.length > 0) {
+      await r2().send(
+        new DeleteObjectsCommand({
+          Bucket: R2_BUCKET,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        })
+      );
+      deleted += keys.length;
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return deleted;
 }
 
 export async function objectExists(key: string): Promise<boolean> {

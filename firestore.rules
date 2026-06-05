@@ -1,0 +1,33 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny — every collection not explicitly listed below is closed
+    // to direct client access. All file / receive-session writes go through
+    // the Admin SDK (Next.js API routes).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Chat rooms: clients READ directly (so the real-time onSnapshot listener
+    // works without a server hop), but all WRITES go through /api/chat/* on
+    // the server. Security relies on the 8-char room code being unguessable.
+    match /rooms/{roomCode} {
+      allow read: if true;
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      // Ephemeral typing/online docs — read-only for clients, written by
+      // the server heartbeat endpoint.
+      match /presence/{deviceId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+  }
+}

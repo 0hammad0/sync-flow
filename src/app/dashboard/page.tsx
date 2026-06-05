@@ -1,5 +1,6 @@
 import { getUserFiles } from '@/actions/files';
 import FileList from '@/components/FileList';
+import MyChatRooms from '@/components/MyChatRooms';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,8 @@ export default async function DashboardPage() {
       </div>
 
       <FileList files={files} />
+
+      <MyChatRooms />
 
       {files.length > 0 && (
         <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg">
