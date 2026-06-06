@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import LoadingSpinner from './LoadingSpinner';
+import Button from './ui/Button';
 import { clientTimezone } from '@/lib/time';
 import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/lib/utils';
 
@@ -69,17 +69,18 @@ export default function ChatLobby() {
   };
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-8 sm:py-12 animate-fade-in">
+    <div className="max-w-xl mx-auto py-8 sm:py-12 animate-fade-in">
       <div className="text-center mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Chat Rooms</h1>
-        <p className="text-sm text-gray-600">
+        <p className="label-mono mb-3">Ephemeral by design</p>
+        <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-fg mb-2">Chat Rooms</h1>
+        <p className="text-sm text-fg-muted">
           Create a temporary room and share the code with anyone to start chatting.
         </p>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-xs sm:text-sm text-red-600">{error}</p>
+        <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-2xl animate-fade-in">
+          <p className="text-xs sm:text-sm text-danger-text">{error}</p>
         </div>
       )}
 
@@ -87,15 +88,15 @@ export default function ChatLobby() {
         {/* Create */}
         <form
           onSubmit={handleCreate}
-          className="bg-white border border-gray-200 rounded-xl p-5 sm:p-6 card-hover"
+          className="bg-surface border border-edge rounded-3xl p-5 sm:p-6 card-hover"
         >
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Create a room</h2>
-          <p className="text-xs text-gray-500 mb-4">
+          <h2 className="font-display text-base sm:text-lg font-semibold tracking-tight text-fg mb-1">Create a room</h2>
+          <p className="text-xs text-fg-muted mb-4">
             You&apos;ll get a short code to share with participants.
           </p>
 
-          <label className="block text-xs font-medium text-gray-700 mb-1.5">
-            Room name <span className="text-gray-400 font-normal">(optional)</span>
+          <label className="block text-xs font-medium text-fg mb-1.5">
+            Room name <span className="text-fg-faint font-normal">(optional)</span>
           </label>
           <input
             type="text"
@@ -103,16 +104,16 @@ export default function ChatLobby() {
             onChange={(e) => setName(e.target.value)}
             maxLength={80}
             placeholder="e.g. project standup"
-            className="w-full mb-4 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input-base w-full mb-4 px-3 py-2 text-base sm:text-sm"
           />
 
-          <label className="block text-xs font-medium text-gray-700 mb-1.5">
+          <label className="block text-xs font-medium text-fg mb-1.5">
             Room expires after
           </label>
           <select
             value={ttl}
             onChange={(e) => setTtl(Number(e.target.value) as 1 | 24 | 168)}
-            className="w-full mb-4 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input-base w-full mb-4 px-3 py-2 text-sm cursor-pointer"
           >
             {TTL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -121,37 +122,30 @@ export default function ChatLobby() {
             ))}
           </select>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="md"
+            fullWidth
             disabled={creating}
-            className={`w-full py-2.5 rounded-lg text-white text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              creating
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 cursor-pointer btn-hover'
-            }`}
+            loading={creating}
+            loadingText="Creating…"
           >
-            {creating ? (
-              <>
-                <LoadingSpinner size="sm" className="text-white" />
-                <span>Creating&hellip;</span>
-              </>
-            ) : (
-              'Create Room'
-            )}
-          </button>
+            Create Room
+          </Button>
         </form>
 
         {/* Join */}
         <form
           onSubmit={handleJoin}
-          className="bg-white border border-gray-200 rounded-xl p-5 sm:p-6 card-hover"
+          className="bg-surface border border-edge rounded-3xl p-5 sm:p-6 card-hover"
         >
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Join a room</h2>
-          <p className="text-xs text-gray-500 mb-4">
+          <h2 className="font-display text-base sm:text-lg font-semibold tracking-tight text-fg mb-1">Join a room</h2>
+          <p className="text-xs text-fg-muted mb-4">
             Enter the code someone shared with you.
           </p>
 
-          <label className="block text-xs font-medium text-gray-700 mb-1.5">
+          <label className="block text-xs font-medium text-fg mb-1.5">
             Room code ({ROOM_CODE_LENGTH} characters)
           </label>
           <input
@@ -162,31 +156,24 @@ export default function ChatLobby() {
             placeholder="ABC23XYZ"
             autoComplete="off"
             spellCheck={false}
-            className="w-full mb-4 px-3 py-2 text-sm font-mono uppercase tracking-widest border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input-base w-full mb-4 px-3 py-2 text-base sm:text-sm font-mono uppercase tracking-widest"
           />
 
-          <button
+          <Button
             type="submit"
+            variant="dark"
+            size="md"
+            fullWidth
             disabled={joining || joinCode.length !== ROOM_CODE_LENGTH}
-            className={`w-full py-2.5 rounded-lg text-white text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              joining || joinCode.length !== ROOM_CODE_LENGTH
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-gray-900 hover:bg-gray-800 cursor-pointer btn-hover'
-            }`}
+            loading={joining}
+            loadingText="Joining…"
           >
-            {joining ? (
-              <>
-                <LoadingSpinner size="sm" className="text-white" />
-                <span>Joining&hellip;</span>
-              </>
-            ) : (
-              'Join Room'
-            )}
-          </button>
+            Join Room
+          </Button>
         </form>
       </div>
 
-      <p className="mt-8 text-xs text-gray-400 text-center">
+      <p className="mt-8 text-xs text-fg-faint text-center">
         Rooms auto-delete when they expire. Logged-in users can see their created rooms on the dashboard.
       </p>
     </div>

@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatFileSize } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import Button from '@/components/ui/Button';
 import Link from 'next/link';
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock, Lock } from 'lucide-react';
 
 interface FileInfo {
   name: string;
@@ -132,8 +134,8 @@ export default function ReceivePage() {
   if (status === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
-        <p className="mt-4 text-sm text-gray-500">Creating receive session...</p>
+        <LoadingSpinner size="lg" className="text-brand-text" />
+        <p className="mt-4 text-sm text-fg-muted">Creating receive session...</p>
       </div>
     );
   }
@@ -141,16 +143,15 @@ export default function ReceivePage() {
   // Error state
   if (status === 'error') {
     return (
-      <div className="max-w-md mx-auto py-8 px-4 text-center animate-fade-in">
-        <div className="text-5xl mb-4">❌</div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h1>
-        <p className="text-sm text-gray-600 mb-6">{error}</p>
-        <button
-          onClick={handleNewSession}
-          className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
-        >
+      <div className="max-w-md mx-auto py-10 text-center animate-fade-in">
+        <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-danger/10 text-danger-text items-center justify-center">
+          <AlertCircle className="w-8 h-8" />
+        </span>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Something went wrong</h1>
+        <p className="text-sm text-fg-muted mb-6">{error}</p>
+        <Button variant="primary" size="lg" onClick={handleNewSession}>
           Try Again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -158,18 +159,17 @@ export default function ReceivePage() {
   // Expired state
   if (status === 'expired') {
     return (
-      <div className="max-w-md mx-auto py-8 px-4 text-center animate-fade-in">
-        <div className="text-5xl mb-4">⏰</div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Session Expired</h1>
-        <p className="text-sm text-gray-600 mb-6">
+      <div className="max-w-md mx-auto py-10 text-center animate-fade-in">
+        <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-surface-2 border border-edge text-fg-faint items-center justify-center">
+          <Clock className="w-8 h-8" />
+        </span>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Session Expired</h1>
+        <p className="text-sm text-fg-muted mb-6">
           The receive session has timed out. Create a new one to continue.
         </p>
-        <button
-          onClick={handleNewSession}
-          className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
-        >
+        <Button variant="primary" size="lg" onClick={handleNewSession}>
           Create New Session
-        </button>
+        </Button>
       </div>
     );
   }
@@ -177,40 +177,36 @@ export default function ReceivePage() {
   // Completed state
   if (status === 'completed' && file) {
     return (
-      <div className="max-w-md mx-auto py-8 px-4 animate-fade-in">
-        <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-          <div className="text-5xl mb-4">✅</div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">File Received!</h1>
-          <p className="text-sm text-gray-600 mb-4">
+      <div className="max-w-md mx-auto py-8 animate-fade-in">
+        <div className="border-flow rounded-3xl p-6 text-center shadow-[var(--shadow-card)]">
+          <span className="inline-flex w-16 h-16 mb-4 rounded-full bg-flow text-white items-center justify-center glow-dot animate-pop-in">
+            <CheckCircle2 className="w-8 h-8" />
+          </span>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">File Received!</h1>
+          <p className="text-sm text-fg-muted mb-4">
             Your file has been uploaded successfully.
           </p>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-            <p className="font-medium text-gray-900 truncate" title={file.name}>
+          <div className="bg-surface-2 border border-edge rounded-2xl p-4 mb-4">
+            <p className="font-medium text-fg truncate" title={file.name}>
               {file.name}
             </p>
-            <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+            <p className="text-sm text-fg-muted">{formatFileSize(file.size)}</p>
             {file.isEncrypted && (
-              <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
+              <span className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 bg-brand/10 text-brand-text text-xs rounded-full font-medium">
+                <Lock className="w-3 h-3" />
                 Encrypted
               </span>
             )}
           </div>
 
-          <Link
-            href={`/share/${file.token}`}
-            className="block w-full py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors text-center"
-          >
+          <Button href={`/share/${file.token}`} variant="primary" size="lg" fullWidth>
             Download File
-          </Link>
+          </Button>
 
           <button
             onClick={handleNewSession}
-            className="mt-4 text-sm text-blue-600 hover:text-blue-700 cursor-pointer"
+            className="mt-4 text-sm text-brand-text hover:underline cursor-pointer font-medium"
           >
             Receive another file
           </button>
@@ -221,63 +217,66 @@ export default function ReceivePage() {
 
   // Waiting state - show QR code
   return (
-    <div className="max-w-md mx-auto py-8 px-4 animate-fade-in">
+    <div className="max-w-md mx-auto py-8 animate-fade-in">
       <div className="text-center mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
+        <p className="label-mono mb-3">Phone → PC</p>
+        <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-fg mb-2">
           Receive from Phone
         </h1>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-fg-muted">
           Scan this QR code with your phone to send a file to this device
         </p>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        {/* QR Code */}
+      <div className="bg-surface border border-edge rounded-3xl p-6 shadow-[var(--shadow-card)]">
+        {/* QR Code — gradient frame */}
         <div className="flex justify-center mb-4">
-          <div className="p-4 bg-white border-2 border-gray-100 rounded-xl">
-            {sendUrl && (
-              <QRCodeSVG
-                value={sendUrl}
-                size={200}
-                level="M"
-                includeMargin={false}
-              />
-            )}
+          <div className="p-[2px] bg-flow rounded-2xl glow-dot">
+            <div className="p-4 bg-white rounded-[calc(1rem-2px)]">
+              {sendUrl && (
+                <QRCodeSVG
+                  value={sendUrl}
+                  size={200}
+                  level="M"
+                  includeMargin={false}
+                />
+              )}
+            </div>
           </div>
         </div>
 
         {/* Timer */}
         <div className="flex items-center justify-center gap-2 mb-4">
-          <div className={`w-2 h-2 rounded-full animate-pulse ${timeRemaining > 60 ? 'bg-green-500' : 'bg-amber-500'}`} />
-          <span className="text-sm text-gray-600">
-            Expires in <span className="font-mono font-medium">{formatTime(timeRemaining)}</span>
+          <div className={`w-2 h-2 rounded-full animate-pulse ${timeRemaining > 60 ? 'bg-success' : 'bg-warning'}`} />
+          <span className="text-sm text-fg-muted">
+            Expires in <span className="font-mono font-medium text-fg">{formatTime(timeRemaining)}</span>
           </span>
         </div>
 
         {/* Status */}
-        <div className="flex items-center justify-center gap-2 p-3 bg-blue-50 rounded-lg">
-          <LoadingSpinner size="sm" className="text-blue-600" />
-          <span className="text-sm text-blue-700">Waiting for file...</span>
+        <div className="flex items-center justify-center gap-2 p-3 bg-brand/5 border border-brand/15 rounded-xl">
+          <LoadingSpinner size="sm" className="text-brand-text" />
+          <span className="text-sm text-brand-text font-medium">Waiting for file...</span>
         </div>
 
         {/* Instructions */}
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs text-gray-500 text-center mb-3">How it works:</p>
-          <ol className="text-xs text-gray-500 space-y-1.5">
+        <div className="mt-4 pt-4 border-t border-edge">
+          <p className="label-mono text-center mb-3">How it works</p>
+          <ol className="text-xs text-fg-muted space-y-1.5">
             <li className="flex items-start gap-2">
-              <span className="font-medium text-gray-700">1.</span>
+              <span className="font-mono text-fg-faint">1.</span>
               <span>Open your phone camera</span>
             </li>
             <li className="flex items-start gap-2">
-              <span className="font-medium text-gray-700">2.</span>
+              <span className="font-mono text-fg-faint">2.</span>
               <span>Point at the QR code above</span>
             </li>
             <li className="flex items-start gap-2">
-              <span className="font-medium text-gray-700">3.</span>
+              <span className="font-mono text-fg-faint">3.</span>
               <span>Tap the link to open the upload page</span>
             </li>
             <li className="flex items-start gap-2">
-              <span className="font-medium text-gray-700">4.</span>
+              <span className="font-mono text-fg-faint">4.</span>
               <span>Select a file and it will appear here automatically</span>
             </li>
           </ol>
@@ -285,8 +284,9 @@ export default function ReceivePage() {
       </div>
 
       <div className="mt-4 text-center">
-        <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-          ← Back to home
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg transition-colors">
+          <ArrowLeft className="w-4 h-4" />
+          Back to home
         </Link>
       </div>
     </div>

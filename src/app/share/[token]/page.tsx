@@ -1,9 +1,46 @@
 import { getFileByToken } from '@/actions/files';
 import DownloadCard from '@/components/DownloadCard';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
+import { Clock, FileQuestion, ShieldAlert } from 'lucide-react';
 
 interface SharePageProps {
   params: Promise<{ token: string }>;
+}
+
+function ErrorState({
+  icon: Icon,
+  title,
+  message,
+  detail,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  message: string;
+  detail?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="py-10 sm:py-14 text-center animate-fade-in">
+      <span className="inline-flex w-16 h-16 sm:w-20 sm:h-20 mb-4 rounded-3xl bg-surface-2 border border-edge text-fg-faint items-center justify-center">
+        <Icon className="w-8 h-8 sm:w-10 sm:h-10" />
+      </span>
+      <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-fg mb-2">{title}</h1>
+      <p className="text-sm sm:text-base text-fg-muted mb-2 max-w-md mx-auto">{message}</p>
+      {detail && (
+        <p className="text-xs sm:text-sm text-fg-faint mb-6 max-w-md mx-auto">{detail}</p>
+      )}
+      {children}
+      <div className="mt-6">
+        <Button href="/" variant="primary" size="lg">
+          Upload your own file
+        </Button>
+      </div>
+      <p className="mt-4 text-xs text-fg-faint">
+        Need to share a file? It only takes a few seconds.
+      </p>
+    </div>
+  );
 }
 
 export default async function SharePage({ params }: SharePageProps) {
@@ -13,94 +50,41 @@ export default async function SharePage({ params }: SharePageProps) {
   // Handle expired file
   if (!downloadInfo.success && downloadInfo.error === 'expired') {
     return (
-      <div className="py-8 sm:py-12 text-center px-4 animate-fade-in">
-        <div className="text-5xl sm:text-6xl mb-3 sm:mb-4">⏰</div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Link Expired</h1>
-        <p className="text-sm sm:text-base text-gray-600 mb-2 max-w-md mx-auto">
-          This file&apos;s sharing link has expired.
-        </p>
-        <p className="text-xs sm:text-sm text-gray-500 mb-6 max-w-md mx-auto">
-          The uploader set an expiration time for this link. Contact them if you still need the file.
-        </p>
-        <Link
-          href="/"
-          className="inline-block px-5 sm:px-6 py-2.5 sm:py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base"
-        >
-          Upload your own file
-        </Link>
-        <p className="mt-4 text-xs text-gray-400">
-          Need to share a file? It only takes a few seconds.
-        </p>
-      </div>
+      <ErrorState
+        icon={Clock}
+        title="Link Expired"
+        message="This file's sharing link has expired."
+        detail="The uploader set an expiration time for this link. Contact them if you still need the file."
+      />
     );
   }
 
   // Handle download limit reached
   if (!downloadInfo.success && downloadInfo.error === 'download_limit_reached') {
     return (
-      <div className="py-8 sm:py-12 text-center px-4 animate-fade-in">
-        <div className="text-5xl sm:text-6xl mb-3 sm:mb-4">🚫</div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Download Limit Reached</h1>
-        <p className="text-sm sm:text-base text-gray-600 mb-2 max-w-md mx-auto">
-          This file has reached its maximum download limit.
-        </p>
-        <p className="text-xs sm:text-sm text-gray-500 mb-6 max-w-md mx-auto">
-          The uploader set a download limit for security. The file has been automatically deleted.
-        </p>
-        <Link
-          href="/"
-          className="inline-block px-5 sm:px-6 py-2.5 sm:py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base"
-        >
-          Upload your own file
-        </Link>
-        <p className="mt-4 text-xs text-gray-400">
-          Need to share a file? It only takes a few seconds.
-        </p>
-      </div>
+      <ErrorState
+        icon={ShieldAlert}
+        title="Download Limit Reached"
+        message="This file has reached its maximum download limit."
+        detail="The uploader set a download limit for security. The file has been automatically deleted."
+      />
     );
   }
 
   // Handle generic not found
   if (!downloadInfo.success || !downloadInfo.signedUrl) {
     return (
-      <div className="py-8 sm:py-12 text-center px-4 animate-fade-in">
-        <div className="text-5xl sm:text-6xl mb-3 sm:mb-4">🔍</div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">File Not Found</h1>
-        <p className="text-sm sm:text-base text-gray-600 mb-2 max-w-md mx-auto">
-          We couldn&apos;t find the file you&apos;re looking for.
-        </p>
-        <p className="text-xs sm:text-sm text-gray-500 mb-6 max-w-md mx-auto">
-          This could happen if:
-        </p>
-        <ul className="text-xs sm:text-sm text-gray-500 mb-6 max-w-xs mx-auto text-left space-y-1">
-          <li className="flex items-start gap-2">
-            <span className="text-gray-400">•</span>
-            <span>The file was deleted by the owner</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-gray-400">•</span>
-            <span>The link was typed incorrectly</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-gray-400">•</span>
-            <span>The link has expired or is invalid</span>
-          </li>
-        </ul>
-        <Link
-          href="/"
-          className="inline-block px-5 sm:px-6 py-2.5 sm:py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base"
-        >
-          Upload your own file
-        </Link>
-        <p className="mt-4 text-xs text-gray-400">
-          Need to share a file? It only takes a few seconds.
-        </p>
-      </div>
+      <ErrorState
+        icon={FileQuestion}
+        title="File Not Found"
+        message="We couldn't find the file you're looking for."
+        detail="The file may have been deleted by its owner, the link may have been typed incorrectly, or it has expired."
+      />
     );
   }
 
   return (
-    <div className="py-4 sm:py-6 md:py-8 px-4 sm:px-0">
+    <div className="py-4 sm:py-6 md:py-8">
       <DownloadCard
         fileName={downloadInfo.fileName!}
         fileSize={downloadInfo.fileSize!}

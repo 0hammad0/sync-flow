@@ -3,6 +3,15 @@
 import { useState, useRef, use } from 'react';
 import { formatFileSize } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import Button from '@/components/ui/Button';
+import {
+  CheckCircle2,
+  Clock,
+  FileText,
+  Image as ImageIcon,
+  MonitorSmartphone,
+  UploadCloud,
+} from 'lucide-react';
 
 interface SendPageProps {
   params: Promise<{ sessionToken: string }>;
@@ -95,16 +104,18 @@ export default function SendPage({ params }: SendPageProps) {
   // Success state
   if (status === 'success') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-sm w-full bg-white rounded-xl p-6 shadow-sm text-center animate-fade-in">
-          <div className="text-6xl mb-4">✅</div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">File Sent!</h1>
-          <p className="text-sm text-gray-600 mb-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-sm w-full border-flow rounded-3xl p-6 text-center animate-fade-in shadow-[var(--shadow-card)]">
+          <span className="inline-flex w-16 h-16 mb-4 rounded-full bg-flow text-white items-center justify-center glow-dot animate-pop-in">
+            <CheckCircle2 className="w-8 h-8" />
+          </span>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">File Sent!</h1>
+          <p className="text-sm text-fg-muted mb-4">
             Your file has been sent to the computer. You can close this page.
           </p>
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <p className="text-sm font-medium text-gray-700 truncate">{file?.name}</p>
-            <p className="text-xs text-gray-500">{file ? formatFileSize(file.size) : ''}</p>
+          <div className="p-3 bg-surface-2 border border-edge rounded-2xl">
+            <p className="text-sm font-medium text-fg truncate">{file?.name}</p>
+            <p className="text-xs text-fg-muted">{file ? formatFileSize(file.size) : ''}</p>
           </div>
         </div>
       </div>
@@ -114,11 +125,13 @@ export default function SendPage({ params }: SendPageProps) {
   // Expired state
   if (status === 'expired') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-sm w-full bg-white rounded-xl p-6 shadow-sm text-center animate-fade-in">
-          <div className="text-6xl mb-4">⏰</div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Session Expired</h1>
-          <p className="text-sm text-gray-600">
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-sm w-full bg-surface border border-edge rounded-3xl p-6 text-center animate-fade-in">
+          <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-surface-2 border border-edge text-fg-faint items-center justify-center">
+            <Clock className="w-8 h-8" />
+          </span>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Session Expired</h1>
+          <p className="text-sm text-fg-muted">
             This upload link has expired. Please scan a new QR code from the computer.
           </p>
         </div>
@@ -127,21 +140,23 @@ export default function SendPage({ params }: SendPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="max-w-sm w-full animate-fade-in">
         <div className="text-center mb-6">
-          <div className="text-4xl mb-3">📲</div>
-          <h1 className="text-xl font-bold text-gray-900 mb-1">Send to Computer</h1>
-          <p className="text-sm text-gray-600">
+          <span className="inline-flex w-12 h-12 mb-3 rounded-2xl bg-brand/10 text-brand-text items-center justify-center">
+            <MonitorSmartphone className="w-6 h-6" />
+          </span>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-1">Send to Computer</h1>
+          <p className="text-sm text-fg-muted">
             Select a file to send it to your computer instantly
           </p>
         </div>
 
-        <div className="bg-white rounded-xl p-5 shadow-sm">
+        <div className="bg-surface border border-edge rounded-3xl p-5 shadow-[var(--shadow-card)]">
           {/* File input */}
           <div
-            className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${
-              file ? 'border-green-300 bg-green-50' : 'border-gray-300'
+            className={`relative border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${
+              file ? 'border-success/40 bg-success/5' : 'border-edge-strong'
             }`}
           >
             <input
@@ -153,20 +168,26 @@ export default function SendPage({ params }: SendPageProps) {
             />
 
             {file ? (
-              <div className="space-y-2">
-                <div className="text-4xl">
-                  {file.type.startsWith('image/') ? '🖼️' : '📄'}
-                </div>
-                <p className="font-medium text-gray-900 text-sm truncate px-2">
+              <div className="space-y-2 animate-fade-in-scale">
+                <span className="inline-flex w-12 h-12 rounded-2xl bg-flow text-white items-center justify-center">
+                  {file.type.startsWith('image/') ? (
+                    <ImageIcon className="w-6 h-6" />
+                  ) : (
+                    <FileText className="w-6 h-6" />
+                  )}
+                </span>
+                <p className="font-medium text-fg text-sm truncate px-2">
                   {file.name}
                 </p>
-                <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                <p className="text-xs text-fg-muted">{formatFileSize(file.size)}</p>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="text-4xl">📁</div>
-                <p className="text-sm text-gray-600 font-medium">Tap to select a file</p>
-                <p className="text-xs text-gray-400">Maximum 50MB</p>
+                <span className="inline-flex w-12 h-12 rounded-2xl bg-brand/10 text-brand-text items-center justify-center animate-float">
+                  <UploadCloud className="w-6 h-6" />
+                </span>
+                <p className="text-sm text-fg font-medium">Tap to select a file</p>
+                <p className="text-xs text-fg-faint">Maximum 100MB</p>
               </div>
             )}
           </div>
@@ -174,13 +195,13 @@ export default function SendPage({ params }: SendPageProps) {
           {/* Progress bar */}
           {status === 'uploading' && (
             <div className="mt-4">
-              <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <div className="flex justify-between text-xs text-fg-muted mb-1">
                 <span>Uploading...</span>
-                <span>{progress}%</span>
+                <span className="tabular-nums">{progress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-surface-3 rounded-full h-2 overflow-hidden">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className="relative bg-flow h-2 rounded-full transition-all duration-300 overflow-hidden progress-shimmer"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -189,44 +210,38 @@ export default function SendPage({ params }: SendPageProps) {
 
           {/* Error */}
           {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-xs text-red-600">{error}</p>
+            <div className="mt-4 p-3 bg-danger/10 border border-danger/20 rounded-xl">
+              <p className="text-xs text-danger-text">{error}</p>
             </div>
           )}
 
           {/* Buttons */}
           <div className="mt-4 space-y-2">
             {file && status !== 'uploading' && (
-              <button
-                onClick={handleUpload}
-                className="w-full py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors cursor-pointer flex items-center justify-center gap-2"
-              >
+              <Button variant="primary" size="lg" fullWidth onClick={handleUpload}>
                 Send to Computer
-              </button>
+              </Button>
             )}
 
             {status === 'uploading' && (
               <button
                 disabled
-                className="w-full py-3 bg-gray-400 text-white font-medium rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-3 bg-surface-3 text-fg-faint font-medium rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
               >
-                <LoadingSpinner size="sm" className="text-white" />
+                <LoadingSpinner size="sm" className="text-fg-faint" />
                 <span>Sending...</span>
               </button>
             )}
 
             {file && status !== 'uploading' && (
-              <button
-                onClick={handleReset}
-                className="w-full py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors cursor-pointer text-sm"
-              >
+              <Button variant="secondary" size="md" fullWidth onClick={handleReset}>
                 Choose Different File
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        <p className="mt-4 text-xs text-gray-400 text-center">
+        <p className="mt-4 text-xs text-fg-faint text-center">
           File will appear on your computer automatically
         </p>
       </div>

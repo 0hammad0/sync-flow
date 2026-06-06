@@ -117,6 +117,19 @@ for (const vp of VIEWPORTS) {
   // 1+2: nothing off screen in the resting state
   await auditOffscreen(page, `${vp.name} resting`);
 
+  // 1b: the PAGE itself must not scroll (chat is a fixed screen) — body
+  // min-h-screen used to leave it scrollable on phones.
+  const pageScroll = await page.evaluate(() => {
+    window.scrollTo(0, 300);
+    return { y: window.scrollY, htmlOverflow: getComputedStyle(document.documentElement).overflow };
+  });
+  if (pageScroll.y !== 0) fail(`[${vp.name}] page is scrollable (scrolled to y=${pageScroll.y})`);
+  if (pageScroll.htmlOverflow !== 'hidden') fail(`[${vp.name}] page scroll not locked (html overflow=${pageScroll.htmlOverflow})`);
+
+  // 1c: focusable inputs must be >=16px on mobile or iOS zooms on focus
+  const taFont = await page.$eval('textarea', (el) => parseFloat(getComputedStyle(el).fontSize));
+  if (taFont < 16) fail(`[${vp.name}] textarea font ${taFont}px < 16px (iOS focus-zoom)`);
+
   // 3: composer fully visible & chat fills the viewport (no dead gap > 4px)
   const layout = await page.evaluate(() => {
     const form = document.querySelector('form');

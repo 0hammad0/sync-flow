@@ -236,6 +236,20 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     return () => clearInterval(id);
   }, []);
 
+  // Lock page scroll while the chat UI is shown — the chat is a fixed,
+  // self-scrolling screen; without this the page itself can still scroll
+  // and rubber-band on phones. Locks <html>, not <body>: the modals manage
+  // body overflow themselves and would clobber a body-level lock.
+  useEffect(() => {
+    if (askingName) return;
+    const el = document.documentElement;
+    const prev = el.style.overflow;
+    el.style.overflow = 'hidden';
+    return () => {
+      el.style.overflow = prev;
+    };
+  }, [askingName]);
+
   // The chat fills the viewport below the site header. The header's height
   // varies (it wraps on small phones), so measure it instead of hard-coding —
   // otherwise the composer gets pushed off-screen on small mobiles.
@@ -599,8 +613,8 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   if (askingName) {
     return (
       <div className="max-w-sm mx-auto px-4 py-12 animate-fade-in">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Pick a display name</h1>
-        <p className="text-sm text-gray-600 mb-4">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Pick a display name</h1>
+        <p className="text-sm text-fg-muted mb-4">
           Others in the room will see this name on your messages.
         </p>
         <form onSubmit={handlePickName} className="space-y-3">
@@ -611,21 +625,23 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             onChange={(e) => setDraftName(e.target.value)}
             maxLength={64}
             placeholder="Your name"
-            className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            // 16px on mobile — anything smaller makes iOS Safari zoom the
+            // page when the field is focused (and it stays zoomed).
+            className="input-base w-full px-3 py-2.5 text-base sm:text-sm"
           />
           <button
             type="submit"
             disabled={!draftName.trim()}
-            className={`w-full py-2.5 rounded-lg text-white text-sm font-medium ${
+            className={`w-full py-2.5 rounded-xl text-white text-sm font-medium transition-all duration-200 ${
               draftName.trim()
-                ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
-                : 'bg-gray-400 cursor-not-allowed'
+                ? 'bg-flow hover:brightness-110 hover:shadow-[var(--glow)] cursor-pointer btn-hover'
+                : 'bg-surface-3 text-fg-faint cursor-not-allowed'
             }`}
           >
             Enter Room
           </button>
         </form>
-        <p className="mt-3 text-xs text-gray-400">
+        <p className="mt-3 text-xs text-fg-faint">
           Saved locally so you don&apos;t have to enter it next time.
         </p>
       </div>
@@ -633,21 +649,24 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   }
 
   return (
-    <div className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex flex-col overflow-hidden h-[calc(100dvh-var(--site-header-h,3.75rem))] animate-fade-in">
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-white sm:my-4 sm:border sm:border-gray-200 sm:rounded-2xl sm:shadow-sm overflow-hidden">
+    // position:fixed takes the chat out of the document flow entirely — the
+    // body's min-h-screen otherwise leaves the PAGE scrollable on phones
+    // (100vh > visible height while browser toolbars are shown).
+    <div className="fixed inset-x-0 bottom-0 top-[var(--site-header-h,3.75rem)] flex flex-col overflow-hidden animate-fade-in">
+      <div className="flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-surface sm:my-4 sm:border sm:border-edge sm:rounded-3xl sm:shadow-[var(--shadow-card)] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50/80">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-edge bg-surface-2/80">
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-semibold text-gray-900 truncate leading-tight">
+            <h1 className="font-display text-base font-semibold tracking-tight text-fg truncate leading-tight">
               {room.name || 'Chat Room'}
             </h1>
-            <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-              <span className="font-mono tracking-wider sm:tracking-widest text-gray-600 whitespace-nowrap">
+            <p className="text-[11px] sm:text-xs text-fg-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+              <span className="font-mono tracking-wider sm:tracking-widest text-brand-text whitespace-nowrap">
                 {room.code}
               </span>
-              <span className="text-gray-300 max-sm:hidden">|</span>
+              <span className="text-fg-faint/50 max-sm:hidden">|</span>
               {typingOthers.length > 0 ? (
-                <span className="text-green-600 font-medium truncate min-w-0 max-w-full">
+                <span className="text-success-text font-medium truncate min-w-0 max-w-full">
                   {typingOthers.length === 1
                     ? `${typingOthers[0].name} is typing…`
                     : typingOthers.length === 2
@@ -658,21 +677,21 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                 <span className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      onlineOthers.length > 0 ? 'bg-green-500' : 'bg-gray-300'
+                      onlineOthers.length > 0 ? 'bg-success' : 'bg-fg-faint/40'
                     }`}
                   />
                   {onlineOthers.length + 1} online
                 </span>
               )}
-              <span className="text-gray-300 max-sm:hidden">|</span>
+              <span className="text-fg-faint/50 max-sm:hidden">|</span>
               <span
                 className="whitespace-nowrap"
                 title={`Expires ${new Date(room.expires_at).toLocaleString()}`}
               >
                 {timeRemaining === 'expired' ? (
-                  <span className="text-red-600 font-medium">expired</span>
+                  <span className="text-danger-text font-medium">expired</span>
                 ) : (
-                  <span className="text-gray-500">expires in {timeRemaining}</span>
+                  <span className="text-fg-muted">expires in {timeRemaining}</span>
                 )}
               </span>
             </p>
@@ -681,7 +700,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             <CopyButton text={joinUrl} />
             <button
               onClick={() => setShowQR(true)}
-              className="p-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-100 cursor-pointer"
+              className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors"
               title="Show QR code for joining"
               aria-label="Show QR code for joining"
             >
@@ -693,18 +712,18 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         {/* Messages */}
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-gray-50/40"
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-canvas/50"
           aria-live="polite"
         >
           {loadingMessages ? (
             <div className="flex justify-center py-8">
-              <LoadingSpinner size="md" className="text-gray-400" />
+              <LoadingSpinner size="md" className="text-fg-faint" />
             </div>
           ) : messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6">
-              <MessageCircle className="w-10 h-10 mb-3 text-gray-300" />
-              <p className="text-sm font-medium text-gray-600">No messages yet</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <MessageCircle className="w-10 h-10 mb-3 text-fg-faint/50" />
+              <p className="text-sm font-medium text-fg-muted">No messages yet</p>
+              <p className="text-xs text-fg-faint mt-1">
                 Share the code or QR to invite others, then say hi
               </p>
             </div>
@@ -738,14 +757,14 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           {/* WhatsApp-style typing bubble with bouncing dots */}
           {typingOthers.length > 0 && (
             <div className="flex justify-start animate-fade-in">
-              <div className="bg-gray-100 rounded-2xl rounded-bl-sm px-3 py-2.5 flex items-center gap-2">
-                <span className="text-xs text-gray-500">
+              <div className="bg-surface-2 rounded-2xl rounded-bl-sm px-3 py-2.5 flex items-center gap-2">
+                <span className="text-xs text-fg-muted">
                   {typingOthers.map((p) => p.name).join(', ')}
                 </span>
                 <span className="flex items-end gap-0.5" aria-label="typing">
-                  <span className="typing-dot w-1.5 h-1.5 bg-gray-400 rounded-full" />
-                  <span className="typing-dot w-1.5 h-1.5 bg-gray-400 rounded-full" />
-                  <span className="typing-dot w-1.5 h-1.5 bg-gray-400 rounded-full" />
+                  <span className="typing-dot w-1.5 h-1.5 bg-fg-faint rounded-full" />
+                  <span className="typing-dot w-1.5 h-1.5 bg-fg-faint rounded-full" />
+                  <span className="typing-dot w-1.5 h-1.5 bg-fg-faint rounded-full" />
                 </span>
               </div>
             </div>
@@ -755,25 +774,25 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         {/* Composer */}
         <form
           onSubmit={handleSend}
-          className="border-t border-gray-200 bg-white px-2 sm:px-4 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 space-y-2"
+          className="border-t border-edge bg-surface px-2 sm:px-4 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 space-y-2"
         >
           {sendError && (
-            <p className="text-xs text-red-600 px-1">{sendError}</p>
+            <p className="text-xs text-danger-text px-1">{sendError}</p>
           )}
 
           {/* Reply preview (WhatsApp-style bar above the input) */}
           {replyTo && (
-            <div className="flex items-start gap-2 p-2 bg-gray-50 border-l-4 border-blue-500 rounded-lg animate-fade-in">
+            <div className="flex items-start gap-2 p-2 bg-surface-2 border-l-4 border-brand rounded-lg animate-fade-in">
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-blue-600">{replyTo.sender_name}</p>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-xs font-medium text-brand-text">{replyTo.sender_name}</p>
+                <p className="text-xs text-fg-muted truncate">
                   {replyTo.attachment ? replyTo.attachment.name : replyTo.content.slice(0, 120)}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setReplyTo(null)}
-                className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+                className="p-1 text-fg-faint hover:text-fg cursor-pointer"
                 aria-label="Cancel reply"
               >
                 <X className="w-4 h-4" />
@@ -784,13 +803,13 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           {/* Attachment upload progress */}
           {uploadPercent !== null && (
             <div className="flex items-center gap-2 px-1">
-              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-600 rounded-full transition-all duration-200"
+                  className="relative h-full bg-flow rounded-full transition-all duration-200 overflow-hidden progress-shimmer"
                   style={{ width: `${uploadPercent}%` }}
                 />
               </div>
-              <span className="text-[10px] text-gray-500 tabular-nums w-9 text-right">
+              <span className="text-[10px] text-fg-muted tabular-nums w-9 text-right">
                 {uploadPercent}%
               </span>
             </div>
@@ -798,13 +817,13 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
 
           {/* Emoji quick picker */}
           {showEmoji && (
-            <div className="grid grid-cols-8 gap-0.5 p-2 border border-gray-200 rounded-xl bg-gray-50 animate-fade-in-scale max-h-40 overflow-y-auto">
+            <div className="grid grid-cols-8 gap-0.5 p-2 border border-edge rounded-xl bg-surface-2 animate-fade-in-scale max-h-40 overflow-y-auto">
               {EMOJI_SET.map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
                   onClick={() => insertEmoji(emoji)}
-                  className="text-xl p-1 rounded-lg hover:bg-gray-200 cursor-pointer transition-colors"
+                  className="text-xl p-1 rounded-lg hover:bg-surface-3 cursor-pointer transition-colors"
                   aria-label={`Insert ${emoji}`}
                 >
                   {emoji}
@@ -819,7 +838,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               onClick={() => setShowEmoji((s) => !s)}
               disabled={timeRemaining === 'expired'}
               className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
-                showEmoji ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100'
+                showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
               } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               title="Emoji"
               aria-label="Open emoji picker"
@@ -838,7 +857,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadPercent !== null || timeRemaining === 'expired'}
-              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 transition-colors ${
+              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
                 uploadPercent !== null || timeRemaining === 'expired'
                   ? 'opacity-50 cursor-not-allowed'
                   : 'cursor-pointer'
@@ -859,16 +878,16 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               }
               minRows={1}
               maxRows={6}
-              className="flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="input-base flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug resize-none"
               disabled={sending || timeRemaining === 'expired'}
             />
             <button
               type="submit"
               disabled={sending || !draft.trim() || timeRemaining === 'expired'}
-              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-white transition-colors ${
+              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-white transition-all duration-200 ${
                 sending || !draft.trim() || timeRemaining === 'expired'
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                  ? 'bg-surface-3 text-fg-faint cursor-not-allowed'
+                  : 'bg-flow hover:brightness-110 hover:shadow-[var(--glow)] cursor-pointer'
               }`}
               title="Send"
               aria-label="Send message"
@@ -880,14 +899,14 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               )}
             </button>
           </div>
-          <p className="text-[10px] text-gray-400 px-1">
-            Sending as <span className="font-medium text-gray-600">{displayName}</span>
+          <p className="text-[10px] text-fg-faint px-1">
+            Sending as <span className="font-medium text-fg-muted">{displayName}</span>
             {!user && ' (guest)'}
             <span className="mx-1">&middot;</span>
             <button
               type="button"
               onClick={() => setAskingName(true)}
-              className="underline hover:text-gray-600 cursor-pointer"
+              className="underline hover:text-fg-muted cursor-pointer"
             >
               change name
             </button>
@@ -913,7 +932,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
       )}
 
       {timeRemaining === 'expired' && (
-        <div className="fixed inset-x-0 bottom-0 bg-red-50 border-t border-red-200 px-4 py-2 text-center text-sm text-red-700">
+        <div className="fixed inset-x-0 bottom-0 bg-danger/10 backdrop-blur-md border-t border-danger/20 px-4 py-2 text-center text-sm text-danger-text">
           This room has expired. <Link href="/chat" className="underline">Create a new one</Link>
         </div>
       )}
@@ -1155,7 +1174,7 @@ const SystemNotice = memo(function SystemNotice({ message }: { message: ChatMess
   return (
     <div className="flex justify-center">
       <span
-        className="px-3 py-1 bg-gray-200/70 text-gray-600 text-[11px] rounded-full"
+        className="px-3 py-1 bg-surface-3/70 text-fg-muted text-[11px] rounded-full"
         title={time.tooltip}
       >
         <span className="font-medium">{message.sender_name}</span> {verb} · {time.display}
@@ -1253,7 +1272,7 @@ const MessageBubble = memo(function MessageBubble({
       <button
         type="button"
         onClick={() => setShowReactions((s) => !s)}
-        className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-pointer"
+        className="p-1.5 rounded-full text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
         title="React"
         aria-label="React to message"
       >
@@ -1262,7 +1281,7 @@ const MessageBubble = memo(function MessageBubble({
       <button
         type="button"
         onClick={() => onReply(message)}
-        className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-pointer"
+        className="p-1.5 rounded-full text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
         title="Reply"
         aria-label="Reply to message"
       >
@@ -1273,7 +1292,7 @@ const MessageBubble = memo(function MessageBubble({
           ref={reactionsRef}
           // Grows toward the bubble (inward); the effect above then clamps
           // it to the viewport for narrow bubbles near either edge.
-          className={`absolute bottom-full mb-1 z-10 flex gap-0.5 bg-white border border-gray-200 rounded-full shadow-lg px-1.5 py-1 animate-fade-in-scale ${
+          className={`absolute bottom-full mb-1 z-10 flex gap-0.5 bg-surface border border-edge rounded-full shadow-lg px-1.5 py-1 animate-fade-in-scale ${
             mine ? 'left-0' : 'right-0'
           }`}
         >
@@ -1285,7 +1304,7 @@ const MessageBubble = memo(function MessageBubble({
                 onToggleReaction(message.id, emoji);
                 setShowReactions(false);
               }}
-              className="text-lg p-0.5 rounded-full hover:bg-gray-100 hover:scale-125 transition-transform cursor-pointer"
+              className="text-lg p-0.5 rounded-full hover:bg-surface-2 hover:scale-125 transition-transform cursor-pointer"
               aria-label={`React with ${emoji}`}
             >
               {emoji}
@@ -1300,22 +1319,22 @@ const MessageBubble = memo(function MessageBubble({
     <div
       id={`msg-${message.id}`}
       className={`group flex ${mine ? 'justify-end' : 'justify-start'} rounded-xl transition-shadow duration-300 ${
-        highlighted ? 'ring-2 ring-blue-400 ring-offset-2' : ''
+        highlighted ? 'ring-2 ring-brand ring-offset-2 ring-offset-canvas' : ''
       }`}
     >
       <div
         className={`min-w-0 max-w-[calc(100%-4.25rem)] sm:max-w-[75%] rounded-2xl px-3 py-2 ${
           mine
-            ? 'bg-blue-600 text-white rounded-br-sm'
-            : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+            ? 'bg-brand text-white rounded-br-sm'
+            : 'bg-surface-2 text-fg rounded-bl-sm'
         }`}
       >
         <div className="flex items-baseline gap-2 mb-0.5">
-          <span className={`text-xs font-medium ${mine ? 'text-blue-100' : 'text-gray-700'}`}>
+          <span className={`text-xs font-medium ${mine ? 'text-white/85' : 'text-fg-muted'}`}>
             {message.sender_name}
           </span>
           <span
-            className={`text-[10px] ${mine ? 'text-blue-200' : 'text-gray-400'}`}
+            className={`text-[10px] ${mine ? 'text-white/60' : 'text-fg-faint'}`}
             title={`${time.tooltip}${message.sender_tz ? ` (sent from ${message.sender_tz})` : ''}`}
           >
             {time.display}
@@ -1329,17 +1348,17 @@ const MessageBubble = memo(function MessageBubble({
             onClick={() => onQuoteClick(message.reply_to!.id)}
             className={`block w-full text-left mb-1.5 px-2 py-1.5 rounded-lg border-l-4 cursor-pointer transition-colors ${
               mine
-                ? 'bg-blue-700/50 border-blue-300 hover:bg-blue-700/70'
-                : 'bg-gray-200/70 border-blue-500 hover:bg-gray-200'
+                ? 'bg-black/20 border-white/50 hover:bg-black/30'
+                : 'bg-surface-3/70 border-brand hover:bg-surface-3'
             }`}
             title="Go to original message"
           >
-            <span className={`block text-[11px] font-medium ${mine ? 'text-blue-100' : 'text-blue-600'}`}>
+            <span className={`block text-[11px] font-medium ${mine ? 'text-white/85' : 'text-brand-text'}`}>
               {message.reply_to.sender_name}
             </span>
             <span
               className={`flex items-center gap-1 text-xs truncate ${
-                mine ? 'text-blue-100/80' : 'text-gray-600'
+                mine ? 'text-white/70' : 'text-fg-muted'
               }`}
             >
               <QuoteKindIcon
@@ -1379,7 +1398,7 @@ const MessageBubble = memo(function MessageBubble({
             ) : isCode ? (
               <pre
                 className={`text-xs sm:text-sm font-mono whitespace-pre overflow-x-auto ${
-                  mine ? '' : 'text-gray-900'
+                  mine ? '' : 'text-fg'
                 }`}
               >
                 {message.content}
@@ -1399,7 +1418,7 @@ const MessageBubble = memo(function MessageBubble({
             type="button"
             onClick={() => setExpanded((e) => !e)}
             className={`mt-1 text-[10px] underline ${
-              mine ? 'text-blue-100 hover:text-white' : 'text-gray-500 hover:text-gray-700'
+              mine ? 'text-white/80 hover:text-white' : 'text-fg-muted hover:text-fg'
             }`}
           >
             {expanded ? 'Collapse' : `Show full (${message.content.length.toLocaleString()} chars)`}
@@ -1424,14 +1443,14 @@ const MessageBubble = memo(function MessageBubble({
                         ? 'bg-white/25 border-white/60'
                         : 'bg-white/10 border-white/25 hover:bg-white/20'
                       : mineToo
-                        ? 'bg-blue-50 border-blue-300'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                        ? 'bg-brand/10 border-brand/40'
+                        : 'bg-surface border-edge hover:bg-surface-2'
                   }`}
                   aria-label={`${emoji} reaction from ${names.join(', ')}`}
                 >
                   <span className="text-sm leading-none">{emoji}</span>
                   {reactors.length > 1 && (
-                    <span className={mine ? 'text-blue-100' : 'text-gray-600'}>
+                    <span className={mine ? 'text-white/80' : 'text-fg-muted'}>
                       {reactors.length}
                     </span>
                   )}
@@ -1485,7 +1504,7 @@ function LongTextView({
         {asCode ? (
           <pre
             className={`text-xs sm:text-sm font-mono whitespace-pre overflow-x-auto ${
-              mine ? '' : 'text-gray-900'
+              mine ? '' : 'text-fg'
             }`}
           >
             {text}
@@ -1495,9 +1514,9 @@ function LongTextView({
             {text}
           </div>
         )}
-        {!full && <span className={mine ? 'text-blue-200' : 'text-gray-400'}>…</span>}
+        {!full && <span className={mine ? 'text-white/60' : 'text-fg-faint'}>…</span>}
       </div>
-      {loadError && <p className="mt-1 text-[11px] text-red-500">{loadError}</p>}
+      {loadError && <p className="mt-1 text-[11px] text-danger-text">{loadError}</p>}
       <div className="flex items-center gap-3 mt-1.5">
         {!full && (
           <button
@@ -1505,7 +1524,7 @@ function LongTextView({
             onClick={loadFull}
             disabled={loading}
             className={`text-[11px] underline cursor-pointer ${
-              mine ? 'text-blue-100 hover:text-white' : 'text-blue-600 hover:text-blue-700'
+              mine ? 'text-white/80 hover:text-white' : 'text-brand-text hover:opacity-80'
             } ${loading ? 'opacity-60' : ''}`}
           >
             {loading ? 'Loading…' : `Show full message (${formatFileSize(att.size)})`}
@@ -1514,7 +1533,7 @@ function LongTextView({
         <a
           href={`${viewUrl}&download=1`}
           className={`inline-flex items-center gap-1 text-[11px] underline ${
-            mine ? 'text-blue-100 hover:text-white' : 'text-gray-500 hover:text-gray-700'
+            mine ? 'text-white/80 hover:text-white' : 'text-fg-muted hover:text-fg'
           }`}
           title="Download as .txt"
         >
@@ -1582,17 +1601,17 @@ function AttachmentView({
   const TypeIcon = previewable || mime.startsWith('text/') ? FileText : FileIcon;
   const cardClasses = `flex items-center gap-2.5 p-2.5 mb-1 w-full text-left rounded-xl border transition-colors cursor-pointer ${
     mine
-      ? 'bg-blue-700/60 border-blue-500 hover:bg-blue-700'
-      : 'bg-white border-gray-200 hover:bg-gray-50'
+      ? 'bg-black/20 border-white/25 hover:bg-black/30'
+      : 'bg-surface border-edge hover:bg-surface-2'
   }`;
   const inner = (
     <>
-      <TypeIcon className={`w-7 h-7 shrink-0 ${mine ? 'text-blue-100' : 'text-gray-400'}`} />
+      <TypeIcon className={`w-7 h-7 shrink-0 ${mine ? 'text-white/80' : 'text-fg-faint'}`} />
       <span className="min-w-0 flex-1">
-        <span className={`block text-xs font-medium truncate ${mine ? 'text-white' : 'text-gray-900'}`}>
+        <span className={`block text-xs font-medium truncate ${mine ? 'text-white' : 'text-fg'}`}>
           {attachment.name}
         </span>
-        <span className={`block text-[10px] ${mine ? 'text-blue-200' : 'text-gray-500'}`}>
+        <span className={`block text-[10px] ${mine ? 'text-white/60' : 'text-fg-muted'}`}>
           {formatFileSize(attachment.size)}
           {previewable && ' · tap to preview'}
         </span>
@@ -1615,7 +1634,7 @@ function AttachmentView({
           title={`Download ${attachment.name}`}
           aria-label={`Download ${attachment.name}`}
         >
-          <Download className={`w-4 h-4 shrink-0 ${mine ? 'text-blue-100' : 'text-gray-400'}`} />
+          <Download className={`w-4 h-4 shrink-0 ${mine ? 'text-white/80' : 'text-fg-faint'}`} />
         </a>
       </div>
     );

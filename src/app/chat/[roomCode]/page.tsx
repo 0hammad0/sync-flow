@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import Link from 'next/link';
+import { Clock } from 'lucide-react';
 import ChatRoom from '@/components/ChatRoom';
 import { getRoom, isRoomExpired } from '@/lib/firebase/chat';
 import { getRequestOrigin, isValidRoomCode } from '@/lib/utils';
@@ -23,14 +24,16 @@ export default async function ChatRoomPage({ params }: ChatRoomPageProps) {
   if (isRoomExpired(room)) {
     return (
       <div className="max-w-md mx-auto py-12 px-4 text-center animate-fade-in">
-        <div className="text-5xl mb-4">⏰</div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Room expired</h1>
-        <p className="text-sm text-gray-600 mb-6">
+        <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-surface-2 border border-edge text-fg-faint items-center justify-center">
+          <Clock className="w-8 h-8" />
+        </span>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Room expired</h1>
+        <p className="text-sm text-fg-muted mb-6">
           This chat room has expired and is no longer accessible.
         </p>
         <Link
           href="/chat"
-          className="inline-block px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+          className="inline-block px-5 py-2.5 bg-flow text-white text-sm font-medium rounded-xl btn-hover hover:shadow-[var(--glow)] hover:brightness-110 transition-all duration-200"
         >
           Create a new room
         </Link>

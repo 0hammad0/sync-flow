@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebase/client';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
+import { AlertCircle } from 'lucide-react';
 
 const STORED_EMAIL_KEY = 'syncflow.emailForSignIn';
 
@@ -63,17 +64,17 @@ export default function AuthCallbackPage() {
   if (status === 'working') {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
-        <LoadingSpinner size="lg" />
-        <p className="text-sm text-gray-500">Signing you in&hellip;</p>
+        <LoadingSpinner size="lg" className="text-brand-text" />
+        <p className="text-sm text-fg-muted">Signing you in&hellip;</p>
       </div>
     );
   }
 
   if (status === 'needs_email') {
     return (
-      <div className="max-w-sm mx-auto py-12 px-4 animate-fade-in">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Confirm your email</h1>
-        <p className="text-sm text-gray-600 mb-4">
+      <div className="max-w-sm mx-auto py-12 animate-fade-in">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Confirm your email</h1>
+        <p className="text-sm text-fg-muted mb-4">
           For security, please confirm the email address you used to request the sign-in link.
         </p>
         <form
@@ -90,30 +91,26 @@ export default function AuthCallbackPage() {
             placeholder="you@example.com"
             required
             autoComplete="email"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="input-base w-full px-3 py-2.5 text-base sm:text-sm"
           />
-          <button
-            type="submit"
-            className="w-full py-2.5 px-4 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 cursor-pointer"
-          >
+          <Button type="submit" variant="primary" size="md" fullWidth>
             Continue
-          </button>
+          </Button>
         </form>
       </div>
     );
   }
 
   return (
-    <div className="max-w-sm mx-auto py-12 px-4 text-center animate-fade-in">
-      <div className="text-5xl mb-4">❌</div>
-      <h1 className="text-xl font-bold text-gray-900 mb-2">Sign-in failed</h1>
-      <p className="text-sm text-gray-600 mb-6">{error}</p>
-      <Link
-        href="/login"
-        className="inline-block px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700"
-      >
+    <div className="max-w-sm mx-auto py-12 text-center animate-fade-in">
+      <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-danger/10 text-danger-text items-center justify-center">
+        <AlertCircle className="w-8 h-8" />
+      </span>
+      <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">Sign-in failed</h1>
+      <p className="text-sm text-fg-muted mb-6">{error}</p>
+      <Button href="/login" variant="primary" size="lg">
         Back to sign-in
-      </Link>
+      </Button>
     </div>
   );
 }

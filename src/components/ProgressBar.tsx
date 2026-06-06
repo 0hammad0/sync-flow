@@ -8,29 +8,31 @@ interface ProgressBarProps {
   className?: string;
 }
 
-const stageConfig: Record<UploadStage, { label: string; color: string }> = {
-  idle: { label: 'Ready', color: 'bg-gray-300' },
-  preparing: { label: 'Preparing...', color: 'bg-yellow-500' },
-  encrypting: { label: 'Encrypting...', color: 'bg-purple-500' },
-  uploading: { label: 'Uploading...', color: 'bg-blue-500' },
-  completed: { label: 'Complete', color: 'bg-green-500' },
-  error: { label: 'Error', color: 'bg-red-500' },
+const stageConfig: Record<UploadStage, { label: string; barClass: string }> = {
+  idle: { label: 'Ready', barClass: 'bg-surface-3' },
+  preparing: { label: 'Preparing...', barClass: 'bg-flow' },
+  encrypting: { label: 'Encrypting...', barClass: 'bg-flow-tri' },
+  uploading: { label: 'Uploading...', barClass: 'bg-flow' },
+  completed: { label: 'Complete', barClass: 'bg-success' },
+  error: { label: 'Error', barClass: 'bg-danger' },
 };
 
 export default function ProgressBar({ stage, percent, className = '' }: ProgressBarProps) {
-  const { label, color } = stageConfig[stage];
+  const { label, barClass } = stageConfig[stage];
   const isActive = stage === 'preparing' || stage === 'encrypting' || stage === 'uploading';
 
   return (
     <div className={`w-full ${className}`}>
       <div className="flex justify-between items-center mb-1.5">
-        <span className="text-xs sm:text-sm font-medium text-gray-700">{label}</span>
-        <span className="text-xs sm:text-sm font-medium text-gray-500">{Math.round(percent)}%</span>
+        <span className="text-xs sm:text-sm font-medium text-fg">{label}</span>
+        <span className="text-xs sm:text-sm font-medium text-fg-muted tabular-nums">
+          {Math.round(percent)}%
+        </span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2 sm:h-2.5 overflow-hidden">
+      <div className="w-full bg-surface-3 rounded-full h-2 sm:h-2.5 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-300 ease-out ${color} ${
-            isActive ? 'animate-pulse-subtle' : ''
+          className={`relative h-full rounded-full transition-all duration-300 ease-out overflow-hidden ${barClass} ${
+            isActive ? 'progress-shimmer' : ''
           }`}
           style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
         />

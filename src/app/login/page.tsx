@@ -6,7 +6,9 @@ import { onAuthStateChanged, sendSignInLinkToEmail } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebase/client';
 import { getBaseUrl } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import Button from '@/components/ui/Button';
 import Link from 'next/link';
+import { Check } from 'lucide-react';
 
 const STORED_EMAIL_KEY = 'syncflow.emailForSignIn';
 
@@ -54,26 +56,27 @@ export default function LoginPage() {
   if (checkingAuth) {
     return (
       <div className="flex items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
+        <LoadingSpinner size="lg" className="text-brand-text" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-sm mx-auto py-8 sm:py-12 px-4 sm:px-0 animate-fade-in">
+    <div className="max-w-sm mx-auto py-8 sm:py-12 animate-fade-in">
       <div className="text-center mb-6 sm:mb-8">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Sign In</h1>
-        <p className="text-sm sm:text-base text-gray-600">
+        <p className="label-mono mb-3">Passwordless</p>
+        <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-fg mb-2">Sign In</h1>
+        <p className="text-sm sm:text-base text-fg-muted">
           Enter your email to receive a sign-in link
         </p>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-fg-faint mt-1">
           No password needed — we&apos;ll email you a secure link
         </p>
       </div>
 
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-fg mb-1.5">
             Email address
           </label>
           <input
@@ -84,79 +87,70 @@ export default function LoginPage() {
             placeholder="you@example.com"
             required
             autoComplete="email"
-            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm sm:text-base"
+            className="input-base w-full px-3 sm:px-4 py-2.5 sm:py-3 text-base sm:text-sm"
             aria-describedby="email-help"
           />
-          <p id="email-help" className="mt-1.5 text-xs text-gray-400">
+          <p id="email-help" className="mt-1.5 text-xs text-fg-faint">
             We&apos;ll send a one-time login link to this address.
           </p>
         </div>
 
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          size="lg"
+          fullWidth
           disabled={loading || !email}
-          className={`w-full py-2.5 sm:py-3 px-4 rounded-lg text-white font-medium text-sm sm:text-base transition-all duration-200 flex items-center justify-center gap-2 ${
-            loading || !email
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 cursor-pointer btn-hover'
-          }`}
+          loading={loading}
+          loadingText="Sending..."
         >
-          {loading ? (
-            <>
-              <LoadingSpinner size="sm" className="text-white" />
-              <span>Sending...</span>
-            </>
-          ) : (
-            'Send Sign-In Link'
-          )}
-        </button>
+          Send Sign-In Link
+        </Button>
       </form>
 
       {message && (
         <div
-          className={`mt-4 p-3 sm:p-4 rounded-lg animate-fade-in text-xs sm:text-sm ${
+          className={`mt-4 p-3 sm:p-4 rounded-2xl animate-fade-in text-xs sm:text-sm border ${
             message.type === 'success'
-              ? 'bg-green-50 border border-green-200 text-green-700'
-              : 'bg-red-50 border border-red-200 text-red-700'
+              ? 'bg-success/10 border-success/20 text-success-text'
+              : 'bg-danger/10 border-danger/20 text-danger-text'
           }`}
         >
           <p className="font-medium">{message.text}</p>
           {message.type === 'success' && (
-            <p className="mt-1 text-green-600">
+            <p className="mt-1 text-fg-muted">
               Click the link in your email to sign in. Check your spam folder if you don&apos;t see it.
             </p>
           )}
           {message.type === 'error' && (
-            <p className="mt-1 text-red-500">
+            <p className="mt-1 text-fg-muted">
               Please check your email address and try again.
             </p>
           )}
         </div>
       )}
 
-      <div className="mt-8 pt-6 border-t border-gray-200">
-        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-          Why sign in?
-        </h3>
-        <ul className="space-y-2 text-xs sm:text-sm text-gray-600">
+      <div className="mt-8 pt-6 border-t border-edge">
+        <p className="label-mono mb-3">Why sign in?</p>
+        <ul className="space-y-2 text-xs sm:text-sm text-fg-muted">
           <li className="flex items-start gap-2">
-            <span className="text-green-500 mt-0.5">✓</span>
+            <Check className="w-4 h-4 shrink-0 text-success-text mt-0.5" />
             <span>View and manage all your uploaded files</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-green-500 mt-0.5">✓</span>
+            <Check className="w-4 h-4 shrink-0 text-success-text mt-0.5" />
             <span>Delete files you no longer need</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-green-500 mt-0.5">✓</span>
+            <Check className="w-4 h-4 shrink-0 text-success-text mt-0.5" />
             <span>Access your files from any device</span>
           </li>
         </ul>
       </div>
 
-      <p className="mt-6 text-center text-xs text-gray-400">
+      <p className="mt-6 text-center text-xs text-fg-faint">
         Don&apos;t want to sign in?{' '}
-        <Link href="/" className="text-blue-600 hover:underline">
+        <Link href="/" className="text-brand-text hover:underline font-medium">
           Upload anonymously
         </Link>
       </p>

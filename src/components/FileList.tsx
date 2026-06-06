@@ -7,7 +7,8 @@ import { formatFileSize, getBaseUrl, MAX_USER_FILES } from '@/lib/utils';
 import { deleteFile, reshareFile } from '@/actions/files';
 import CopyButton from './CopyButton';
 import LoadingSpinner from './LoadingSpinner';
-import Link from 'next/link';
+import Button from './ui/Button';
+import { AlertTriangle, FolderOpen } from 'lucide-react';
 
 interface FileListProps {
   files: FileRecord[];
@@ -68,18 +69,17 @@ export default function FileList({ files }: FileListProps) {
 
   if (files.length === 0) {
     return (
-      <div className="text-center py-10 sm:py-12 md:py-16 border border-dashed border-gray-300 rounded-xl animate-fade-in">
-        <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">📂</div>
-        <p className="text-gray-600 text-sm sm:text-base font-medium">No files uploaded yet</p>
-        <p className="text-xs sm:text-sm text-gray-400 mt-1 mb-4">
+      <div className="text-center py-10 sm:py-12 md:py-16 border border-dashed border-edge-strong rounded-3xl animate-fade-in">
+        <span className="inline-flex w-14 h-14 sm:w-16 sm:h-16 mb-3 sm:mb-4 rounded-2xl bg-brand/10 text-brand-text items-center justify-center">
+          <FolderOpen className="w-7 h-7 sm:w-8 sm:h-8" />
+        </span>
+        <p className="text-fg text-sm sm:text-base font-semibold">No files uploaded yet</p>
+        <p className="text-xs sm:text-sm text-fg-faint mt-1 mb-4">
           Files you upload while signed in will appear here.
         </p>
-        <Link
-          href="/"
-          className="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors duration-200 cursor-pointer btn-hover"
-        >
+        <Button href="/" variant="primary" size="md">
           Upload your first file
-        </Link>
+        </Button>
       </div>
     );
   }
@@ -88,24 +88,24 @@ export default function FileList({ files }: FileListProps) {
     <div className="space-y-2 sm:space-y-3">
       {/* File count and limit indicator */}
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-fg-muted">
           {files.length} / {MAX_USER_FILES} files &bull; Click &quot;Copy&quot; to get the share link
         </p>
         {files.length >= MAX_USER_FILES && (
-          <span className="text-xs text-amber-600 font-medium">Limit reached</span>
+          <span className="text-xs text-warning-text font-medium">Limit reached</span>
         )}
       </div>
 
       {/* Expired files alert */}
       {hasExpiredFiles && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 animate-fade-in">
-          <div className="flex items-start gap-2">
-            <span className="text-amber-500 text-lg">⚠️</span>
+        <div className="bg-warning/10 border border-warning/20 rounded-2xl p-3 mb-4 animate-fade-in">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-warning-text mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-amber-800">
+              <p className="text-sm font-medium text-fg">
                 {expiredFiles.length} expired {expiredFiles.length === 1 ? 'file' : 'files'}
               </p>
-              <p className="text-xs text-amber-700 mt-0.5">
+              <p className="text-xs text-fg-muted mt-0.5">
                 Expired files can&apos;t be downloaded. Delete them to free up space or reshare to extend the expiry.
               </p>
             </div>
@@ -122,31 +122,31 @@ export default function FileList({ files }: FileListProps) {
         return (
           <div
             key={file.id}
-            className={`border rounded-xl p-3 sm:p-4 bg-white card-hover animate-fade-in ${
-              fileExpired ? 'border-amber-300 bg-amber-50/50' : 'border-gray-200'
+            className={`border rounded-2xl p-3 sm:p-4 bg-surface card-hover animate-fade-in ${
+              fileExpired ? 'border-warning/30' : 'border-edge'
             }`}
             style={{ animationDelay: `${index * 50}ms` }}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-medium text-gray-900 truncate text-sm sm:text-base" title={file.original_name}>
+                  <h3 className="font-medium text-fg truncate text-sm sm:text-base" title={file.original_name}>
                     {file.original_name}
                   </h3>
                   {fileExpired && (
-                    <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 rounded">
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-warning/15 text-warning-text rounded-md">
                       EXPIRED
                     </span>
                   )}
                 </div>
-                <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+                <p className="text-xs sm:text-sm text-fg-muted mt-0.5">
                   {formatFileSize(file.size)} • Uploaded {new Date(file.created_at).toLocaleDateString(undefined, {
                     year: 'numeric',
                     month: 'short',
                     day: 'numeric'
                   })}
                   {file.expires_at && !fileExpired && (
-                    <span className="text-gray-400">
+                    <span className="text-fg-faint">
                       {' '}• Expires {new Date(file.expires_at).toLocaleDateString()}
                     </span>
                   )}
@@ -160,7 +160,7 @@ export default function FileList({ files }: FileListProps) {
                 {fileExpired ? (
                   <button
                     onClick={() => setShowReshareModal(file.token)}
-                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all duration-200 cursor-pointer btn-hover"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-brand/10 text-brand-text hover:bg-brand/20 transition-all duration-200 cursor-pointer btn-hover"
                     title="Reshare this file with a new expiry"
                   >
                     Reshare
@@ -168,7 +168,7 @@ export default function FileList({ files }: FileListProps) {
                 ) : (
                   <button
                     onClick={() => setShowReshareModal(file.token)}
-                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-gray-50 text-gray-600 hover:bg-gray-100 transition-all duration-200 cursor-pointer btn-hover"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-surface-2 text-fg-muted hover:bg-surface-3 hover:text-fg transition-all duration-200 cursor-pointer btn-hover"
                     title="Extend expiry time"
                   >
                     Extend
@@ -180,14 +180,14 @@ export default function FileList({ files }: FileListProps) {
                   disabled={isDeleting}
                   className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 min-w-[70px] sm:min-w-[80px] ${
                     isDeleting
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-red-50 text-red-600 hover:bg-red-100 cursor-pointer btn-hover'
+                      ? 'bg-surface-2 text-fg-faint cursor-not-allowed'
+                      : 'bg-danger/10 text-danger-text hover:bg-danger/20 cursor-pointer btn-hover'
                   }`}
                   title="Permanently delete this file"
                 >
                   {isDeleting ? (
                     <>
-                      <LoadingSpinner size="sm" className="text-gray-400" />
+                      <LoadingSpinner size="sm" className="text-fg-faint" />
                       <span className="hidden sm:inline">Deleting</span>
                     </>
                   ) : (
@@ -199,8 +199,8 @@ export default function FileList({ files }: FileListProps) {
 
             {/* Reshare Modal */}
             {showReshareModal === file.token && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <p className="text-xs text-gray-600 mb-2">
+              <div className="mt-3 pt-3 border-t border-edge">
+                <p className="text-xs text-fg-muted mb-2">
                   {fileExpired ? 'Reshare with new expiry:' : 'Extend expiry to:'}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -211,8 +211,8 @@ export default function FileList({ files }: FileListProps) {
                       disabled={isResharing}
                       className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
                         isResharing
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 cursor-pointer'
+                          ? 'bg-surface-2 text-fg-faint cursor-not-allowed'
+                          : 'bg-brand/10 text-brand-text hover:bg-brand/20 cursor-pointer'
                       }`}
                     >
                       {isResharing ? <LoadingSpinner size="sm" /> : option.label}
@@ -220,7 +220,7 @@ export default function FileList({ files }: FileListProps) {
                   ))}
                   <button
                     onClick={() => setShowReshareModal(null)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200 cursor-pointer"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-fg-muted hover:bg-surface-3 transition-all duration-200 cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -230,7 +230,7 @@ export default function FileList({ files }: FileListProps) {
           </div>
         );
       })}
-      <p className="text-xs text-gray-400 text-center pt-2">
+      <p className="text-xs text-fg-faint text-center pt-2">
         Deleting a file will permanently remove it and disable its share link.
       </p>
     </div>

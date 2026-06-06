@@ -14,6 +14,8 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { clientAuth, clientDb } from '@/lib/firebase/client';
 import { formatTimeUntil } from '@/lib/time';
 import LoadingSpinner from './LoadingSpinner';
+import Button from './ui/Button';
+import { MessageSquare } from 'lucide-react';
 import type { ChatRoom } from '@/types';
 
 /**
@@ -81,24 +83,21 @@ export default function MyChatRooms() {
 
   return (
     <section className="mt-8 sm:mt-10">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900">My Chat Rooms</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-base sm:text-lg font-semibold text-fg">My Chat Rooms</h2>
+          <p className="text-xs text-fg-muted mt-0.5">
             Live list of rooms you&apos;ve created. Auto-deletes when they expire.
           </p>
         </div>
-        <Link
-          href="/chat"
-          className="text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-medium cursor-pointer btn-hover transition-colors"
-        >
+        <Button href="/chat" variant="primary" size="sm" className="shrink-0">
           New Room
-        </Link>
+        </Button>
       </div>
 
       {indexError && (
-        <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-xs text-amber-700">
+        <div className="mb-3 p-3 bg-warning/10 border border-warning/20 rounded-2xl">
+          <p className="text-xs text-warning-text">
             Firestore composite index is still building for the rooms list. This list will
             populate once it finishes (1–3 min).
           </p>
@@ -107,13 +106,15 @@ export default function MyChatRooms() {
 
       {loading ? (
         <div className="flex justify-center py-8">
-          <LoadingSpinner size="md" className="text-gray-400" />
+          <LoadingSpinner size="md" className="text-fg-faint" />
         </div>
       ) : active.length === 0 ? (
-        <div className="text-center py-8 border border-dashed border-gray-300 rounded-xl">
-          <div className="text-3xl mb-2">💬</div>
-          <p className="text-sm text-gray-600">No active rooms</p>
-          <p className="text-xs text-gray-400 mt-1">
+        <div className="text-center py-8 border border-dashed border-edge-strong rounded-2xl">
+          <span className="inline-flex w-10 h-10 mb-2 rounded-xl bg-brand/10 text-brand-text items-center justify-center">
+            <MessageSquare className="w-5 h-5" />
+          </span>
+          <p className="text-sm text-fg-muted">No active rooms</p>
+          <p className="text-xs text-fg-faint mt-1">
             Created rooms will show here while they&apos;re still alive.
           </p>
         </div>
@@ -122,14 +123,14 @@ export default function MyChatRooms() {
           {active.map((r) => (
             <li
               key={r.code}
-              className="flex items-center justify-between gap-3 p-3 bg-white border border-gray-200 rounded-lg card-hover animate-fade-in"
+              className="flex items-center justify-between gap-3 p-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-gray-900 truncate">
+                <p className="text-sm font-medium text-fg truncate">
                   {r.name || 'Untitled room'}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  <span className="font-mono tracking-widest">{r.code}</span>
+                <p className="text-xs text-fg-muted mt-0.5">
+                  <span className="font-mono tracking-widest text-brand-text">{r.code}</span>
                   <span className="mx-1.5">&middot;</span>
                   <span title={new Date(r.expires_at).toLocaleString()}>
                     expires in {formatTimeUntil(r.expires_at)}
@@ -138,7 +139,7 @@ export default function MyChatRooms() {
               </div>
               <Link
                 href={`/chat/${r.code}`}
-                className="shrink-0 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer transition-colors"
+                className="shrink-0 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-brand/10 text-brand-text hover:bg-brand/20 cursor-pointer transition-colors"
               >
                 Open
               </Link>

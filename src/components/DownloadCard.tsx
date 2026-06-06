@@ -5,6 +5,16 @@ import { formatFileSize } from '@/lib/utils';
 import { getKeyFromUrl, importKey, decryptFile, isEncryptionSupported } from '@/lib/crypto';
 import { incrementDownloadCount } from '@/actions/files';
 import LoadingSpinner from './LoadingSpinner';
+import {
+  CheckCircle2,
+  Download,
+  FileText,
+  FileType2,
+  Film,
+  Image as ImageIcon,
+  Lock,
+  Music,
+} from 'lucide-react';
 
 interface DownloadCardProps {
   fileName: string;
@@ -40,13 +50,15 @@ export default function DownloadCard({
   const isVideo = mimeType.startsWith('video/');
   const isAudio = mimeType.startsWith('audio/');
 
-  const getFileIcon = () => {
-    if (isImage) return '🖼️';
-    if (isPdf) return '📑';
-    if (isVideo) return '🎬';
-    if (isAudio) return '🎵';
-    return '📄';
-  };
+  const FileIcon = isImage
+    ? ImageIcon
+    : isPdf
+    ? FileType2
+    : isVideo
+    ? Film
+    : isAudio
+    ? Music
+    : FileText;
 
   const getFileTypeText = () => {
     if (isImage) return 'Image file';
@@ -210,39 +222,28 @@ export default function DownloadCard({
   };
 
   return (
-    <div className="w-full max-w-sm sm:max-w-md mx-auto border border-gray-200 rounded-xl p-5 sm:p-6 md:p-8 bg-white shadow-sm animate-fade-in-scale">
+    <div className="w-full max-w-sm sm:max-w-md mx-auto border-flow rounded-3xl p-5 sm:p-6 md:p-8 shadow-[var(--shadow-card)] animate-fade-in-scale">
       <div className="text-center mb-5 sm:mb-6">
-        <div className="text-5xl sm:text-6xl mb-3 sm:mb-4">{getFileIcon()}</div>
-        <p className="text-xs text-gray-400 mb-1">{getFileTypeText()}</p>
-        <h2 className="text-lg sm:text-xl font-semibold text-gray-900 break-words px-2" title={fileName}>
+        <span className="inline-flex w-16 h-16 sm:w-20 sm:h-20 mb-3 sm:mb-4 rounded-3xl bg-flow text-white items-center justify-center glow-dot animate-pop-in">
+          <FileIcon className="w-8 h-8 sm:w-10 sm:h-10" />
+        </span>
+        <p className="text-xs text-fg-faint mb-1">{getFileTypeText()}</p>
+        <h2 className="text-lg sm:text-xl font-bold text-fg break-words px-2" title={fileName}>
           {fileName}
         </h2>
-        <p className="text-xs sm:text-sm text-gray-500 mt-1">{formatFileSize(fileSize)}</p>
+        <p className="text-xs sm:text-sm text-fg-muted mt-1">{formatFileSize(fileSize)}</p>
 
         {/* Status badges */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           {isEncrypted && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand/10 text-brand-text text-xs rounded-full font-medium">
+              <Lock className="w-3 h-3" />
               Encrypted
             </span>
           )}
           {currentDownloadsRemaining !== null && (
-            <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full ${
-              currentDownloadsRemaining <= 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full font-medium ${
+              currentDownloadsRemaining <= 0 ? 'bg-danger/10 text-danger-text' : 'bg-brand-2/10 text-fg-muted'
             }`}>
               {currentDownloadsRemaining <= 0 ? 'No downloads left' : `${currentDownloadsRemaining} download${currentDownloadsRemaining !== 1 ? 's' : ''} left`}
             </span>
@@ -251,15 +252,15 @@ export default function DownloadCard({
       </div>
 
       {/* File info */}
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg space-y-1.5">
+      <div className="mb-4 p-3 bg-surface-2 border border-edge rounded-2xl space-y-1.5">
         <div className="flex justify-between text-xs">
-          <span className="text-gray-500">Uploaded</span>
-          <span className="text-gray-700">{formatCreatedDate(createdAt)}</span>
+          <span className="text-fg-faint">Uploaded</span>
+          <span className="text-fg-muted">{formatCreatedDate(createdAt)}</span>
         </div>
         {expiresAt && timeRemaining && (
           <div className="flex justify-between text-xs">
-            <span className="text-gray-500">Expires</span>
-            <span className={`font-medium ${timeRemaining === 'Expired' ? 'text-red-600' : 'text-amber-600'}`}>
+            <span className="text-fg-faint">Expires</span>
+            <span className={`font-medium ${timeRemaining === 'Expired' ? 'text-danger-text' : 'text-warning-text'}`}>
               {timeRemaining}
             </span>
           </div>
@@ -267,15 +268,18 @@ export default function DownloadCard({
       </div>
 
       {downloadError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-xs text-red-600">{downloadError}</p>
+        <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-2xl">
+          <p className="text-xs text-danger-text">{downloadError}</p>
         </div>
       )}
 
       {fileDeleted ? (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-xs text-green-700 font-medium">Download complete!</p>
-          <p className="text-xs text-green-600 mt-1">
+        <div className="mb-4 p-3 bg-success/10 border border-success/20 rounded-2xl">
+          <p className="text-xs text-success-text font-medium inline-flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Download complete!
+          </p>
+          <p className="text-xs text-fg-muted mt-1">
             This file has reached its download limit and has been automatically deleted for security.
           </p>
         </div>
@@ -283,8 +287,8 @@ export default function DownloadCard({
         <button
           onClick={handleDownload}
           disabled={isDownloading || currentDownloadsRemaining === 0}
-          className={`w-full text-center px-4 py-3 sm:py-3.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer btn-hover text-sm sm:text-base flex items-center justify-center gap-2 ${
-            isDownloading || currentDownloadsRemaining === 0 ? 'opacity-75 cursor-not-allowed' : ''
+          className={`w-full text-center px-4 py-3 sm:py-3.5 bg-flow text-white font-medium rounded-xl transition-all duration-200 cursor-pointer btn-hover hover:shadow-[var(--glow)] hover:brightness-110 text-sm sm:text-base flex items-center justify-center gap-2 ${
+            isDownloading || currentDownloadsRemaining === 0 ? 'opacity-60 cursor-not-allowed' : ''
           }`}
         >
           {isDownloading ? (
@@ -293,19 +297,22 @@ export default function DownloadCard({
               <span>{isEncrypted ? 'Decrypting...' : 'Downloading...'}</span>
             </>
           ) : (
-            'Download File'
+            <>
+              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+              Download File
+            </>
           )}
         </button>
       )}
 
       <div className="mt-4 sm:mt-5 space-y-2">
-        <p className="text-[10px] sm:text-xs text-gray-400 text-center">
+        <p className="text-[10px] sm:text-xs text-fg-faint text-center">
           {isEncrypted
             ? 'This file is end-to-end encrypted. Decryption happens in your browser.'
             : 'This download link expires in 1 hour for security.'}
         </p>
         {!isEncrypted && (
-          <p className="text-[10px] sm:text-xs text-gray-400 text-center">
+          <p className="text-[10px] sm:text-xs text-fg-faint text-center">
             After expiry, refresh the page to get a new link.
           </p>
         )}
