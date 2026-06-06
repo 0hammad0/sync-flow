@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import CopyButton from './CopyButton';
 
@@ -35,9 +36,12 @@ export default function QRModal({ isOpen, onClose, url, fileName }: QRModalProps
 
   if (!isOpen) return null;
 
-  return (
+  // Portal to <body>: ancestors with transforms (e.g. fade-in animations)
+  // would otherwise become the containing block and mis-position fixed
+  // overlays below the sticky header.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="qr-modal-title"
@@ -109,6 +113,7 @@ export default function QRModal({ isOpen, onClose, url, fileName }: QRModalProps
           Point your phone camera at the QR code to download
         </p>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

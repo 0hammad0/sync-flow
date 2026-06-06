@@ -16,7 +16,9 @@ import {
   orderBy,
   query,
 } from 'firebase/firestore';
+import { createPortal } from 'react-dom';
 import { onAuthStateChanged, type User } from 'firebase/auth';
+import TextareaAutosize from 'react-textarea-autosize';
 import {
   ChevronLeft,
   ChevronRight,
@@ -232,6 +234,23 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
+  }, []);
+
+  // The chat fills the viewport below the site header. The header's height
+  // varies (it wraps on small phones), so measure it instead of hard-coding —
+  // otherwise the composer gets pushed off-screen on small mobiles.
+  useEffect(() => {
+    const header = document.querySelector('header');
+    if (!header) return;
+    const setVar = () =>
+      document.documentElement.style.setProperty('--site-header-h', `${header.offsetHeight}px`);
+    setVar();
+    const ro = new ResizeObserver(setVar);
+    ro.observe(header);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--site-header-h');
+    };
   }, []);
 
   // Real-time presence subscription (typing / online).
@@ -614,7 +633,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   }
 
   return (
-    <div className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex flex-col h-[calc(100dvh-3.75rem)] sm:h-[calc(100dvh-4.5rem)] animate-fade-in">
+    <div className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex flex-col overflow-hidden h-[calc(100dvh-var(--site-header-h,3.75rem))] animate-fade-in">
       <div className="flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-white sm:my-4 sm:border sm:border-gray-200 sm:rounded-2xl sm:shadow-sm overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50/80">
@@ -622,11 +641,13 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             <h1 className="text-base font-semibold text-gray-900 truncate leading-tight">
               {room.name || 'Chat Room'}
             </h1>
-            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-              <span className="font-mono tracking-widest text-gray-600">{room.code}</span>
-              <span className="text-gray-300">|</span>
+            <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+              <span className="font-mono tracking-wider sm:tracking-widest text-gray-600 whitespace-nowrap">
+                {room.code}
+              </span>
+              <span className="text-gray-300 max-sm:hidden">|</span>
               {typingOthers.length > 0 ? (
-                <span className="text-green-600 font-medium truncate">
+                <span className="text-green-600 font-medium truncate min-w-0 max-w-full">
                   {typingOthers.length === 1
                     ? `${typingOthers[0].name} is typing…`
                     : typingOthers.length === 2
@@ -634,7 +655,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                       : 'Several people are typing…'}
                 </span>
               ) : (
-                <span className="flex items-center gap-1.5 shrink-0">
+                <span className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
                       onlineOthers.length > 0 ? 'bg-green-500' : 'bg-gray-300'
@@ -643,8 +664,11 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                   {onlineOthers.length + 1} online
                 </span>
               )}
-              <span className="text-gray-300">|</span>
-              <span title={`Expires ${new Date(room.expires_at).toLocaleString()}`}>
+              <span className="text-gray-300 max-sm:hidden">|</span>
+              <span
+                className="whitespace-nowrap"
+                title={`Expires ${new Date(room.expires_at).toLocaleString()}`}
+              >
                 {timeRemaining === 'expired' ? (
                   <span className="text-red-600 font-medium">expired</span>
                 ) : (
@@ -669,7 +693,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         {/* Messages */}
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-4 space-y-3 bg-gray-50/40"
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-gray-50/40"
           aria-live="polite"
         >
           {loadingMessages ? (
@@ -731,7 +755,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         {/* Composer */}
         <form
           onSubmit={handleSend}
-          className="border-t border-gray-200 bg-white px-3 sm:px-4 py-3 space-y-2"
+          className="border-t border-gray-200 bg-white px-2 sm:px-4 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 space-y-2"
         >
           {sendError && (
             <p className="text-xs text-red-600 px-1">{sendError}</p>
@@ -789,12 +813,12 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </div>
           )}
 
-          <div className="flex items-end gap-1.5 sm:gap-2">
+          <div className="flex items-end gap-1 sm:gap-2 min-w-0">
             <button
               type="button"
               onClick={() => setShowEmoji((s) => !s)}
               disabled={timeRemaining === 'expired'}
-              className={`shrink-0 p-2.5 h-[44px] w-[44px] flex items-center justify-center rounded-xl transition-colors ${
+              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
                 showEmoji ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100'
               } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               title="Emoji"
@@ -814,7 +838,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadPercent !== null || timeRemaining === 'expired'}
-              className={`shrink-0 p-2.5 h-[44px] w-[44px] flex items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 transition-colors ${
+              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 transition-colors ${
                 uploadPercent !== null || timeRemaining === 'expired'
                   ? 'opacity-50 cursor-not-allowed'
                   : 'cursor-pointer'
@@ -824,24 +848,24 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             >
               <Paperclip className="w-5 h-5" />
             </button>
-            <textarea
+            <TextareaAutosize
               ref={textareaRef}
               value={draft}
               onChange={handleDraftChange}
               onKeyDown={handleKeyDown}
-              placeholder={
-                isTouch
-                  ? `Message as ${displayName}`
-                  : `Message as ${displayName} (Enter to send, Shift+Enter for new line)`
+              placeholder="Type a message"
+              title={
+                isTouch ? undefined : 'Enter to send · Shift+Enter for a new line'
               }
-              rows={1}
-              className="flex-1 px-3 py-2.5 text-sm border border-gray-300 rounded-xl resize-y min-h-[44px] max-h-[40vh] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              minRows={1}
+              maxRows={6}
+              className="flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug border border-gray-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={sending || timeRemaining === 'expired'}
             />
             <button
               type="submit"
               disabled={sending || !draft.trim() || timeRemaining === 'expired'}
-              className={`shrink-0 h-[44px] w-[44px] flex items-center justify-center rounded-xl text-white transition-colors ${
+              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-white transition-colors ${
                 sending || !draft.trim() || timeRemaining === 'expired'
                   ? 'bg-gray-300 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
@@ -937,9 +961,11 @@ function MediaViewer({
   const kind = previewKind(att);
   const viewUrl = attachmentViewUrl(roomCode, att.key);
 
-  return (
+  // Portal to <body>: the chat wrapper's fade-in animation retains a
+  // transform, which would otherwise trap this "fixed" overlay inside it.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/90 animate-fade-in"
+      className="fixed inset-0 z-[70] flex flex-col bg-black/90 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-label={`Viewing ${att.name}`}
@@ -979,7 +1005,7 @@ function MediaViewer({
       </div>
 
       {/* Content */}
-      <div className="relative flex-1 min-h-0 flex items-center justify-center px-12 sm:px-16 pb-4">
+      <div className="relative flex-1 min-h-0 flex items-center justify-center px-2 sm:px-16 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {prevKey && (
           <button
             type="button"
@@ -987,7 +1013,7 @@ function MediaViewer({
               e.stopPropagation();
               onNavigate(prevKey);
             }}
-            className="absolute left-2 sm:left-4 z-10 p-2.5 text-white bg-white/10 hover:bg-white/25 rounded-full cursor-pointer"
+            className="absolute left-1 sm:left-4 z-10 p-2 sm:p-2.5 text-white bg-black/40 sm:bg-white/10 hover:bg-white/25 rounded-full cursor-pointer"
             title="Previous (←)"
             aria-label="Previous attachment"
           >
@@ -1026,7 +1052,7 @@ function MediaViewer({
               e.stopPropagation();
               onNavigate(nextKey);
             }}
-            className="absolute right-2 sm:right-4 z-10 p-2.5 text-white bg-white/10 hover:bg-white/25 rounded-full cursor-pointer"
+            className="absolute right-1 sm:right-4 z-10 p-2 sm:p-2.5 text-white bg-black/40 sm:bg-white/10 hover:bg-white/25 rounded-full cursor-pointer"
             title="Next (→)"
             aria-label="Next attachment"
           >
@@ -1034,7 +1060,8 @@ function MediaViewer({
           </button>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1175,6 +1202,38 @@ const MessageBubble = memo(function MessageBubble({
   const time = useMemo(() => formatChatTime(message.created_at), [message.created_at]);
   const [expanded, setExpanded] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const reactionsRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  // Close the reaction popover on any click/touch outside the actions
+  // cluster (capture phase so stopped propagation can't keep it open).
+  useEffect(() => {
+    if (!showReactions) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!actionsRef.current?.contains(e.target as Node)) {
+        setShowReactions(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [showReactions]);
+
+  // Clamp the reaction popover inside the viewport — anchoring alone can
+  // push it past either edge next to narrow bubbles on small screens.
+  // Uses the standalone `translate` property so it composes with the
+  // scale-in animation's `transform`.
+  useEffect(() => {
+    if (!showReactions) return;
+    const el = reactionsRef.current;
+    if (!el) return;
+    el.style.translate = '';
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    let dx = 0;
+    if (r.left < 4) dx = 4 - r.left;
+    else if (r.right > vw - 4) dx = vw - 4 - r.right;
+    if (dx !== 0) el.style.translate = `${dx}px 0`;
+  }, [showReactions]);
   const isLongText = message.attachment?.is_long_text === true;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
   const isCode = !message.attachment && looksLikeCode(message.content);
@@ -1186,8 +1245,9 @@ const MessageBubble = memo(function MessageBubble({
   // Hover/tap actions (react + reply) sit beside the bubble, WhatsApp-style.
   const actions = (
     <div
-      className={`relative self-center flex items-center gap-0.5 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${
-        mine ? 'order-first mr-1' : 'ml-1'
+      ref={actionsRef}
+      className={`relative self-center shrink-0 flex items-center gap-0.5 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${
+        mine ? 'order-first mr-0.5 sm:mr-1' : 'ml-0.5 sm:ml-1'
       }`}
     >
       <button
@@ -1210,8 +1270,11 @@ const MessageBubble = memo(function MessageBubble({
       </button>
       {showReactions && (
         <div
+          ref={reactionsRef}
+          // Grows toward the bubble (inward); the effect above then clamps
+          // it to the viewport for narrow bubbles near either edge.
           className={`absolute bottom-full mb-1 z-10 flex gap-0.5 bg-white border border-gray-200 rounded-full shadow-lg px-1.5 py-1 animate-fade-in-scale ${
-            mine ? 'right-0' : 'left-0'
+            mine ? 'left-0' : 'right-0'
           }`}
         >
           {CHAT_REACTIONS.map((emoji) => (
@@ -1241,7 +1304,7 @@ const MessageBubble = memo(function MessageBubble({
       }`}
     >
       <div
-        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 py-2 ${
+        className={`min-w-0 max-w-[calc(100%-4.25rem)] sm:max-w-[75%] rounded-2xl px-3 py-2 ${
           mine
             ? 'bg-blue-600 text-white rounded-br-sm'
             : 'bg-gray-100 text-gray-900 rounded-bl-sm'

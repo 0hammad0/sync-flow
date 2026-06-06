@@ -52,7 +52,7 @@ export default function Header() {
           </span>
         </Link>
 
-        <nav className="flex items-center gap-2 sm:gap-4">
+        <nav className="flex items-center gap-1 sm:gap-4">
           {loading ? (
             <div className="flex items-center gap-2 px-3 py-2">
               <LoadingSpinner size="sm" className="text-gray-400" />
@@ -61,19 +61,19 @@ export default function Header() {
             <>
               <Link
                 href="/chat"
-                className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1.5 font-medium"
+                className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1.5 font-medium"
                 title="Temporary chat rooms"
               >
                 <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span>Chat</span>
+                <span className="max-[420px]:hidden">Chat</span>
               </Link>
               <Link
                 href="/receive"
-                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
+                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
                 title="Receive files from your phone"
               >
                 <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span>Receive</span>
+                <span className="max-[420px]:hidden">Receive</span>
               </Link>
               <Link
                 href="/dashboard"
@@ -100,19 +100,19 @@ export default function Header() {
             <>
               <Link
                 href="/chat"
-                className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1.5 font-medium"
+                className="text-xs sm:text-sm text-emerald-600 hover:text-emerald-700 transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1.5 font-medium"
                 title="Temporary chat rooms"
               >
                 <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span>Chat</span>
+                <span className="max-[420px]:hidden">Chat</span>
               </Link>
               <Link
                 href="/receive"
-                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
+                className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-700 transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 flex items-center gap-1.5 font-medium"
                 title="Receive files from your phone"
               >
                 <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span>Receive</span>
+                <span className="max-[420px]:hidden">Receive</span>
               </Link>
               <Link
                 href="/login"
