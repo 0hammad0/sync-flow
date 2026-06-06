@@ -1,37 +1,43 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { Moon, Sun } from 'lucide-react';
 
 const THEME_KEY = 'sf-theme';
 
-/**
- * Dark mode toggle. The initial class is set before paint by the inline
- * script in layout.tsx, so this component only needs to read the current
- * state from <html> and flip it.
- */
+// The <html> class list IS the theme store — the inline script in layout.tsx
+// sets it before paint. Subscribe via MutationObserver so any toggle
+// (this button, another tab via storage, devtools) re-renders us.
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+  return () => observer.disconnect();
+}
+
+function getSnapshot(): boolean {
+  return document.documentElement.classList.contains('dark');
+}
+
+// Server render: assume dark (the default theme) — corrected on hydration.
+function getServerSnapshot(): boolean {
+  return true;
+}
+
 export default function ThemeToggle() {
-  const [dark, setDark] = useState<boolean | null>(null);
+  const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'));
-  }, []);
-
-  const toggle = () => {
+  const toggle = useCallback(() => {
     const next = !document.documentElement.classList.contains('dark');
     document.documentElement.classList.toggle('dark', next);
-    setDark(next);
     try {
       window.localStorage.setItem(THEME_KEY, next ? 'dark' : 'light');
     } catch {
       /* storage blocked — theme still applies for this page */
     }
-  };
-
-  // Render a stable placeholder until mounted to avoid hydration mismatch.
-  if (dark === null) {
-    return <div className="h-9 w-9 sm:h-10 sm:w-10" aria-hidden="true" />;
-  }
+  }, []);
 
   return (
     <button

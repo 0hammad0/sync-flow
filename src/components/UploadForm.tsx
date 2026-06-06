@@ -10,7 +10,6 @@ import {
   isEncryptionSupported,
 } from '@/lib/crypto';
 import CopyButton from './CopyButton';
-import LoadingSpinner from './LoadingSpinner';
 import ProgressBar from './ProgressBar';
 import QRModal from './QRModal';
 import Button from './ui/Button';

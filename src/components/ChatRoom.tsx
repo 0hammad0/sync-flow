@@ -411,7 +411,12 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const uploadAttachment = useCallback(
     (file: File, opts: { longText?: boolean } = {}) => {
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        setSendError('File is larger than the 100MB limit.');
+        // Spell out the actual size — phone videos routinely exceed the cap
+        // and a vague message reads like "upload is broken".
+        setSendError(
+          `"${file.name}" is ${formatFileSize(file.size)} — the limit is 100 MB. ` +
+            'Try a shorter clip or a lower resolution.'
+        );
         return;
       }
       if (file.size === 0) {
