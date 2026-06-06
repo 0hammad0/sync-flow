@@ -4,8 +4,8 @@
   "description": "Fast & secure file sharing with end-to-end encryption",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#111827",
+  "background_color": "#0a0d0c",
+  "theme_color": "#0a0d0c",
   "icons": [
     {
       "src": "/logo.png",

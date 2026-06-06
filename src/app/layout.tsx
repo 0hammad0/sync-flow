@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 import Header from "@/components/Header";
+import Logo from "@/components/Logo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -132,6 +134,24 @@ export default function RootLayout({
         <main className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
           {children}
         </main>
+        <footer className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 mt-4 border-t border-edge">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-fg-faint">
+              <Logo size={16} className="w-4 h-4" />
+              <span className="font-mono tracking-wide">
+                © {new Date().getFullYear()} SyncFlow
+              </span>
+            </div>
+            <nav className="flex items-center gap-5 text-xs text-fg-muted">
+              <Link href="/terms" className="hover:text-fg transition-colors">
+                Terms of Service
+              </Link>
+              <Link href="/privacy" className="hover:text-fg transition-colors">
+                Privacy Policy
+              </Link>
+            </nav>
+          </div>
+        </footer>
       </body>
     </html>
   );

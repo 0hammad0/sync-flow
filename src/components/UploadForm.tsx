@@ -471,6 +471,10 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
           {!file && (
             <p className="mt-4 text-xs text-center text-fg-faint">
               Your file will be securely stored and a unique link will be generated for sharing.
+              <br />
+              By uploading you agree to our{' '}
+              <a href="/terms" className="underline hover:text-fg-muted">Terms</a> and{' '}
+              <a href="/privacy" className="underline hover:text-fg-muted">Privacy Policy</a>.
             </p>
           )}
         </div>

@@ -106,6 +106,18 @@ export default function LoginPage() {
         >
           Send Sign-In Link
         </Button>
+
+        <p className="text-[11px] text-fg-faint text-center">
+          By signing in you agree to our{' '}
+          <Link href="/terms" className="text-fg-muted hover:text-fg underline">
+            Terms of Service
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" className="text-fg-muted hover:text-fg underline">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </form>
 
       {message && (
