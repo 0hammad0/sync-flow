@@ -83,6 +83,14 @@ async function auditOffscreen(page, label) {
       if (r.width === 0 || r.height === 0) continue;
       const style = getComputedStyle(el);
       if (style.visibility === 'hidden' || style.display === 'none') continue;
+      // Decorative overlays (aurora gradients etc.) intentionally bleed past
+      // the viewport inside clipped, non-interactive containers — skip them.
+      if (el.closest('[aria-hidden="true"]')) continue;
+      let decorative = false;
+      for (let n = el; n; n = n.parentElement) {
+        if (getComputedStyle(n).pointerEvents === 'none') { decorative = true; break; }
+      }
+      if (decorative) continue;
       if (r.right > vw + 1 || r.left < -1) {
         bad.push(
           `${el.tagName.toLowerCase()}.${String(el.className).split(' ').slice(0, 3).join('.')} ` +

@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatFileSize } from '@/lib/utils';
+import { getFileByToken } from '@/actions/files';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock, Lock } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock, Download } from 'lucide-react';
 
 interface FileInfo {
   name: string;
@@ -16,13 +17,14 @@ interface FileInfo {
   isEncrypted: boolean;
 }
 
-type SessionStatus = 'loading' | 'waiting' | 'completed' | 'expired' | 'error';
+type SessionStatus = 'loading' | 'waiting' | 'expired' | 'error';
 
 export default function ReceivePage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sendUrl, setSendUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>('loading');
-  const [file, setFile] = useState<FileInfo | null>(null);
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(600);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +53,8 @@ export default function ReceivePage() {
     createSession();
   }, []);
 
-  // Poll for file upload
+  // Poll for uploads — the session keeps accepting files until it expires,
+  // so polling continues after the first arrival and the list grows live.
   const checkStatus = useCallback(async () => {
     if (!sessionToken || status !== 'waiting') return;
 
@@ -60,10 +63,7 @@ export default function ReceivePage() {
       const data = await response.json();
 
       if (data.success) {
-        if (data.status === 'completed' && data.file) {
-          setFile(data.file);
-          setStatus('completed');
-        }
+        if (Array.isArray(data.files)) setFiles(data.files);
       } else if (response.status === 410) {
         setStatus('expired');
       }
@@ -71,6 +71,43 @@ export default function ReceivePage() {
       // Silently fail on poll errors
     }
   }, [sessionToken, status]);
+
+  // Direct download via a fresh signed URL (files from the phone are
+  // unencrypted, so Content-Disposition triggers a plain download).
+  const downloadOne = useCallback(async (token: string) => {
+    setDownloading(token);
+    try {
+      const info = await getFileByToken(token);
+      if (info.success && info.signedUrl) {
+        const link = document.createElement('a');
+        link.href = info.signedUrl;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } finally {
+      setDownloading(null);
+    }
+  }, []);
+
+  const downloadAll = useCallback(async () => {
+    setDownloading('all');
+    try {
+      for (const f of files) {
+        const info = await getFileByToken(f.token);
+        if (info.success && info.signedUrl) {
+          const link = document.createElement('a');
+          link.href = info.signedUrl;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    } finally {
+      setDownloading(null);
+    }
+  }, [files]);
 
   // Poll every 2 seconds
   useEffect(() => {
@@ -107,7 +144,7 @@ export default function ReceivePage() {
     setStatus('loading');
     setSessionToken(null);
     setSendUrl(null);
-    setFile(null);
+    setFiles([]);
     setError(null);
 
     // Create new session
@@ -174,48 +211,7 @@ export default function ReceivePage() {
     );
   }
 
-  // Completed state
-  if (status === 'completed' && file) {
-    return (
-      <div className="max-w-md mx-auto py-8 animate-fade-in">
-        <div className="border-flow rounded-3xl p-6 text-center shadow-[var(--shadow-card)]">
-          <span className="inline-flex w-16 h-16 mb-4 rounded-full bg-flow text-white items-center justify-center glow-dot animate-pop-in">
-            <CheckCircle2 className="w-8 h-8" />
-          </span>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">File Received!</h1>
-          <p className="text-sm text-fg-muted mb-4">
-            Your file has been uploaded successfully.
-          </p>
-
-          <div className="bg-surface-2 border border-edge rounded-2xl p-4 mb-4">
-            <p className="font-medium text-fg truncate" title={file.name}>
-              {file.name}
-            </p>
-            <p className="text-sm text-fg-muted">{formatFileSize(file.size)}</p>
-            {file.isEncrypted && (
-              <span className="inline-flex items-center gap-1 mt-2 px-2.5 py-1 bg-brand/10 text-brand-text text-xs rounded-full font-medium">
-                <Lock className="w-3 h-3" />
-                Encrypted
-              </span>
-            )}
-          </div>
-
-          <Button href={`/share/${file.token}`} variant="primary" size="lg" fullWidth>
-            Download File
-          </Button>
-
-          <button
-            onClick={handleNewSession}
-            className="mt-4 text-sm text-brand-text hover:underline cursor-pointer font-medium"
-          >
-            Receive another file
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Waiting state - show QR code
+  // Waiting state - show QR code (+ growing list of received files)
   return (
     <div className="max-w-md mx-auto py-8 animate-fade-in">
       <div className="text-center mb-6">
@@ -224,9 +220,68 @@ export default function ReceivePage() {
           Receive from Phone
         </h1>
         <p className="text-sm text-fg-muted">
-          Scan this QR code with your phone to send a file to this device
+          Scan this QR code with your phone to send files to this device
         </p>
       </div>
+
+      {/* Received files — grows live while the session stays open */}
+      {files.length > 0 && (
+        <div className="border-flow rounded-3xl p-5 mb-4 shadow-[var(--shadow-card)] animate-fade-in">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <p className="text-sm font-semibold text-fg flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-success-text" />
+              {files.length} {files.length === 1 ? 'file' : 'files'} received
+            </p>
+            {files.length > 1 && (
+              <button
+                type="button"
+                onClick={downloadAll}
+                disabled={downloading !== null}
+                className="flex items-center gap-1.5 text-xs font-medium text-brand-text hover:underline cursor-pointer disabled:opacity-50"
+              >
+                {downloading === 'all' ? (
+                  <LoadingSpinner size="sm" className="text-brand-text" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )}
+                Download all
+              </button>
+            )}
+          </div>
+          <ul className="space-y-2">
+            {files.map((f) => (
+              <li
+                key={f.token}
+                className="flex items-center gap-2.5 p-2.5 bg-surface-2 border border-edge rounded-xl"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-medium text-fg truncate" title={f.name}>
+                    {f.name}
+                  </span>
+                  <span className="block text-[10px] text-fg-muted">{formatFileSize(f.size)}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => downloadOne(f.token)}
+                  disabled={downloading !== null}
+                  className="p-2 rounded-lg text-brand-text hover:bg-brand/10 cursor-pointer disabled:opacity-50"
+                  title={`Download ${f.name}`}
+                  aria-label={`Download ${f.name}`}
+                >
+                  {downloading === f.token ? (
+                    <LoadingSpinner size="sm" className="text-brand-text" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-[11px] text-fg-faint text-center">
+            Keep sending from your phone — new files appear here automatically
+          </p>
+        </div>
+      )}
 
       <div className="bg-surface border border-edge rounded-3xl p-6 shadow-[var(--shadow-card)]">
         {/* QR Code — gradient frame */}
@@ -256,7 +311,9 @@ export default function ReceivePage() {
         {/* Status */}
         <div className="flex items-center justify-center gap-2 p-3 bg-brand/5 border border-brand/15 rounded-xl">
           <LoadingSpinner size="sm" className="text-brand-text" />
-          <span className="text-sm text-brand-text font-medium">Waiting for file...</span>
+          <span className="text-sm text-brand-text font-medium">
+            {files.length > 0 ? 'Listening for more files…' : 'Waiting for files...'}
+          </span>
         </div>
 
         {/* Instructions */}
@@ -277,7 +334,7 @@ export default function ReceivePage() {
             </li>
             <li className="flex items-start gap-2">
               <span className="font-mono text-fg-faint">4.</span>
-              <span>Select a file and it will appear here automatically</span>
+              <span>Select one or more files — each appears here automatically</span>
             </li>
           </ol>
         </div>

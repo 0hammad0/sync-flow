@@ -5,6 +5,7 @@ import {
   countOwnerFiles,
   createFile,
   getReceiveSession,
+  MAX_SESSION_FILES,
 } from '@/lib/firebase/files';
 import { deleteObject, putObject } from '@/lib/r2';
 
@@ -33,8 +34,14 @@ export async function POST(request: NextRequest) {
     if (new Date(session.expires_at) < new Date()) {
       return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
     }
-    if (session.file_token) {
-      return NextResponse.json({ success: false, error: 'Session already has a file' }, { status: 400 });
+    // Sessions accept multiple files until they expire (WhatsApp-style
+    // batch sending from the phone) — capped to stop runaway scripts.
+    const alreadySent = session.file_tokens?.length ?? (session.file_token ? 1 : 0);
+    if (alreadySent >= MAX_SESSION_FILES) {
+      return NextResponse.json(
+        { success: false, error: `Session limit reached (${MAX_SESSION_FILES} files)` },
+        { status: 400 }
+      );
     }
 
     if (session.receiver_id) {

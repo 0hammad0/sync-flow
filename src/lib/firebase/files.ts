@@ -7,11 +7,17 @@ export const RECEIVE_SESSIONS_COLLECTION = 'receive_sessions';
 
 export type ReceiveSession = {
   session_token: string;
+  // Latest file (legacy field, kept for compatibility).
   file_token: string | null;
+  // All files sent in this session, in arrival order.
+  file_tokens?: string[];
   created_at: string;
   expires_at: string;
   receiver_id: string | null;
 };
+
+// Phone→PC sessions accept several files; cap stops runaway scripts.
+export const MAX_SESSION_FILES = 25;
 
 export type NewFileInput = Omit<FileRecord, 'id' | 'created_at' | 'download_count'> & {
   created_at?: string;
@@ -125,6 +131,7 @@ export async function createReceiveSession(input: {
   const doc: ReceiveSession = {
     session_token: input.session_token,
     file_token: null,
+    file_tokens: [],
     created_at: new Date(now).toISOString(),
     expires_at: new Date(now + ttlMs).toISOString(),
     receiver_id: input.receiver_id,
@@ -140,7 +147,10 @@ export async function getReceiveSession(session_token: string): Promise<ReceiveS
 }
 
 export async function attachFileToSession(session_token: string, file_token: string): Promise<void> {
-  await sessionsRef().doc(session_token).update({ file_token });
+  await sessionsRef().doc(session_token).update({
+    file_token, // latest, for old readers
+    file_tokens: FieldValue.arrayUnion(file_token),
+  });
 }
 
 export async function deleteExpiredReceiveSessions(): Promise<number> {

@@ -139,6 +139,16 @@ export async function POST(
     const buffer = Buffer.from(await file.arrayBuffer());
     await putObject(key, buffer, mimeType);
 
+    // Multi-file albums: each file is uploaded separately (uploadOnly=1),
+    // then ONE message referencing all of them is posted via /messages.
+    // Orphans from abandoned sends are reclaimed with the room's prefix wipe.
+    if (formData.get('uploadOnly') === '1') {
+      return NextResponse.json({
+        success: true,
+        attachment: { key, name: originalName, size: file.size, mime_type: mimeType },
+      });
+    }
+
     const user = await currentUser();
     try {
       const message = await addMessage(code, {

@@ -6,12 +6,37 @@ import {
   getMessage,
   getRoom,
   isRoomExpired,
+  MAX_ATTACHMENT_BYTES,
   MAX_MESSAGE_BYTES,
+  roomStoragePrefix,
   sanitizeSenderName,
 } from '@/lib/firebase/chat';
-import type { ChatReplyRef } from '@/types';
+import type { ChatAttachment, ChatReplyRef } from '@/types';
 
 const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
+const MAX_ALBUM_FILES = 10;
+
+/**
+ * Validate a client-supplied attachments array (files were uploaded
+ * beforehand via /attachments?uploadOnly=1). Keys are constrained to THIS
+ * room's storage prefix so a message can't point at other rooms' files.
+ * Returns the cleaned array, or null when the shape is invalid.
+ */
+function validateAttachments(raw: unknown, code: string): ChatAttachment[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ALBUM_FILES) return null;
+  const prefix = roomStoragePrefix(code);
+  const out: ChatAttachment[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') return null;
+    const { key, name, size, mime_type } = entry as Record<string, unknown>;
+    if (typeof key !== 'string' || !key.startsWith(prefix) || key.includes('..')) return null;
+    if (typeof name !== 'string' || name.length === 0 || name.length > 255) return null;
+    if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0 || size > MAX_ATTACHMENT_BYTES) return null;
+    if (typeof mime_type !== 'string' || mime_type.length > 120) return null;
+    out.push({ key, name, size, mime_type });
+  }
+  return out;
+}
 import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/lib/utils';
 import { clientKey, rateLimit } from '@/lib/rate-limit';
 
@@ -47,6 +72,7 @@ export async function POST(
     tz?: unknown;
     replyToId?: unknown;
     deviceId?: unknown;
+    attachments?: unknown;
   };
   try {
     body = await request.json();
@@ -69,12 +95,23 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'senderName empty' }, { status: 400 });
   }
 
-  // content
+  // attachments (optional album of pre-uploaded files)
+  let attachments: ChatAttachment[] | undefined;
+  if (body.attachments !== undefined) {
+    const cleaned = validateAttachments(body.attachments, code);
+    if (!cleaned) {
+      return NextResponse.json({ success: false, error: 'invalid attachments' }, { status: 400 });
+    }
+    attachments = cleaned;
+  }
+
+  // content — may be empty when the message is an attachment album (the
+  // caption is optional, like WhatsApp).
   if (typeof body.content !== 'string') {
     return NextResponse.json({ success: false, error: 'content required' }, { status: 400 });
   }
   const content = body.content;
-  if (content.length === 0) {
+  if (content.length === 0 && !attachments) {
     return NextResponse.json({ success: false, error: 'content empty' }, { status: 400 });
   }
   if (Buffer.byteLength(content, 'utf8') > MAX_MESSAGE_BYTES) {
@@ -115,6 +152,9 @@ export async function POST(
       sender_device_id: sanitizeDeviceId(body.deviceId),
       content,
       sender_tz: tz,
+      // Single file keeps the legacy field too so older readers still work.
+      attachment: attachments?.length === 1 ? attachments[0] : undefined,
+      attachments,
       reply_to,
     });
 

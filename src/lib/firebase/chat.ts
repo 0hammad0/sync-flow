@@ -114,6 +114,7 @@ export async function addMessage(
     sender_tz: string;
     kind?: 'chat' | 'system';
     attachment?: ChatAttachment;
+    attachments?: ChatAttachment[];
     reply_to?: ChatReplyRef;
   }
 ): Promise<ChatMessage> {
@@ -131,10 +132,17 @@ export async function addMessage(
     sender_tz: input.sender_tz,
     kind: input.kind ?? 'chat',
     attachment: input.attachment ?? null,
+    attachments: input.attachments ?? null,
     reply_to: input.reply_to ?? null,
   };
   await docRef.set(message);
   return message;
+}
+
+/** All attachments of a message — album field first, legacy single fallback. */
+export function messageAttachments(m: ChatMessage): ChatAttachment[] {
+  if (m.attachments?.length) return m.attachments;
+  return m.attachment ? [m.attachment] : [];
 }
 
 export async function getMessage(code: string, messageId: string): Promise<ChatMessage | null> {
@@ -148,9 +156,10 @@ export async function getMessage(code: string, messageId: string): Promise<ChatM
  * server-built from the REAL target message, so quotes can't be forged.
  */
 export function buildReplyRef(target: ChatMessage): ChatReplyRef {
+  const atts = messageAttachments(target);
   let attachment_kind: ChatReplyRef['attachment_kind'] = null;
-  if (target.attachment) {
-    const mime = target.attachment.mime_type || '';
+  if (atts.length > 0) {
+    const mime = atts[0].mime_type || '';
     attachment_kind = mime.startsWith('image/')
       ? 'image'
       : mime.startsWith('video/')
@@ -161,7 +170,9 @@ export function buildReplyRef(target: ChatMessage): ChatReplyRef {
   }
   const snippet = target.content
     ? target.content.slice(0, 120)
-    : (target.attachment?.name ?? '');
+    : atts.length > 1
+      ? `${atts[0].name} +${atts.length - 1} more`
+      : (atts[0]?.name ?? '');
   return { id: target.id, sender_name: target.sender_name, snippet, attachment_kind };
 }
 

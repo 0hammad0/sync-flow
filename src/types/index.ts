@@ -117,7 +117,11 @@ export interface ChatMessage {
   // 'system' = join/leave announcements rendered as a centered pill;
   // absent/'chat' = a normal user message bubble.
   kind?: 'chat' | 'system';
+  // Single attachment (legacy field, still written for one-file sends).
   attachment?: ChatAttachment | null;
+  // Multi-file album: several files shared as ONE message. Readers should
+  // use attachments when present, falling back to attachment.
+  attachments?: ChatAttachment[] | null;
   reply_to?: ChatReplyRef | null;
   // emoji -> reactors (one reaction per device). Old messages may still hold
   // plain name strings — normalizeReactors() upgrades them on read.

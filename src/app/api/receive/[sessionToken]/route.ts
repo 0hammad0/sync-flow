@@ -17,26 +17,38 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
     }
 
-    if (session.file_token) {
-      const file = await getFile(session.file_token);
+    const tokens =
+      session.file_tokens && session.file_tokens.length > 0
+        ? session.file_tokens
+        : session.file_token
+          ? [session.file_token]
+          : [];
+
+    if (tokens.length > 0) {
+      const records = await Promise.all(tokens.map((t) => getFile(t)));
+      const files = records
+        .filter((f): f is NonNullable<typeof f> => f !== null)
+        .map((f) => ({
+          name: f.original_name,
+          size: f.size,
+          mimeType: f.mime_type,
+          token: f.token,
+          isEncrypted: f.is_encrypted,
+        }));
       return NextResponse.json({
         success: true,
+        // The session stays open for more files until it expires.
         status: 'completed',
-        file: file
-          ? {
-              name: file.original_name,
-              size: file.size,
-              mimeType: file.mime_type,
-              token: file.token,
-              isEncrypted: file.is_encrypted,
-            }
-          : null,
+        file: files[files.length - 1] ?? null, // legacy single-file readers
+        files,
+        expiresAt: session.expires_at,
       });
     }
 
     return NextResponse.json({
       success: true,
       status: 'waiting',
+      files: [],
       expiresAt: session.expires_at,
     });
   } catch (error) {

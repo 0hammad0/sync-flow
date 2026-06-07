@@ -305,6 +305,59 @@ if (!attRes.ok || !att.success) fail(`attachment upload: HTTP ${attRes.status} $
   console.log('4c. image attachment: real-time delivery, caption, byte round-trip, cross-room key rejected');
 }
 
+// --- 3e. Multi-file album: uploadOnly x2 -> ONE message with attachments[] ---
+{
+  async function uploadOnly(name, bytes, type) {
+    const f = new FormData();
+    f.append('file', new Blob([bytes], { type }), name);
+    f.append('originalName', name);
+    f.append('senderName', 'Alice');
+    f.append('caption', '');
+    f.append('tz', 'UTC');
+    f.append('uploadOnly', '1');
+    const res = await fetch(`${BASE}/api/chat/${room.code}/attachments`, { method: 'POST', body: f });
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.attachment) fail(`uploadOnly ${name}: ${JSON.stringify(data)}`);
+    return data.attachment;
+  }
+  const a1 = await uploadOnly('one.png', pngBytes, 'image/png');
+  const a2 = await uploadOnly('two.bin', Buffer.from('album file two'), 'application/octet-stream');
+  const msgRes = await fetch(`${BASE}/api/chat/${room.code}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      senderName: 'Alice', content: 'album caption', tz: 'UTC',
+      deviceId: 'device-alice-111111', attachments: [a1, a2],
+    }),
+  });
+  const msg = await msgRes.json();
+  if (!msgRes.ok || !msg.success) fail(`album message: HTTP ${msgRes.status} ${JSON.stringify(msg)}`);
+  let m;
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && !(m = snapshots.find((s) => s.id === msg.id))) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  if (!m) fail('album message never arrived via onSnapshot');
+  if (m.attachments?.length !== 2) fail(`expected 2 album attachments, got ${m.attachments?.length}`);
+  if (m.content !== 'album caption') fail('album caption mismatch');
+  // both files must serve
+  for (const a of m.attachments) {
+    const dl = await fetch(`${BASE}/api/chat/${room.code}/attachments?key=${encodeURIComponent(a.key)}`);
+    if (!dl.ok) fail(`album file ${a.name} GET failed: ${dl.status}`);
+  }
+  // album referencing a key OUTSIDE this room's prefix must be rejected
+  const sneaky = await fetch(`${BASE}/api/chat/${room.code}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      senderName: 'Alice', content: '', tz: 'UTC',
+      attachments: [{ ...a1, key: 'chat/OTHERROOM/x/evil.png' }],
+    }),
+  });
+  if (sneaky.status !== 400) fail(`cross-room album key: expected 400, got ${sneaky.status}`);
+  console.log('4e. album: 2 files in one message, both serve, caption kept, cross-room key rejected');
+}
+
 // --- 3d. Long text messages (up to 15MB, stored in R2 with inline preview) ---
 {
   const longBody = 'long message line with some formatting\n  indented line\n'.repeat(40_000); // ~2.1MB
@@ -344,7 +397,9 @@ if (!attRes.ok || !att.success) fail(`attachment upload: HTTP ${attRes.status} $
 }
 
 // --- 4. Assertions: order, content, server timestamps ---
-const chatMsgs = snapshots.filter((s) => s.kind !== 'system' && !s.attachment);
+const chatMsgs = snapshots.filter(
+  (s) => s.kind !== 'system' && !s.attachment && !(s.attachments?.length)
+);
 const sysMsgs = snapshots.filter((s) => s.kind === 'system');
 if (chatMsgs.length !== 5) fail(`expected 5 text chat messages (2 + 1 reply + 2 Sams), listener has ${chatMsgs.length}`);
 if (sysMsgs.length !== 4) fail(`expected 4 system messages (2 joins + 2 leaves), got ${sysMsgs.length}`);

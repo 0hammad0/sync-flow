@@ -5,125 +5,129 @@ import { formatFileSize } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import Button from '@/components/ui/Button';
 import {
+  AlertCircle,
   CheckCircle2,
   Clock,
-  FileText,
+  File as FileIcon,
   Image as ImageIcon,
+  Film,
   MonitorSmartphone,
+  Plus,
   UploadCloud,
+  X,
 } from 'lucide-react';
 
 interface SendPageProps {
   params: Promise<{ sessionToken: string }>;
 }
 
-type UploadStatus = 'idle' | 'uploading' | 'success' | 'error' | 'expired';
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+type ItemStatus = 'pending' | 'uploading' | 'done' | 'error';
+interface Item {
+  file: File;
+  status: ItemStatus;
+  progress: number;
+  error?: string;
+}
+
+function ItemIcon({ file, className }: { file: File; className: string }) {
+  if (file.type.startsWith('image/')) return <ImageIcon className={className} />;
+  if (file.type.startsWith('video/')) return <Film className={className} />;
+  return <FileIcon className={className} />;
+}
 
 export default function SendPage({ params }: SendPageProps) {
   const { sessionToken } = use(params);
-  const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<UploadStatus>('idle');
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [expired, setExpired] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const pending = items.filter((i) => i.status === 'pending');
+  const doneCount = items.filter((i) => i.status === 'done').length;
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
-    }
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setItems((prev) => {
+      const known = new Set(prev.map((i) => `${i.file.name}:${i.file.size}`));
+      const fresh = picked
+        .filter((f) => !known.has(`${f.name}:${f.size}`))
+        .map<Item>((f) => ({
+          file: f,
+          status: f.size === 0 || f.size > MAX_FILE_SIZE ? 'error' : 'pending',
+          progress: 0,
+          error:
+            f.size === 0
+              ? 'Empty file'
+              : f.size > MAX_FILE_SIZE
+                ? `${formatFileSize(f.size)} — over the 100 MB limit`
+                : undefined,
+        }));
+      return [...prev, ...fresh];
+    });
+    e.target.value = '';
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
+  const removeItem = (idx: number) =>
+    setItems((prev) => prev.filter((_, i) => i !== idx));
 
-    setStatus('uploading');
-    setProgress(0);
-    setError(null);
+  const setItem = (idx: number, patch: Partial<Item>) =>
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
 
-    try {
-      // Create form data
+  const uploadOne = (item: Item, idx: number) =>
+    new Promise<void>((resolve) => {
       const formData = new FormData();
-      formData.append('file', file);
-      formData.append('originalName', file.name);
-      formData.append('mimeType', file.type || 'application/octet-stream');
+      formData.append('file', item.file);
+      formData.append('originalName', item.file.name);
+      formData.append('mimeType', item.file.type || 'application/octet-stream');
       formData.append('isEncrypted', 'false');
       formData.append('sessionToken', sessionToken);
 
-      // Upload with XHR for progress
-      const result = await new Promise<{ success: boolean; token?: string; error?: string }>((resolve) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            setProgress(Math.round((e.loaded / e.total) * 100));
-          }
-        });
-
-        xhr.addEventListener('load', () => {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            resolve(response);
-          } catch {
-            resolve({ success: false, error: 'Invalid server response' });
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          resolve({ success: false, error: 'Network error' });
-        });
-
-        xhr.open('POST', '/api/send');
-        xhr.send(formData);
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          setItem(idx, { progress: Math.round((e.loaded / e.total) * 100) });
+        }
       });
+      xhr.addEventListener('load', () => {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300 && res.success) {
+            setItem(idx, { status: 'done', progress: 100 });
+          } else if (res.error === 'Session expired') {
+            setExpired(true);
+            setItem(idx, { status: 'error', error: 'Session expired' });
+          } else {
+            setItem(idx, { status: 'error', error: res.error || `HTTP ${xhr.status}` });
+          }
+        } catch {
+          setItem(idx, { status: 'error', error: 'Invalid server response' });
+        }
+        resolve();
+      });
+      xhr.addEventListener('error', () => {
+        setItem(idx, { status: 'error', error: 'Network error' });
+        resolve();
+      });
+      xhr.open('POST', '/api/send');
+      xhr.send(formData);
+    });
 
-      if (result.success) {
-        setStatus('success');
-      } else if (result.error === 'Session expired') {
-        setStatus('expired');
-      } else {
-        setError(result.error || 'Upload failed');
-        setStatus('error');
-      }
-    } catch {
-      setError('An unexpected error occurred');
-      setStatus('error');
+  // Sequential uploads — each file appears on the PC the moment it lands.
+  const handleUpload = async () => {
+    if (busy) return;
+    setBusy(true);
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].status !== 'pending' || expired) continue;
+      setItem(i, { status: 'uploading', progress: 0 });
+      await uploadOne(items[i], i);
     }
+    setBusy(false);
   };
 
-  const handleReset = () => {
-    setFile(null);
-    setStatus('idle');
-    setProgress(0);
-    setError(null);
-    if (inputRef.current) {
-      inputRef.current.value = '';
-    }
-  };
-
-  // Success state
-  if (status === 'success') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="max-w-sm w-full border-flow rounded-3xl p-6 text-center animate-fade-in shadow-[var(--shadow-card)]">
-          <span className="inline-flex w-16 h-16 mb-4 rounded-full bg-flow text-white items-center justify-center glow-dot animate-pop-in">
-            <CheckCircle2 className="w-8 h-8" />
-          </span>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-2">File Sent!</h1>
-          <p className="text-sm text-fg-muted mb-4">
-            Your file has been sent to the computer. You can close this page.
-          </p>
-          <div className="p-3 bg-surface-2 border border-edge rounded-2xl">
-            <p className="text-sm font-medium text-fg truncate">{file?.name}</p>
-            <p className="text-xs text-fg-muted">{file ? formatFileSize(file.size) : ''}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Expired state
-  if (status === 'expired') {
+  if (expired && doneCount === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="max-w-sm w-full bg-surface border border-edge rounded-3xl p-6 text-center animate-fade-in">
@@ -148,101 +152,122 @@ export default function SendPage({ params }: SendPageProps) {
           </span>
           <h1 className="font-display text-2xl font-bold tracking-tight text-fg mb-1">Send to Computer</h1>
           <p className="text-sm text-fg-muted">
-            Select a file to send it to your computer instantly
+            Select one or more files — they appear on your computer as each finishes
           </p>
         </div>
 
         <div className="bg-surface border border-edge rounded-3xl p-5 shadow-[var(--shadow-card)]">
-          {/* File input */}
-          <div
-            className={`relative border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${
-              file ? 'border-success/40 bg-success/5' : 'border-edge-strong'
-            }`}
-          >
+          {/* Picker */}
+          <div className="relative border-2 border-dashed rounded-2xl p-5 text-center transition-colors border-edge-strong">
             <input
               ref={inputRef}
               type="file"
+              multiple
               onChange={handleChange}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              disabled={status === 'uploading'}
+              disabled={busy}
+              aria-label="Select files to send"
             />
-
-            {file ? (
-              <div className="space-y-2 animate-fade-in-scale">
-                <span className="inline-flex w-12 h-12 rounded-2xl bg-flow text-white items-center justify-center">
-                  {file.type.startsWith('image/') ? (
-                    <ImageIcon className="w-6 h-6" />
-                  ) : (
-                    <FileText className="w-6 h-6" />
-                  )}
-                </span>
-                <p className="font-medium text-fg text-sm truncate px-2">
-                  {file.name}
-                </p>
-                <p className="text-xs text-fg-muted">{formatFileSize(file.size)}</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <span className="inline-flex w-12 h-12 rounded-2xl bg-brand/10 text-brand-text items-center justify-center animate-float">
-                  <UploadCloud className="w-6 h-6" />
-                </span>
-                <p className="text-sm text-fg font-medium">Tap to select a file</p>
-                <p className="text-xs text-fg-faint">Maximum 100MB</p>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <span className="inline-flex w-12 h-12 rounded-2xl bg-brand/10 text-brand-text items-center justify-center animate-float">
+                {items.length === 0 ? <UploadCloud className="w-6 h-6" /> : <Plus className="w-6 h-6" />}
+              </span>
+              <p className="text-sm text-fg font-medium">
+                {items.length === 0 ? 'Tap to select files' : 'Add more files'}
+              </p>
+              <p className="text-xs text-fg-faint">Multiple allowed · 100MB each</p>
+            </div>
           </div>
 
-          {/* Progress bar */}
-          {status === 'uploading' && (
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-fg-muted mb-1">
-                <span>Uploading...</span>
-                <span className="tabular-nums">{progress}%</span>
-              </div>
-              <div className="w-full bg-surface-3 rounded-full h-2 overflow-hidden">
-                <div
-                  className="relative bg-flow h-2 rounded-full transition-all duration-300 overflow-hidden progress-shimmer"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
+          {/* File list */}
+          {items.length > 0 && (
+            <ul className="mt-4 space-y-2">
+              {items.map((item, idx) => (
+                <li
+                  key={`${item.file.name}:${item.file.size}`}
+                  className="flex items-center gap-2.5 p-2.5 bg-surface-2 border border-edge rounded-xl"
+                >
+                  <span
+                    className={`inline-flex w-8 h-8 shrink-0 rounded-lg items-center justify-center ${
+                      item.status === 'done'
+                        ? 'bg-success/15 text-success-text'
+                        : item.status === 'error'
+                          ? 'bg-danger/10 text-danger-text'
+                          : 'bg-brand/10 text-brand-text'
+                    }`}
+                  >
+                    {item.status === 'done' ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : item.status === 'error' ? (
+                      <AlertCircle className="w-4 h-4" />
+                    ) : item.status === 'uploading' ? (
+                      <LoadingSpinner size="sm" className="text-brand-text" />
+                    ) : (
+                      <ItemIcon file={item.file} className="w-4 h-4" />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-fg truncate">{item.file.name}</span>
+                    <span className={`block text-[10px] ${item.status === 'error' ? 'text-danger-text' : 'text-fg-muted'}`}>
+                      {item.status === 'error'
+                        ? item.error
+                        : item.status === 'uploading'
+                          ? `${item.progress}%`
+                          : item.status === 'done'
+                            ? 'Sent'
+                            : formatFileSize(item.file.size)}
+                    </span>
+                    {item.status === 'uploading' && (
+                      <span className="block mt-1 h-1 bg-surface-3 rounded-full overflow-hidden">
+                        <span
+                          className="block h-full bg-flow rounded-full transition-all duration-200"
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </span>
+                    )}
+                  </span>
+                  {item.status === 'pending' && !busy && (
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      className="p-1 text-fg-faint hover:text-fg cursor-pointer"
+                      aria-label={`Remove ${item.file.name}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
 
-          {/* Error */}
-          {error && (
-            <div className="mt-4 p-3 bg-danger/10 border border-danger/20 rounded-xl">
-              <p className="text-xs text-danger-text">{error}</p>
-            </div>
-          )}
-
-          {/* Buttons */}
+          {/* Action */}
           <div className="mt-4 space-y-2">
-            {file && status !== 'uploading' && (
+            {pending.length > 0 && !busy && (
               <Button variant="primary" size="lg" fullWidth onClick={handleUpload}>
-                Send to Computer
+                Send {pending.length > 1 ? `${pending.length} files` : 'to Computer'}
               </Button>
             )}
-
-            {status === 'uploading' && (
+            {busy && (
               <button
                 disabled
                 className="w-full py-3 bg-surface-3 text-fg-faint font-medium rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <LoadingSpinner size="sm" className="text-fg-faint" />
-                <span>Sending...</span>
+                <span>Sending…</span>
               </button>
             )}
-
-            {file && status !== 'uploading' && (
-              <Button variant="secondary" size="md" fullWidth onClick={handleReset}>
-                Choose Different File
-              </Button>
+            {doneCount > 0 && pending.length === 0 && !busy && (
+              <p className="text-center text-sm text-success-text font-medium flex items-center justify-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" />
+                {doneCount} {doneCount === 1 ? 'file' : 'files'} sent — add more or close this page
+              </p>
             )}
           </div>
         </div>
 
         <p className="mt-4 text-xs text-fg-faint text-center">
-          File will appear on your computer automatically
+          Files appear on your computer automatically as each one finishes
         </p>
       </div>
     </div>

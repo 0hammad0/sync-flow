@@ -126,6 +126,14 @@ function attachmentViewUrl(roomCode: string, key: string): string {
   return `/api/chat/${roomCode}/attachments?key=${encodeURIComponent(key)}`;
 }
 
+// All attachments of a message — album field first, legacy single fallback.
+function getAtts(m: ChatMessage): ChatAttachment[] {
+  if (m.attachments?.length) return m.attachments;
+  return m.attachment ? [m.attachment] : [];
+}
+
+const MAX_ALBUM_FILES = 10;
+
 // Emoji-only messages render extra large with a pop animation (WhatsApp-style).
 function isEmojiOnly(content: string): boolean {
   const t = content.replace(/\s/g, '');
@@ -169,6 +177,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [showQR, setShowQR] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [uploadLabel, setUploadLabel] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [lightboxKey, setLightboxKey] = useState<string | null>(null);
@@ -470,6 +479,117 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [displayName, draft, room.code, replyTo, deviceId]
   );
 
+  // Upload one file body (no message yet) with progress — albums upload
+  // each file separately so per-request limits never apply to the batch.
+  const xhrUploadOnly = useCallback(
+    (file: File, onProgress: (loaded: number) => void) =>
+      new Promise<ChatAttachment>((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('originalName', file.name);
+        formData.append('senderName', displayName);
+        formData.append('caption', '');
+        formData.append('tz', clientTimezone());
+        formData.append('deviceId', deviceId);
+        formData.append('uploadOnly', '1');
+
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) onProgress(e.loaded);
+        });
+        xhr.addEventListener('load', () => {
+          try {
+            const res = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300 && res.success && res.attachment) {
+              resolve(res.attachment as ChatAttachment);
+            } else {
+              reject(new Error(res.error || `HTTP ${xhr.status}`));
+            }
+          } catch {
+            reject(new Error('invalid server response'));
+          }
+        });
+        xhr.addEventListener('error', () => reject(new Error('network error')));
+        xhr.addEventListener('abort', () => reject(new Error('aborted')));
+        xhr.open('POST', `/api/chat/${room.code}/attachments`);
+        xhr.send(formData);
+      }),
+    [displayName, deviceId, room.code]
+  );
+
+  // Share one or many files as a single message (WhatsApp-style album):
+  // sequential uploads with combined progress, then one message that lists
+  // every file. The caption (current draft) rides along.
+  const uploadFilesAndSend = useCallback(
+    async (files: File[]) => {
+      const rejected = files.filter((f) => f.size > MAX_ATTACHMENT_BYTES || f.size === 0);
+      const valid = files.filter((f) => f.size > 0 && f.size <= MAX_ATTACHMENT_BYTES).slice(0, MAX_ALBUM_FILES);
+      if (files.length > MAX_ALBUM_FILES) {
+        setSendError(`Only the first ${MAX_ALBUM_FILES} files will be sent (limit per message).`);
+      } else if (rejected.length > 0) {
+        setSendError(
+          rejected
+            .map((f) =>
+              f.size === 0
+                ? `"${f.name}" is empty — skipped.`
+                : `"${f.name}" is ${formatFileSize(f.size)} — over the 100 MB limit, skipped.`
+            )
+            .join(' ')
+        );
+      } else {
+        setSendError(null);
+      }
+      if (valid.length === 0) return;
+
+      const totalBytes = valid.reduce((s, f) => s + f.size, 0);
+      let doneBytes = 0;
+      setUploadPercent(0);
+      setUploadLabel(valid.length > 1 ? `Uploading 1/${valid.length}` : 'Uploading');
+
+      try {
+        const metas: ChatAttachment[] = [];
+        for (let i = 0; i < valid.length; i++) {
+          setUploadLabel(valid.length > 1 ? `Uploading ${i + 1}/${valid.length}` : 'Uploading');
+          const meta = await xhrUploadOnly(valid[i], (loaded) => {
+            setUploadPercent(Math.round(((doneBytes + loaded) / totalBytes) * 100));
+          });
+          doneBytes += valid[i].size;
+          setUploadPercent(Math.round((doneBytes / totalBytes) * 100));
+          metas.push(meta);
+        }
+
+        // One message carrying the whole album.
+        const res = await fetch(`/api/chat/${room.code}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderName: displayName,
+            content: draft.trim(),
+            tz: clientTimezone(),
+            deviceId,
+            attachments: metas,
+            ...(replyTo ? { replyToId: replyTo.id } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+        setDraft('');
+        setReplyTo(null);
+        setShowEmoji(false);
+        lastTypingBeat.current = 0;
+        sendHeartbeat(false);
+      } catch (err) {
+        setSendError(
+          `Upload failed: ${err instanceof Error ? err.message : 'unknown error'}. Please try again.`
+        );
+      } finally {
+        setUploadPercent(null);
+        setUploadLabel(null);
+      }
+    },
+    [xhrUploadOnly, room.code, displayName, draft, deviceId, replyTo, sendHeartbeat]
+  );
+
   const handleSend = useCallback(
     async (e?: React.FormEvent) => {
       if (e) e.preventDefault();
@@ -588,16 +708,20 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [deviceId, displayName]
   );
 
-  // Attachments the in-chat viewer can show, in chat order — prev/next
-  // navigates this list (WhatsApp media-viewer style).
-  const viewableAttachments = useMemo(
-    () =>
-      messages.filter(
-        (m): m is ChatMessage & { attachment: ChatAttachment } =>
-          !!m.attachment && !m.attachment.is_long_text && previewKind(m.attachment) !== null
-      ),
-    [messages]
-  );
+  // Attachments the in-chat viewer can show, in chat order (albums are
+  // flattened) — prev/next navigates this list, WhatsApp media-viewer style.
+  const viewableAttachments = useMemo(() => {
+    const items: { att: ChatAttachment; sender: string }[] = [];
+    for (const m of messages) {
+      if (m.kind === 'system') continue;
+      for (const att of getAtts(m)) {
+        if (!att.is_long_text && previewKind(att) !== null) {
+          items.push({ att, sender: m.sender_name });
+        }
+      }
+    }
+    return items;
+  }, [messages]);
   const handleOpenViewer = useCallback((key: string) => setLightboxKey(key), []);
 
   // Jump to the quoted message and flash it, WhatsApp-style.
@@ -610,9 +734,9 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   }, []);
 
   const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadAttachment(file);
-    e.target.value = ''; // allow re-picking the same file
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) void uploadFilesAndSend(files);
+    e.target.value = ''; // allow re-picking the same files
   };
 
   if (askingName) {
@@ -791,7 +915,11 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-brand-text">{replyTo.sender_name}</p>
                 <p className="text-xs text-fg-muted truncate">
-                  {replyTo.attachment ? replyTo.attachment.name : replyTo.content.slice(0, 120)}
+                  {getAtts(replyTo).length > 0
+                    ? getAtts(replyTo)
+                        .map((a) => a.name)
+                        .join(', ')
+                    : replyTo.content.slice(0, 120)}
                 </p>
               </div>
               <button
@@ -808,6 +936,9 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           {/* Attachment upload progress */}
           {uploadPercent !== null && (
             <div className="flex items-center gap-2 px-1">
+              {uploadLabel && (
+                <span className="text-[10px] text-fg-muted whitespace-nowrap">{uploadLabel}</span>
+              )}
               <div className="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
                 <div
                   className="relative h-full bg-flow rounded-full transition-all duration-200 overflow-hidden progress-shimmer"
@@ -853,6 +984,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               onChange={handleFilePicked}
               className="hidden"
               aria-hidden="true"
@@ -955,16 +1087,16 @@ function MediaViewer({
   onClose,
   onNavigate,
 }: {
-  items: (ChatMessage & { attachment: ChatAttachment })[];
+  items: { att: ChatAttachment; sender: string }[];
   activeKey: string;
   roomCode: string;
   onClose: () => void;
   onNavigate: (attachmentKey: string) => void;
 }) {
-  const index = items.findIndex((m) => m.attachment.key === activeKey);
+  const index = items.findIndex((it) => it.att.key === activeKey);
   const current = index >= 0 ? items[index] : null;
-  const prevKey = index > 0 ? items[index - 1].attachment.key : null;
-  const nextKey = index >= 0 && index < items.length - 1 ? items[index + 1].attachment.key : null;
+  const prevKey = index > 0 ? items[index - 1].att.key : null;
+  const nextKey = index >= 0 && index < items.length - 1 ? items[index + 1].att.key : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -981,7 +1113,7 @@ function MediaViewer({
   }, [onClose, onNavigate, prevKey, nextKey]);
 
   if (!current) return null;
-  const att = current.attachment;
+  const att = current.att;
   const kind = previewKind(att);
   const viewUrl = attachmentViewUrl(roomCode, att.key);
 
@@ -1003,7 +1135,7 @@ function MediaViewer({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white truncate">{att.name}</p>
           <p className="text-xs text-gray-400 truncate">
-            {current.sender_name} · {formatFileSize(att.size)}
+            {current.sender} · {formatFileSize(att.size)}
             {items.length > 1 && ` · ${index + 1} / ${items.length}`}
           </p>
         </div>
@@ -1258,10 +1390,26 @@ const MessageBubble = memo(function MessageBubble({
     else if (r.right > vw - 4) dx = vw - 4 - r.right;
     if (dx !== 0) el.style.translate = `${dx}px 0`;
   }, [showReactions]);
-  const isLongText = message.attachment?.is_long_text === true;
+  const atts = getAtts(message);
+  const isLongText = atts.length === 1 && atts[0].is_long_text === true;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
-  const isCode = !message.attachment && looksLikeCode(message.content);
-  const bigEmoji = !message.attachment && isEmojiOnly(message.content);
+  const isCode = atts.length === 0 && looksLikeCode(message.content);
+  const bigEmoji = atts.length === 0 && isEmojiOnly(message.content);
+  const allImages = atts.length > 1 && atts.every((a) => (a.mime_type || '').startsWith('image/'));
+
+  // "Download all" — sequential clicks; the browser may ask once to allow
+  // multiple downloads, then each file lands separately.
+  const downloadAll = () => {
+    atts.forEach((a, i) => {
+      window.setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = `${attachmentViewUrl(roomCode, a.key)}&download=1`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, i * 500);
+    });
+  };
   const reactionEntries = Object.entries(message.reactions ?? {})
     .map(([emoji, list]) => [emoji, normalizeReactors(list)] as const)
     .filter(([, reactors]) => reactors.length > 0);
@@ -1378,13 +1526,66 @@ const MessageBubble = memo(function MessageBubble({
         {isLongText ? (
           <LongTextView message={message} roomCode={roomCode} mine={mine} />
         ) : (
-          message.attachment && (
-            <AttachmentView
-              attachment={message.attachment}
-              roomCode={roomCode}
-              mine={mine}
-              onOpenViewer={onOpenViewer}
-            />
+          atts.length > 0 && (
+            <div>
+              {/* Album header: count, total size, download-all */}
+              {atts.length > 1 && (
+                <div
+                  className={`flex items-center justify-between gap-2 mb-1.5 text-[11px] ${
+                    mine ? 'text-white/75' : 'text-fg-muted'
+                  }`}
+                >
+                  <span>
+                    {atts.length} files · {formatFileSize(atts.reduce((s, a) => s + a.size, 0))}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={downloadAll}
+                    className={`flex items-center gap-1 underline cursor-pointer ${
+                      mine ? 'hover:text-white' : 'hover:text-fg'
+                    }`}
+                    title="Download all files"
+                  >
+                    <Download className="w-3 h-3" />
+                    Download all
+                  </button>
+                </div>
+              )}
+              {allImages ? (
+                // Photo album: WhatsApp-style grid, each opens the viewer
+                <div className="grid grid-cols-2 gap-1 mb-1">
+                  {atts.map((a) => (
+                    <button
+                      key={a.key}
+                      type="button"
+                      onClick={() => onOpenViewer(a.key)}
+                      className="cursor-zoom-in"
+                      aria-label={`View image ${a.name}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- R2-redirect src */}
+                      <img
+                        src={attachmentViewUrl(roomCode, a.key)}
+                        alt={a.name}
+                        loading="lazy"
+                        className="rounded-lg h-32 w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className={atts.length > 1 ? 'space-y-1' : ''}>
+                  {atts.map((a) => (
+                    <AttachmentView
+                      key={a.key}
+                      attachment={a}
+                      roomCode={roomCode}
+                      mine={mine}
+                      onOpenViewer={onOpenViewer}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           )
         )}
 
