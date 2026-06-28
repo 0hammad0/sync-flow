@@ -35,6 +35,7 @@ import {
   Send,
   Smile,
   SmilePlus,
+  UploadCloud,
   X,
 } from 'lucide-react';
 import { clientAuth, clientDb } from '@/lib/firebase/client';
@@ -185,10 +186,19 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [now, setNow] = useState(() => Date.now());
   const [presence, setPresence] = useState<ChatPresence[]>([]);
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
+  const [dragOver, setDragOver] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingBeat = useRef(0);
+  const dragCounter = useRef(0);
+
+  // Hide the site footer and lock body scroll while the chat room is mounted.
+  useEffect(() => {
+    document.body.classList.add('chat-open');
+    return () => document.body.classList.remove('chat-open');
+  }, []);
 
   // Auth listener — set default name from email prefix when signed in.
   useEffect(() => {
@@ -590,11 +600,133 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [xhrUploadOnly, room.code, displayName, draft, deviceId, replyTo, sendHeartbeat]
   );
 
+  // Upload files to R2 without sending — stores them as pending attachments
+  // so the user can add a caption and send explicitly.
+  const uploadFilesAsPending = useCallback(
+    async (files: File[]) => {
+      const rejected = files.filter((f) => f.size > MAX_ATTACHMENT_BYTES || f.size === 0);
+      const valid = files
+        .filter((f) => f.size > 0 && f.size <= MAX_ATTACHMENT_BYTES)
+        .slice(0, MAX_ALBUM_FILES);
+      if (rejected.length > 0) {
+        setSendError(
+          rejected
+            .map((f) =>
+              f.size === 0
+                ? `"${f.name}" is empty — skipped.`
+                : `"${f.name}" is ${formatFileSize(f.size)} — over 100 MB, skipped.`
+            )
+            .join(' ')
+        );
+      } else {
+        setSendError(null);
+      }
+      if (valid.length === 0) return;
+      const totalBytes = valid.reduce((s, f) => s + f.size, 0);
+      let doneBytes = 0;
+      setUploadPercent(0);
+      setUploadLabel(valid.length > 1 ? `Uploading 1/${valid.length}` : 'Uploading');
+      try {
+        const metas: ChatAttachment[] = [];
+        for (let i = 0; i < valid.length; i++) {
+          setUploadLabel(valid.length > 1 ? `Uploading ${i + 1}/${valid.length}` : 'Uploading');
+          const meta = await xhrUploadOnly(valid[i], (loaded) => {
+            setUploadPercent(Math.round(((doneBytes + loaded) / totalBytes) * 100));
+          });
+          doneBytes += valid[i].size;
+          setUploadPercent(Math.round((doneBytes / totalBytes) * 100));
+          metas.push(meta);
+        }
+        setPendingAttachments((prev) => [...prev, ...metas].slice(0, MAX_ALBUM_FILES));
+        textareaRef.current?.focus();
+      } catch (err) {
+        setSendError(
+          `Upload failed: ${err instanceof Error ? err.message : 'unknown error'}. Please try again.`
+        );
+      } finally {
+        setUploadPercent(null);
+        setUploadLabel(null);
+      }
+    },
+    [xhrUploadOnly]
+  );
+
+  // Drag-and-drop handlers for the chat container.
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragCounter.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setDragOver(false);
+      if (timeRemaining === 'expired') return;
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) void uploadFilesAsPending(files);
+    },
+    [timeRemaining, uploadFilesAsPending]
+  );
+
   const handleSend = useCallback(
     async (e?: React.FormEvent) => {
       if (e) e.preventDefault();
+      if (sending || uploadPercent !== null) return;
       const content = draft;
-      if (!content.trim() || sending) return;
+
+      // Album send: pending attachments (from drag-drop or file picker) with
+      // optional caption. Takes priority over plain text so the user can also
+      // type a caption before hitting send.
+      if (pendingAttachments.length > 0) {
+        setSending(true);
+        setSendError(null);
+        try {
+          const res = await fetch(`/api/chat/${room.code}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              senderName: displayName,
+              content: content.trim(),
+              tz: clientTimezone(),
+              deviceId,
+              attachments: pendingAttachments,
+              ...(replyTo ? { replyToId: replyTo.id } : {}),
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+          setDraft('');
+          setPendingAttachments([]);
+          setShowEmoji(false);
+          setReplyTo(null);
+          lastTypingBeat.current = 0;
+          sendHeartbeat(false);
+        } catch (err) {
+          setSendError(err instanceof Error ? err.message : 'Failed to send');
+        } finally {
+          setSending(false);
+        }
+        return;
+      }
+
+      if (!content.trim()) return;
       const bytes = byteLen(content);
       if (bytes > MAX_LONG_TEXT_BYTES) {
         setSendError('Message is too long (limit 15 MB).');
@@ -641,7 +773,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         setSending(false);
       }
     },
-    [draft, displayName, room.code, sending, replyTo, deviceId, sendHeartbeat, uploadAttachment]
+    [draft, pendingAttachments, uploadPercent, displayName, room.code, sending, replyTo, deviceId, sendHeartbeat, uploadAttachment]
   );
 
   // Throttled typing beat: at most one write per 2.5s while actually typing.
@@ -735,7 +867,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
 
   const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    if (files.length > 0) void uploadFilesAndSend(files);
+    if (files.length > 0) void uploadFilesAsPending(files);
     e.target.value = ''; // allow re-picking the same files
   };
 
@@ -781,8 +913,24 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     // position:fixed takes the chat out of the document flow entirely — the
     // body's min-h-screen otherwise leaves the PAGE scrollable on phones
     // (100vh > visible height while browser toolbars are shown).
-    <div className="fixed inset-x-0 bottom-0 top-[var(--site-header-h,3.75rem)] flex flex-col overflow-hidden animate-fade-in">
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-surface sm:my-4 sm:border sm:border-edge sm:rounded-3xl sm:shadow-[var(--shadow-card)] overflow-hidden">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[var(--site-header-h,3.75rem)] flex flex-col overflow-hidden animate-fade-in bg-canvas"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div className="relative flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-surface sm:my-4 sm:border sm:border-edge sm:rounded-3xl sm:shadow-[var(--shadow-card)] overflow-hidden">
+        {/* Drop zone overlay */}
+        {dragOver && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-canvas/85 backdrop-blur-sm pointer-events-none animate-fade-in rounded-3xl">
+            <div className="flex items-center justify-center w-20 h-20 rounded-3xl bg-brand/10 border-2 border-dashed border-brand/50">
+              <UploadCloud className="w-10 h-10 text-brand-text" />
+            </div>
+            <p className="text-base font-semibold text-fg">Drop to upload</p>
+            <p className="text-sm text-fg-muted">Files will be attached to your message</p>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-edge bg-surface-2/80">
           <div className="flex-1 min-w-0">
@@ -968,6 +1116,39 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </div>
           )}
 
+          {/* Pending attachment chips — uploaded files waiting to be sent */}
+          {pendingAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-1 animate-fade-in">
+              {pendingAttachments.map((att, i) => {
+                const mime = att.mime_type || '';
+                const Icon = mime.startsWith('image/')
+                  ? ImageIcon
+                  : mime.startsWith('video/')
+                  ? Film
+                  : mime.startsWith('audio/')
+                  ? Music
+                  : FileIcon;
+                return (
+                  <div
+                    key={att.key}
+                    className="flex items-center gap-1.5 bg-surface-2 border border-edge rounded-lg pl-2 pr-1 py-1 text-xs max-w-[200px] group"
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0 text-brand-text" />
+                    <span className="truncate text-fg-muted">{att.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      className="shrink-0 p-0.5 rounded text-fg-faint hover:text-fg hover:bg-surface-3 cursor-pointer transition-colors"
+                      aria-label={`Remove ${att.name}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex items-end gap-1 sm:gap-2 min-w-0">
             <button
               type="button"
@@ -1020,9 +1201,9 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             />
             <button
               type="submit"
-              disabled={sending || !draft.trim() || timeRemaining === 'expired'}
+              disabled={sending || uploadPercent !== null || (!draft.trim() && pendingAttachments.length === 0) || timeRemaining === 'expired'}
               className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-white transition-all duration-200 ${
-                sending || !draft.trim() || timeRemaining === 'expired'
+                sending || uploadPercent !== null || (!draft.trim() && pendingAttachments.length === 0) || timeRemaining === 'expired'
                   ? 'bg-surface-3 text-fg-faint cursor-not-allowed'
                   : 'bg-flow hover:brightness-110 hover:shadow-[var(--glow)] cursor-pointer'
               }`}

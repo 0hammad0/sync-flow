@@ -110,7 +110,7 @@ export const viewport: Viewport = {
 
 // Runs before paint: applies the saved theme (dark by default) so there is
 // no flash of the wrong theme.
-const themeInitScript = `(function(){try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':true;document.documentElement.classList.toggle('dark',d);}catch(e){document.documentElement.classList.add('dark');}})();`;
+const themeInitScript = `(function(){try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){document.documentElement.classList.add('dark');}})();`;
 
 export default function RootLayout({
   children,
@@ -134,7 +134,7 @@ export default function RootLayout({
         <main className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
           {children}
         </main>
-        <footer className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 mt-4 border-t border-edge">
+        <footer id="site-footer" className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 mt-4 border-t border-edge">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-fg-faint">
               <Logo size={16} className="w-4 h-4" />

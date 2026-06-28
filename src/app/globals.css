@@ -550,3 +550,13 @@ body {
     transform: none;
   }
 }
+
+/* Chat page: lock body scroll and hide the site footer so the fixed chat
+   panel is the only thing visible below the header. */
+body.chat-open {
+  overflow: hidden;
+}
+
+body.chat-open #site-footer {
+  display: none;
+}
