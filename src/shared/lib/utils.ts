@@ -41,6 +41,18 @@ export const INLINE_TEXT_BYTES = 100_000;
 export const MAX_LONG_TEXT_BYTES = 15 * 1024 * 1024;
 export const LONG_TEXT_PREVIEW_CHARS = 500;
 
+// Max files shareable as one album message — enforced on both the client
+// composer and the server message route (single source of truth).
+export const MAX_ALBUM_FILES = 10;
+
+// Firestore auto-ids are 20 chars; allow a little slack. Used to validate
+// reply/target message ids on the chat write routes.
+export const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
+
+export function isValidMessageId(id: unknown): id is string {
+  return typeof id === 'string' && MESSAGE_ID_RE.test(id);
+}
+
 // Per-device id: URL-safe, browser-minted (crypto.randomUUID or fallback).
 export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 

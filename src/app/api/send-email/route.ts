@@ -1,12 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+
+// Escape user-supplied text before templating it into the HTML email, so a
+// crafted filename or link can't inject markup or attributes.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export async function POST(request: NextRequest) {
   try {
+    // Uses our SMTP account to send mail, so throttle hard: 5 per 10 min per
+    // IP. Without this the endpoint is an open relay for spam.
+    const rl = rateLimit(`send-email:${clientKey(request)}`, 5, 10 * 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many emails sent — try again later.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
+        }
+      );
+    }
+
     const { to, fileName, downloadLink, isEncrypted } = await request.json();
 
     // Validate input
-    if (!to || !fileName || !downloadLink) {
+    if (
+      typeof to !== 'string' ||
+      typeof fileName !== 'string' ||
+      typeof downloadLink !== 'string' ||
+      !to ||
+      !fileName ||
+      !downloadLink
+    ) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields' },
         { status: 400 }
@@ -21,6 +53,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // The download link must be a real http(s) URL — reject anything else
+    // (javascript:, data:, etc.) before it lands in an email.
+    let safeLink: string;
+    try {
+      const u = new URL(downloadLink);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
+      safeLink = u.toString();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Invalid download link' },
+        { status: 400 }
+      );
+    }
+
+    // Cap and strip control characters from the filename (also prevents
+    // subject-header oddities).
+    const safeName = fileName.replace(/[\r\n\t]/g, ' ').slice(0, 200);
+    const nameHtml = escapeHtml(safeName);
+    const linkHtml = escapeHtml(safeLink);
 
     // Check if SMTP is configured
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -64,7 +116,7 @@ export async function POST(request: NextRequest) {
             <!-- File info card -->
             <div style="background: #f9fafb; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px;">
               <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">File</p>
-              <p style="margin: 0; font-size: 15px; font-weight: 600; color: #111827; word-break: break-word;">${fileName}</p>
+              <p style="margin: 0; font-size: 15px; font-weight: 600; color: #111827; word-break: break-word;">${nameHtml}</p>
             </div>
 
             ${isEncrypted ? `
@@ -77,7 +129,7 @@ export async function POST(request: NextRequest) {
             ` : ''}
 
             <!-- Download button -->
-            <a href="${downloadLink}" style="display: block; background: #111827; color: white; text-decoration: none; padding: 14px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; margin-bottom: 24px;">
+            <a href="${linkHtml}" style="display: block; background: #111827; color: white; text-decoration: none; padding: 14px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; margin-bottom: 24px;">
               Download File
             </a>
 
@@ -86,7 +138,7 @@ export async function POST(request: NextRequest) {
               Or copy this link:
             </p>
             <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
-              <a href="${downloadLink}" style="color: #6b7280;">${downloadLink}</a>
+              <a href="${linkHtml}" style="color: #6b7280;">${linkHtml}</a>
             </p>
 
           </div>
@@ -120,13 +172,13 @@ SyncFlow
 You've received a file. Use the link below to download it.
 
 FILE
-${fileName}
+${safeName}
 
 ${isEncrypted ? `ENCRYPTED
 This file is end-to-end encrypted. The decryption key is included in the download link.
 
 ` : ''}DOWNLOAD LINK
-${downloadLink}
+${safeLink}
 
 ---
 
@@ -144,7 +196,7 @@ Sent via SyncFlow — Fast & Secure File Sharing
     await transporter.sendMail({
       from: `"SyncFlow" <${process.env.SMTP_USER}>`,
       to,
-      subject: `File shared with you: ${fileName}`,
+      subject: `File shared with you: ${safeName}`,
       text: textContent,
       html: htmlContent,
     });

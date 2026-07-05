@@ -182,6 +182,12 @@ export const MessageBubble = memo(function MessageBubble({
     .map(([emoji, list]) => [emoji, normalizeReactors(list)] as const)
     .filter(([, reactors]) => reactors.length > 0);
 
+  // This device's current reaction (one per device) — highlighted in the
+  // picker so you can see what you already reacted with.
+  const myReaction =
+    reactionEntries.find(([, reactors]) => reactors.some((r) => myReactorIds.includes(r.id)))?.[0] ??
+    null;
+
   // Hover/tap actions (react + reply) sit beside the bubble, WhatsApp-style.
   const actions = (
     <div
@@ -232,20 +238,26 @@ export const MessageBubble = memo(function MessageBubble({
             mine ? 'left-0' : 'right-0'
           }`}
         >
-          {CHAT_REACTIONS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => {
-                onToggleReaction(message.id, emoji);
-                setShowReactions(false);
-              }}
-              className="text-lg p-0.5 rounded-full hover:bg-surface-2 hover:scale-125 transition-transform cursor-pointer"
-              aria-label={`React with ${emoji}`}
-            >
-              {emoji}
-            </button>
-          ))}
+          {CHAT_REACTIONS.map((emoji) => {
+            const active = emoji === myReaction;
+            return (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  onToggleReaction(message.id, emoji);
+                  setShowReactions(false);
+                }}
+                className={`text-lg p-0.5 rounded-full transition-transform cursor-pointer hover:bg-surface-2 hover:scale-125 ${
+                  active ? 'bg-brand/15 ring-1 ring-brand scale-110' : ''
+                }`}
+                aria-label={active ? `Remove ${emoji} reaction` : `React with ${emoji}`}
+                aria-pressed={active}
+              >
+                {emoji}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -374,9 +386,12 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         {message.content && !isLongText && (
+          // Code snippets scroll internally (CodeSnippet caps its own height),
+          // so only wrap NON-code large text in a scroll box — otherwise the
+          // two nested max-heights produce a double scrollbar.
           <div
             className={
-              isLarge && !expanded
+              isLarge && !expanded && !codeInfo
                 ? 'max-h-[400px] overflow-auto rounded'
                 : ''
             }
@@ -411,7 +426,9 @@ export const MessageBubble = memo(function MessageBubble({
             {translation || '…'}
           </div>
         )}
-        {(isLarge || (!codeInfo && !isLongText && message.content.length >= COPYABLE_TEXT_THRESHOLD)) && (
+        {/* Expand/copy controls — code snippets manage their own scroll and
+            copy, so these apply to plain text only. */}
+        {!codeInfo && !isLongText && (isLarge || message.content.length >= COPYABLE_TEXT_THRESHOLD) && (
           <div className="flex items-center gap-3 mt-1">
             {isLarge && (
               <button
@@ -424,7 +441,7 @@ export const MessageBubble = memo(function MessageBubble({
                 {expanded ? 'Collapse' : `Show full (${message.content.length.toLocaleString()} chars)`}
               </button>
             )}
-            {!codeInfo && message.content.length >= COPYABLE_TEXT_THRESHOLD && (
+            {message.content.length >= COPYABLE_TEXT_THRESHOLD && (
               <InlineCopyButton text={message.content} title="Copy message" label="Copy" mine={mine} />
             )}
           </div>

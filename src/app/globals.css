@@ -394,6 +394,17 @@ body {
   animation: spin 1s linear infinite;
 }
 
+/* Hide the scrollbar while keeping the element scrollable — used by the chat
+   composer so it grows like WhatsApp (up to maxRows) then scrolls internally
+   without ever showing a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* old Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;                /* Chrome, Safari, Edge */
+}
+
 /* Drop-up menu: grows out of its bottom-left anchor (the "+" button) and
    rises into place. Origin + slight overshoot make it feel physical. */
 @keyframes menuUp {

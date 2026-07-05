@@ -3,11 +3,25 @@ import { generateToken, sanitizeFileName, getRequestOrigin, MAX_USER_FILES } fro
 import { currentUser } from '@/shared/lib/firebase/session';
 import { countOwnerFiles, createFile } from '@/shared/lib/firebase/files';
 import { deleteObject, putObject } from '@/shared/lib/r2';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_DOWNLOADS_LIMIT = 10_000;
 
 export async function POST(request: NextRequest) {
   try {
+    // Public upload endpoint — throttle to blunt abuse (20 per minute per IP).
+    const rl = rateLimit(`upload:${clientKey(request)}`, 20, 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many uploads — slow down and try again.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
+        }
+      );
+    }
+
     const formData = await request.formData();
 
     const file = formData.get('file') as Blob | null;
@@ -28,7 +42,13 @@ export async function POST(request: NextRequest) {
     }
 
     const expiresInHours = expiresInHoursStr ? parseInt(expiresInHoursStr, 10) : null;
-    const maxDownloads = maxDownloadsStr ? parseInt(maxDownloadsStr, 10) : null;
+    const parsedMax = maxDownloadsStr ? parseInt(maxDownloadsStr, 10) : null;
+    // Only accept a positive integer within bounds; ignore NaN / negative /
+    // zero / absurd values so garbage never reaches Firestore.
+    const maxDownloads =
+      parsedMax !== null && Number.isFinite(parsedMax) && parsedMax > 0
+        ? Math.min(parsedMax, MAX_DOWNLOADS_LIMIT)
+        : null;
 
     let expires_at: string | null = null;
     if (expiresInHours && expiresInHours > 0) {
@@ -65,10 +85,10 @@ export async function POST(request: NextRequest) {
     try {
       await putObject(filePath, buffer, storedContentType);
     } catch (err) {
+      // Log details server-side; return a generic message to the client.
       console.error('R2 upload error:', err);
-      const msg = err instanceof Error ? err.message : 'Unknown';
       return NextResponse.json(
-        { success: false, error: `Storage error: ${msg}` },
+        { success: false, error: 'Failed to store the file. Please try again.' },
         { status: 500 }
       );
     }
@@ -89,9 +109,8 @@ export async function POST(request: NextRequest) {
       console.error('Firestore write error:', err);
       // Roll back the R2 upload so we don't leave an orphan blob.
       await deleteObject(filePath).catch(() => {});
-      const msg = err instanceof Error ? err.message : 'Unknown';
       return NextResponse.json(
-        { success: false, error: `Database error: ${msg}` },
+        { success: false, error: 'Failed to save the file. Please try again.' },
         { status: 500 }
       );
     }

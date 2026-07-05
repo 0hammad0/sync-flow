@@ -13,12 +13,15 @@ export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('Authorization');
     if (CRON_SECRET) {
+      // Preferred: a shared secret set in the environment.
       if (authHeader !== `Bearer ${CRON_SECRET}`) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     } else {
-      const isVercelCron = request.headers.get('x-vercel-cron') === '1';
-      if (!isVercelCron && !authHeader) {
+      // Fail closed when no secret is configured: only Vercel's trusted cron
+      // header is accepted (an arbitrary Authorization header is NOT enough).
+      // Set CRON_SECRET to trigger this route manually.
+      if (request.headers.get('x-vercel-cron') !== '1') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     }

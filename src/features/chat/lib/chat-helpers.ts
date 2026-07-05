@@ -3,7 +3,38 @@
 // without pulling in each other.
 
 import type { User } from 'firebase/auth';
-import type { ChatAttachment, ChatMessage } from '@/types';
+import type { ChatAttachment, ChatMessage, ChatReactor } from '@/types';
+import { normalizeReactors } from '@/shared/lib/utils';
+
+// Album limit lives in shared utils (server enforces the same value); re-export
+// so chat components can keep importing it from one place.
+export { MAX_ALBUM_FILES } from '@/shared/lib/utils';
+
+// Mirror of the server's toggleReaction transaction (firebase/chat.ts) so the
+// UI can apply a reaction optimistically and match the value the snapshot will
+// later confirm: one reaction per device — a new emoji moves your reaction,
+// the same emoji removes it.
+export function toggleReactionLocal(
+  raw: ChatMessage['reactions'],
+  emoji: string,
+  reactor: ChatReactor
+): Record<string, ChatReactor[]> {
+  const reactions: Record<string, ChatReactor[]> = {};
+  const source = (raw ?? {}) as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    reactions[key] = normalizeReactors(source[key]);
+  }
+  const hadThisEmoji = (reactions[emoji] ?? []).some((r) => r.id === reactor.id);
+  // Drop this device's reaction from every emoji first.
+  for (const key of Object.keys(reactions)) {
+    reactions[key] = reactions[key].filter((r) => r.id !== reactor.id);
+    if (reactions[key].length === 0) delete reactions[key];
+  }
+  if (!hadThisEmoji) {
+    reactions[emoji] = [...(reactions[emoji] ?? []), reactor];
+  }
+  return reactions;
+}
 
 export const STORED_NAME_KEY = 'syncflow.chatName';
 export const DEVICE_ID_KEY = 'syncflow.deviceId';
@@ -11,7 +42,6 @@ export const DEVICE_ID_KEY = 'syncflow.deviceId';
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const LARGE_MESSAGE_THRESHOLD = 4_000;
 export const MESSAGES_WINDOW = 500;
-export const MAX_ALBUM_FILES = 10;
 // Messages this long (or code snippets) get an explicit copy control.
 export const COPYABLE_TEXT_THRESHOLD = 240;
 

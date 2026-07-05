@@ -69,6 +69,7 @@ import {
   getDeviceId,
   nameForUser,
   previewKind,
+  toggleReactionLocal,
 } from '@/features/chat/lib/chat-helpers';
 import type {
   ChatAttachment,
@@ -194,10 +195,18 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     didInitialScroll.current = true;
   }, [loadingMessages, messages]);
 
-  // Auto-scroll to bottom on new messages (only if user is already near bottom).
+  // Auto-scroll to bottom only when a NEW message is appended (and the user is
+  // already near the bottom). In-place updates like reactions must NOT scroll,
+  // otherwise reacting to a message jumps the view to the bottom.
+  const scrollMetaRef = useRef({ len: 0, lastId: '' });
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const lastId = messages.length ? messages[messages.length - 1].id : '';
+    const prev = scrollMetaRef.current;
+    const appended = messages.length > prev.len || (lastId !== '' && lastId !== prev.lastId);
+    scrollMetaRef.current = { len: messages.length, lastId };
+    if (!appended) return; // reaction / edit — leave the scroll position alone
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages]);
@@ -478,79 +487,6 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         xhr.send(formData);
       }),
     [displayName, deviceId, room.code]
-  );
-
-  // Share one or many files as a single message (WhatsApp-style album):
-  // sequential uploads with combined progress, then one message that lists
-  // every file. The caption (current draft) rides along.
-  const uploadFilesAndSend = useCallback(
-    async (files: File[]) => {
-      const rejected = files.filter((f) => f.size > MAX_ATTACHMENT_BYTES || f.size === 0);
-      const valid = files.filter((f) => f.size > 0 && f.size <= MAX_ATTACHMENT_BYTES).slice(0, MAX_ALBUM_FILES);
-      if (files.length > MAX_ALBUM_FILES) {
-        setSendError(`Only the first ${MAX_ALBUM_FILES} files will be sent (limit per message).`);
-      } else if (rejected.length > 0) {
-        setSendError(
-          rejected
-            .map((f) =>
-              f.size === 0
-                ? `"${f.name}" is empty — skipped.`
-                : `"${f.name}" is ${formatFileSize(f.size)} — over the 100 MB limit, skipped.`
-            )
-            .join(' ')
-        );
-      } else {
-        setSendError(null);
-      }
-      if (valid.length === 0) return;
-
-      const totalBytes = valid.reduce((s, f) => s + f.size, 0);
-      let doneBytes = 0;
-      setUploadPercent(0);
-      setUploadLabel(valid.length > 1 ? `Uploading 1/${valid.length}` : 'Uploading');
-
-      try {
-        const metas: ChatAttachment[] = [];
-        for (let i = 0; i < valid.length; i++) {
-          setUploadLabel(valid.length > 1 ? `Uploading ${i + 1}/${valid.length}` : 'Uploading');
-          const meta = await xhrUploadOnly(valid[i], (loaded) => {
-            setUploadPercent(Math.round(((doneBytes + loaded) / totalBytes) * 100));
-          });
-          doneBytes += valid[i].size;
-          setUploadPercent(Math.round((doneBytes / totalBytes) * 100));
-          metas.push(meta);
-        }
-
-        // One message carrying the whole album.
-        const res = await fetch(`/api/chat/${room.code}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            senderName: displayName,
-            content: draft.trim(),
-            tz: clientTimezone(),
-            deviceId,
-            attachments: metas,
-            ...(replyTo ? { replyToId: replyTo.id } : {}),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
-        setDraft('');
-        setReplyTo(null);
-        setShowEmoji(false);
-        lastTypingBeat.current = 0;
-        sendHeartbeat(false);
-      } catch (err) {
-        setSendError(
-          `Upload failed: ${err instanceof Error ? err.message : 'unknown error'}. Please try again.`
-        );
-      } finally {
-        setUploadPercent(null);
-        setUploadLabel(null);
-      }
-    },
-    [xhrUploadOnly, room.code, displayName, draft, deviceId, replyTo, sendHeartbeat]
   );
 
   // Upload files to R2 without sending — stores them as pending attachments
@@ -863,17 +799,32 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     });
   };
 
-  // Toggle a reaction — the onSnapshot listener delivers the updated pills.
+  // Toggle a reaction. Apply it optimistically so the pill appears instantly,
+  // then POST; the onSnapshot listener later confirms with the authoritative
+  // state (which matches). On failure we restore the prior reactions.
   const handleToggleReaction = useCallback(
     async (messageId: string, emoji: string) => {
+      const reactor = { id: deviceId, name: displayName };
+      let prevReactions: ChatMessage['reactions'];
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          prevReactions = m.reactions;
+          return { ...m, reactions: toggleReactionLocal(m.reactions, emoji, reactor) };
+        })
+      );
       try {
-        await fetch(`/api/chat/${room.code}/reactions`, {
+        const res = await fetch(`/api/chat/${room.code}/reactions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messageId, emoji, senderName: displayName, deviceId }),
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
       } catch {
-        /* transient network error — pills simply don't change */
+        // Roll back the optimistic change; a later snapshot reconciles anyway.
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, reactions: prevReactions } : m))
+        );
       }
     },
     [room.code, displayName, deviceId]
@@ -1501,7 +1452,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               }
               minRows={1}
               maxRows={6}
-              className="input-base flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug resize-none"
+              className="input-base no-scrollbar flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug resize-none"
               disabled={sending || timeRemaining === 'expired'}
             />
             <button

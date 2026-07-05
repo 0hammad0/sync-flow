@@ -13,6 +13,7 @@ import {
 import type { ChatReplyRef } from '@/types';
 import {
   generateToken,
+  isValidMessageId,
   isValidRoomCode,
   MAX_LONG_TEXT_BYTES,
   sanitizeDeviceId,
@@ -25,7 +26,6 @@ import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 export const runtime = 'nodejs';
 
 const MAX_CAPTION_LENGTH = 2_000;
-const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 
 /**
  * POST — share an image/video/file in the room (WhatsApp-style attachment).
@@ -69,11 +69,7 @@ export async function POST(
   const tz = sanitizeIanaTz(formData.get('tz'));
   const replyToIdRaw = formData.get('replyToId');
 
-  if (
-    replyToIdRaw !== null &&
-    replyToIdRaw !== '' &&
-    (typeof replyToIdRaw !== 'string' || !MESSAGE_ID_RE.test(replyToIdRaw))
-  ) {
+  if (replyToIdRaw !== null && replyToIdRaw !== '' && !isValidMessageId(replyToIdRaw)) {
     return NextResponse.json({ success: false, error: 'invalid replyToId' }, { status: 400 });
   }
   const replyToId = typeof replyToIdRaw === 'string' && replyToIdRaw !== '' ? replyToIdRaw : null;

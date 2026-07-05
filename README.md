@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/0hammad0/sync-flow/actions/workflows/ci.yml"><img src="https://github.com/0hammad0/sync-flow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/Firebase-Auth%20%2B%20Firestore-FFCA28?style=flat-square&logo=firebase" alt="Firebase">
@@ -163,7 +164,7 @@ The AI features (smart replies, room summaries, rewrite, translate, explain code
    ```
 3. Restart the dev server. AI controls now appear in the chat.
 
-Everything is driven by [`src/lib/ai-config.ts`](src/lib/ai-config.ts) (task list, prompts, and the free-model fallback chain) plus a few env knobs:
+Everything is driven by [`src/features/ai/lib/ai-config.ts`](src/features/ai/lib/ai-config.ts) (task list, prompts, and the free-model fallback chain) plus a few env knobs:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -203,46 +204,48 @@ Everything is driven by [`src/lib/ai-config.ts`](src/lib/ai-config.ts) (task lis
 
 ## Project Structure
 
+The codebase is organized by **feature** (`features/*`) with cross-cutting UI
+and infrastructure in `shared/*`. Every import uses the `@/` path alias
+(`@/* → src/*`), so modules are location-independent.
+
 ```
 src/
-├── app/                        # Next.js App Router
+├── app/                          # Next.js App Router — routes only (thin)
 │   ├── api/
-│   │   ├── upload/             # File upload endpoint (R2 + Firestore)
-│   │   ├── send/               # Phone upload endpoint
-│   │   ├── receive/            # Receive session endpoints
-│   │   ├── chat/[roomCode]/    # Chat: messages, attachments, reactions, presence, heartbeat
-│   │   ├── ai/                 # OpenRouter proxy (streamed) + feature discovery
-│   │   ├── session/            # Mint/clear Firebase session cookie
-│   │   ├── send-email/         # Email a share link via nodemailer
-│   │   └── cleanup/            # Cron: delete expired anonymous files
-│   ├── auth/callback/          # Firebase email-link completion
-│   ├── chat/[roomCode]/        # Chat room page
-│   ├── dashboard/              # User's files
-│   ├── login/                  # Magic link login
-│   ├── receive/                # QR code for receiving
-│   ├── send/[sessionToken]/    # Mobile upload page
-│   └── share/[token]/          # Download page
-├── components/
-│   ├── UploadForm.tsx          # Multi-file upload UI
-│   ├── ChatRoom.tsx            # Chat room (messages, composer, presence, AI)
-│   ├── MessageContent.tsx      # Link/code detection, copy buttons, code explain
-│   └── ...
-├── actions/                    # Server actions
-├── lib/
-│   ├── crypto.ts               # AES-256-GCM (Web Crypto API)
-│   ├── zip.ts                  # Dependency-free ZIP writer for "Download all"
-│   ├── ai-config.ts            # AI tasks, prompts, model fallback (server)
-│   ├── ai-client.ts            # AI streaming client + output cleanup (browser)
-│   ├── rate-limit.ts           # In-memory sliding-window rate limiter
-│   ├── firebase/
-│   │   ├── admin.ts            # Firebase Admin SDK init
-│   │   ├── client.ts           # Firebase web SDK init
-│   │   ├── session.ts          # httpOnly session-cookie helpers
-│   │   ├── files.ts            # Firestore CRUD for files / receive_sessions
-│   │   └── chat.ts             # Firestore CRUD for chat rooms/messages
-│   ├── r2.ts                   # Cloudflare R2 client + signed URLs
-│   └── utils.ts                # Helpers
-└── types/                      # TypeScript types
+│   │   ├── upload/               # File upload endpoint (R2 + Firestore)
+│   │   ├── send/                 # Phone upload endpoint
+│   │   ├── receive/              # Receive session endpoints
+│   │   ├── chat/[roomCode]/      # Chat: messages, attachments, reactions, presence, heartbeat
+│   │   ├── ai/                   # OpenRouter proxy (streamed) + feature discovery
+│   │   ├── session/              # Mint/clear Firebase session cookie
+│   │   ├── send-email/           # Email a share link via nodemailer
+│   │   └── cleanup/              # Cron: delete expired anonymous files
+│   ├── chat/[roomCode]/          # Chat room page       ├── dashboard/   # User's files
+│   ├── login/  receive/  send/[sessionToken]/  share/[token]/  auth/callback/
+│   └── layout.tsx  page.tsx  globals.css
+│
+├── features/                     # Feature modules (components + feature libs)
+│   ├── ai/lib/                   # ai-client (browser), ai-config (server prompts/models)
+│   ├── chat/
+│   │   ├── components/           # ChatRoom, MessageBubble, MediaViewer, MessageContent, ChatLobby, MyChatRooms
+│   │   └── lib/chat-helpers.ts   # Shared chat constants + pure helpers
+│   └── files/
+│       ├── components/           # UploadForm, FileList, DownloadCard, ProgressBar, QRModal
+│       └── server/files.ts       # Server action: getFileByToken
+│
+├── shared/                       # Cross-cutting, feature-agnostic
+│   ├── components/               # Header, Logo, ThemeToggle, CopyButton, LoadingSpinner, Reveal, AuthCTA
+│   │   └── ui/Button.tsx
+│   └── lib/
+│       ├── crypto.ts             # AES-256-GCM (Web Crypto API)
+│       ├── clipboard.ts          # copyText + useCopy hook
+│       ├── zip.ts                # Dependency-free ZIP writer for "Download all"
+│       ├── rate-limit.ts         # In-memory sliding-window rate limiter
+│       ├── r2.ts  time.ts  utils.ts
+│       └── firebase/             # admin, client, session, files, chat, proxy
+│
+├── proxy.ts                      # Next.js proxy (session refresh on every request)
+└── types/                        # Shared TypeScript types
 ```
 
 ## Security
@@ -260,10 +263,11 @@ src/
 ## Scripts
 
 ```bash
-npm run dev      # Start development server (Turbopack)
-npm run build    # Production build
-npm run start    # Start production server
-npm run lint     # Run ESLint
+npm run dev        # Start development server (Turbopack)
+npm run build      # Production build
+npm run start      # Start production server
+npm run lint       # Run ESLint
+npm run typecheck  # Type-check with tsc (no emit)
 ```
 
 The `scripts/` folder also contains Puppeteer-based end-to-end checks (`e2e-chat.mjs`, `e2e-encrypted-download.mjs`, `e2e-mobile-responsive.mjs`, `e2e-cleanup.mjs`) and a Firestore-rules deploy helper.

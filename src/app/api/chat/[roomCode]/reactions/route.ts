@@ -5,12 +5,10 @@ import {
   sanitizeSenderName,
   toggleReaction,
 } from '@/shared/lib/firebase/chat';
-import { CHAT_REACTIONS, isValidRoomCode, sanitizeDeviceId } from '@/shared/lib/utils';
+import { CHAT_REACTIONS, isValidMessageId, isValidRoomCode, sanitizeDeviceId } from '@/shared/lib/utils';
 import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
-
-const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 
 /**
  * POST {messageId, emoji, senderName} — toggle a WhatsApp-style reaction.
@@ -45,7 +43,7 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (typeof body.messageId !== 'string' || !MESSAGE_ID_RE.test(body.messageId)) {
+  if (!isValidMessageId(body.messageId)) {
     return NextResponse.json({ success: false, error: 'invalid messageId' }, { status: 400 });
   }
   if (

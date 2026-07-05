@@ -11,10 +11,17 @@ import {
   roomStoragePrefix,
   sanitizeSenderName,
 } from '@/shared/lib/firebase/chat';
+import {
+  isValidMessageId,
+  isValidRoomCode,
+  MAX_ALBUM_FILES,
+  sanitizeDeviceId,
+  sanitizeIanaTz,
+} from '@/shared/lib/utils';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 import type { ChatAttachment, ChatReplyRef } from '@/types';
 
-const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
-const MAX_ALBUM_FILES = 10;
+export const runtime = 'nodejs';
 
 /**
  * Validate a client-supplied attachments array (files were uploaded
@@ -37,10 +44,6 @@ function validateAttachments(raw: unknown, code: string): ChatAttachment[] | nul
   }
   return out;
 }
-import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/shared/lib/utils';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
-
-export const runtime = 'nodejs';
 
 export async function POST(
   request: NextRequest,
@@ -80,10 +83,7 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (
-    body.replyToId !== undefined &&
-    (typeof body.replyToId !== 'string' || !MESSAGE_ID_RE.test(body.replyToId))
-  ) {
+  if (body.replyToId !== undefined && !isValidMessageId(body.replyToId)) {
     return NextResponse.json({ success: false, error: 'invalid replyToId' }, { status: 400 });
   }
 
