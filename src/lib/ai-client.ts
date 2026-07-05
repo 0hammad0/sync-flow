@@ -76,6 +76,28 @@ export function getAiAvailability(): Promise<AiAvailability> {
 }
 
 /**
+ * Free models are chatty: they wrap answers in quotes or code fences and
+ * prepend "Here's..." preambles despite instructions. Normalize the output
+ * so what lands in the UI is only the answer itself.
+ */
+export function cleanAiOutput(text: string): string {
+  let t = text.trim();
+  // Whole output wrapped in a code fence → unwrap.
+  const fence = t.match(/^```[\w-]*\n([\s\S]*?)\n?```$/);
+  if (fence) t = fence[1].trim();
+  // Drop a "Here's the rewritten message:" style preamble line.
+  const lines = t.split('\n');
+  if (lines.length > 1 && /^(here|sure|okay|of course|certainly).{0,80}:\s*$/i.test(lines[0].trim())) {
+    t = lines.slice(1).join('\n').trim();
+  }
+  // Strip symmetrical wrapping quotes.
+  if (t.length > 2 && /^["“'][\s\S]*["”']$/.test(t)) {
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+/**
  * Free models sprinkle markdown (backticks, **bold**) into answers even
  * when told not to; AI panels render plain text, so strip the tokens.
  */

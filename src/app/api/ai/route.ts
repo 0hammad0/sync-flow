@@ -83,11 +83,12 @@ export async function POST(request: NextRequest) {
     });
 
   // Free models get congested; when every fallback is momentarily 429'd,
-  // honor the upstream Retry-After hint once before giving up.
+  // honor the upstream Retry-After hint (up to two retries) before giving up.
+  const MAX_RETRIES = 2;
   let upstream = await callUpstream();
   let detail = '';
   let congested = false;
-  for (let attempt = 0; (!upstream.ok || !upstream.body) && attempt < 2; attempt++) {
+  for (let attempt = 0; (!upstream.ok || !upstream.body) && attempt <= MAX_RETRIES; attempt++) {
     let retryAfter = 0;
     detail = `HTTP ${upstream.status}`;
     try {
@@ -100,8 +101,8 @@ export async function POST(request: NextRequest) {
     } catch {
       /* keep status text */
     }
-    if (retryAfter === 0 || attempt === 1) break;
-    await new Promise((r) => setTimeout(r, Math.min(retryAfter, 12) * 1000));
+    if (retryAfter === 0 || attempt === MAX_RETRIES) break;
+    await new Promise((r) => setTimeout(r, Math.min(retryAfter, 10) * 1000));
     upstream = await callUpstream();
   }
 

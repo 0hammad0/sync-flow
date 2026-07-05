@@ -32,6 +32,7 @@ import {
   MessageCircle,
   Music,
   Paperclip,
+  Plus,
   QrCode,
   Reply,
   RotateCcw,
@@ -47,7 +48,13 @@ import { clientAuth, clientDb } from '@/lib/firebase/client';
 import { clientTimezone, formatChatTime, formatTimeUntil } from '@/lib/time';
 import { downloadAllAsZip } from '@/lib/zip';
 import { CodeSnippet, detectCode, InlineCopyButton, LinkifiedText } from './MessageContent';
-import { browserLanguageName, getAiAvailability, streamAi, stripInlineMarkdown } from '@/lib/ai-client';
+import {
+  browserLanguageName,
+  cleanAiOutput,
+  getAiAvailability,
+  streamAi,
+  stripInlineMarkdown,
+} from '@/lib/ai-client';
 import {
   CHAT_REACTIONS,
   formatFileSize,
@@ -207,9 +214,9 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [rewriting, setRewriting] = useState(false);
   const [showJumpDown, setShowJumpDown] = useState(false);
-  // Mobile: while typing, the tool buttons collapse behind a chevron so the
-  // input gets the width (WhatsApp-style). Tapping the chevron re-opens them.
-  const [showToolsWhileTyping, setShowToolsWhileTyping] = useState(false);
+  // Mobile: while typing, the tool buttons collapse behind a "+" that opens
+  // a drop-up menu (emoji / AI / attach), so the input gets the width.
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [preRewriteDraft, setPreRewriteDraft] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -853,10 +860,11 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         transcript: buildTranscript(12),
         me: displayName,
       });
-      const parsed = text
+      const parsed = cleanAiOutput(text)
         .split('\n')
         .map((s) => s.replace(/^[-*\d.)"'\s]+/, '').replace(/["']+$/, '').trim())
-        .filter(Boolean)
+        // Drop preamble/label lines the model sneaks in ("Here are 3 replies:").
+        .filter((s) => s && !s.endsWith(':') && !/^(here (are|is)|suggested|repl(y|ies))/i.test(s))
         .slice(0, 3);
       setSuggestions(parsed);
       if (parsed.length === 0) setSendError('No suggestions this time — try again.');
@@ -897,7 +905,10 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           { task: 'rewrite', text: original, instruction },
           (t) => setDraft(t)
         );
-        setDraft(result);
+        const cleaned = cleanAiOutput(result);
+        // An empty or refused rewrite should never eat the draft.
+        setDraft(cleaned || original);
+        if (!cleaned) setPreRewriteDraft(null);
       } catch (err) {
         setDraft(original);
         setPreRewriteDraft(null);
@@ -915,8 +926,8 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setDraft(value);
-    // Typing (or clearing) re-collapses the mobile tool row.
-    setShowToolsWhileTyping(false);
+    // Typing (or clearing) closes the mobile drop-up menu.
+    setShowToolsMenu(false);
     if (value.trim() && Date.now() - lastTypingBeat.current > TYPING_THROTTLE_MS) {
       lastTypingBeat.current = Date.now();
       sendHeartbeat(true);
@@ -1445,65 +1456,128 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           )}
 
           <div className="flex items-end gap-1 sm:gap-2 min-w-0">
-            {/* Mobile-only: while typing the tools collapse behind this chevron */}
-            {draft.length > 0 && !showToolsWhileTyping && (
-              <button
-                type="button"
-                onClick={() => setShowToolsWhileTyping(true)}
-                className="sm:hidden shrink-0 h-10 w-8 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 cursor-pointer animate-fade-in"
-                title="More options"
-                aria-label="Show emoji, AI, and attach buttons"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
-            <div
-              className={`${
-                draft.length > 0 && !showToolsWhileTyping ? 'hidden sm:flex' : 'flex'
-              } items-end gap-1 sm:gap-2 shrink-0`}
-            >
-              <button
-                type="button"
-                onClick={() => setShowEmoji((s) => !s)}
-                disabled={timeRemaining === 'expired'}
-                className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
-                  showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
-                } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                title="Emoji"
-                aria-label="Open emoji picker"
-              >
-                <Smile className="w-5 h-5" />
-              </button>
-              {(aiTasks.has('replies') || aiTasks.has('rewrite')) && (
+            {/* Mobile-only: while typing the tools collapse behind a "+"
+                that opens a drop-up menu with the same options. */}
+            {draft.length > 0 && (
+              <div className="relative sm:hidden shrink-0 animate-fade-in">
                 <button
                   type="button"
-                  onClick={() => setShowAiPanel((s) => !s)}
+                  onClick={() => setShowToolsMenu((s) => !s)}
+                  className={`h-10 w-9 flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
+                    showToolsMenu ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
+                  }`}
+                  title="More options"
+                  aria-label="More options"
+                  aria-expanded={showToolsMenu}
+                >
+                  <Plus
+                    className={`w-5 h-5 transition-transform duration-200 ${
+                      showToolsMenu ? 'rotate-45' : ''
+                    }`}
+                  />
+                </button>
+                {showToolsMenu && (
+                  <>
+                    {/* Tap-away backdrop so the menu closes on outside tap */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowToolsMenu(false)}
+                      aria-hidden="true"
+                    />
+                    <div className="absolute bottom-full left-0 mb-2 z-20 min-w-[160px] p-1.5 flex flex-col gap-0.5 bg-surface border border-edge rounded-xl shadow-lg animate-menu-up">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowEmoji(true);
+                        }}
+                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg rounded-lg hover:bg-surface-2 cursor-pointer text-left transition-colors animate-menu-item"
+                        style={{ animationDelay: '30ms' }}
+                      >
+                        <Smile className="w-4 h-4 text-fg-muted" />
+                        Emoji
+                      </button>
+                      {(aiTasks.has('replies') || aiTasks.has('rewrite')) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowToolsMenu(false);
+                            setShowAiPanel(true);
+                          }}
+                          className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg rounded-lg hover:bg-surface-2 cursor-pointer text-left transition-colors animate-menu-item"
+                          style={{ animationDelay: '75ms' }}
+                        >
+                          <Sparkles className="w-4 h-4 text-brand-text" />
+                          AI assistant
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          fileInputRef.current?.click();
+                        }}
+                        disabled={uploadPercent !== null}
+                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg rounded-lg hover:bg-surface-2 cursor-pointer text-left transition-colors animate-menu-item disabled:opacity-50"
+                        style={{ animationDelay: '120ms' }}
+                      >
+                        <Paperclip className="w-4 h-4 text-fg-muted" />
+                        Attach files
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <div
+              className={`grid shrink-0 transition-[grid-template-columns] duration-300 ease-out sm:grid-cols-[1fr] ${
+                draft.length > 0 ? 'grid-cols-[0fr]' : 'grid-cols-[1fr]'
+              }`}
+            >
+              <div className="flex items-end gap-1 sm:gap-2 overflow-hidden min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setShowEmoji((s) => !s)}
                   disabled={timeRemaining === 'expired'}
                   className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
-                    showAiPanel || suggesting || rewriting
-                      ? 'bg-brand/10 text-brand-text'
-                      : 'text-fg-muted hover:bg-surface-2'
-                  } disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
-                  title="AI assistant"
-                  aria-label="Open AI assistant"
+                    showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
+                  } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  title="Emoji"
+                  aria-label="Open emoji picker"
                 >
-                  <Sparkles className={`w-5 h-5 ${suggesting || rewriting ? 'animate-pulse' : ''}`} />
+                  <Smile className="w-5 h-5" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadPercent !== null || timeRemaining === 'expired'}
-                className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
-                  uploadPercent !== null || timeRemaining === 'expired'
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'cursor-pointer'
-                }`}
-                title="Attach photo, video, or file"
-                aria-label="Attach photo, video, or file"
-              >
-                <Paperclip className="w-5 h-5" />
-              </button>
+                {(aiTasks.has('replies') || aiTasks.has('rewrite')) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel((s) => !s)}
+                    disabled={timeRemaining === 'expired'}
+                    className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
+                      showAiPanel || suggesting || rewriting
+                        ? 'bg-brand/10 text-brand-text'
+                        : 'text-fg-muted hover:bg-surface-2'
+                    } disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
+                    title="AI assistant"
+                    aria-label="Open AI assistant"
+                  >
+                    <Sparkles className={`w-5 h-5 ${suggesting || rewriting ? 'animate-pulse' : ''}`} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadPercent !== null || timeRemaining === 'expired'}
+                  className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
+                    uploadPercent !== null || timeRemaining === 'expired'
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'cursor-pointer'
+                  }`}
+                  title="Attach photo, video, or file"
+                  aria-label="Attach photo, video, or file"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <input
               ref={fileInputRef}
@@ -1933,10 +2007,11 @@ const MessageBubble = memo(function MessageBubble({
     setTranslating(true);
     setTranslation('');
     try {
-      await streamAi(
+      const result = await streamAi(
         { task: 'translate', text: message.content, target: browserLanguageName() },
         (t) => setTranslation(t)
       );
+      setTranslation(cleanAiOutput(result) || null);
     } catch (err) {
       setTranslation(`⚠ ${err instanceof Error ? err.message : 'Translation failed'}`);
     }
