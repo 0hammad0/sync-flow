@@ -5,42 +5,49 @@
 // copy buttons for long messages. Dependency-free — a few regex tokenizers
 // cover the common languages well enough for chat-sized snippets.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, Sparkles, X } from 'lucide-react';
-import { getAiAvailability, streamAi, stripInlineMarkdown } from '@/lib/ai-client';
+import { getAiAvailability, streamAi, stripInlineMarkdown } from '@/features/ai/lib/ai-client';
+import { useCopy } from '@/shared/lib/clipboard';
+
+// Performance caps. Rendering huge text as per-token <span>s (syntax
+// highlighting) or scanning it with regex (linkification) is what freezes
+// the main thread on pasted 100KB JSON/logs. Past these sizes we fall back
+// to a single plain text node — which the browser handles effortlessly no
+// matter how large — so the UI never locks up.
+const MAX_HIGHLIGHT_CHARS = 20_000; // above this: plain code, no token spans
+const MAX_LINKIFY_CHARS = 50_000;   // above this: skip URL scanning
+const MAX_LANG_SNIFF_CHARS = 8_000; // language is guessable from a prefix
+// Hard ceiling on what we put in the DOM. Even a single text node has a
+// browser layout cost proportional to its length, so a multi-MB paste is
+// truncated in the view (full text stays available via Copy / download).
+const MAX_RENDER_CHARS = 100_000;
+
+function kb(n: number): string {
+  return `${Math.round(n / 1000).toLocaleString()} KB`;
+}
 
 /* ------------------------------- copying -------------------------------- */
 
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // Clipboard API needs a secure context; fall back to execCommand.
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }
-}
-
 export function InlineCopyButton({
   text,
+  getText,
   title = 'Copy',
   label,
   light,
   mine,
 }: {
-  text: string;
+  text?: string;
+  // Resolve the text to copy at click time — lets callers copy content that
+  // isn't loaded yet (e.g. the full body of a truncated long message).
+  getText?: () => string | Promise<string>;
   title?: string;
   label?: string;
   light?: boolean; // on the dark snippet header
   mine?: boolean;  // inside my (colored) bubble
 }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy(1500);
+  const [busy, setBusy] = useState(false);
   const tone = light
     ? 'text-[#9d9d9d] hover:text-white'
     : mine
@@ -49,19 +56,24 @@ export function InlineCopyButton({
   return (
     <button
       type="button"
-      onClick={(e) => {
+      onClick={async (e) => {
         e.stopPropagation();
-        copyText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
+        if (busy) return;
+        try {
+          setBusy(true);
+          const value = getText ? await getText() : text ?? '';
+          await copy(value);
+        } finally {
+          setBusy(false);
+        }
       }}
-      className={`inline-flex items-center gap-1 align-baseline text-[10px] cursor-pointer transition-colors ${tone}`}
+      className={`inline-flex items-center gap-1 align-baseline text-[10px] cursor-pointer transition-colors disabled:opacity-60 ${tone}`}
       title={copied ? 'Copied!' : title}
       aria-label={copied ? 'Copied' : title}
+      disabled={busy}
     >
       {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-      {label && <span>{copied ? 'Copied' : label}</span>}
+      {label && <span>{copied ? 'Copied' : busy ? 'Copying…' : label}</span>}
     </button>
   );
 }
@@ -83,6 +95,23 @@ export function LinkifiedText({
   mine: boolean;
   className?: string;
 }) {
+  // Very large text: scanning + splitting into nodes is expensive and
+  // pointless (a pasted log rarely needs clickable links). Render as one
+  // plain text node, truncated to the render ceiling so layout stays cheap.
+  if (text.length > MAX_LINKIFY_CHARS) {
+    const truncated = text.length > MAX_RENDER_CHARS;
+    return (
+      <div className={className} style={{ wordBreak: 'break-word' }}>
+        {truncated ? text.slice(0, MAX_RENDER_CHARS) : text}
+        {truncated && (
+          <span className="block mt-1 text-[10px] opacity-70">
+            … showing first {kb(MAX_RENDER_CHARS)} of {kb(text.length)} — use Copy for the full text
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const parts: React.ReactNode[] = [];
   let last = 0;
   let key = 0;
@@ -162,12 +191,16 @@ function countMatches(re: RegExp, s: string): number {
 }
 
 function guessLang(code: string): CodeLang {
-  const t = code.trim();
+  const full = code.trim();
+  // JSON needs the whole string (a truncated object won't parse), but every
+  // other heuristic reads fine from a prefix — so we don't run a dozen
+  // global regexes over a 100KB paste.
+  const t = full.length > MAX_LANG_SNIFF_CHARS ? full.slice(0, MAX_LANG_SNIFF_CHARS) : full;
 
   // JSON: strict parse, but only for object/array bodies (not bare numbers).
-  if (/^[{[]/.test(t)) {
+  if (/^[{[]/.test(full)) {
     try {
-      JSON.parse(t);
+      JSON.parse(full);
       return 'json';
     } catch {
       /* fall through */
@@ -387,6 +420,20 @@ export function CodeSnippet({ code, lang }: { code: string; lang: CodeLang }) {
     setExplaining(false);
   };
 
+  // Highlighting emits one <span> per token — tens of thousands of DOM nodes
+  // for a big paste, which freezes render and scroll. Past the cap we render
+  // the raw string as a single text node (instant at any size) and skip
+  // colouring; past the render ceiling we also truncate the view. Full code
+  // stays available via Copy. Memoized so re-renders (AI streaming, presence
+  // ticks) don't re-tokenize.
+  const truncated = code.length > MAX_RENDER_CHARS;
+  const displayCode = truncated ? code.slice(0, MAX_RENDER_CHARS) : code;
+  const tooLargeToHighlight = displayCode.length > MAX_HIGHLIGHT_CHARS;
+  const rendered = useMemo(
+    () => (tooLargeToHighlight ? displayCode : highlight(displayCode, lang)),
+    [displayCode, lang, tooLargeToHighlight]
+  );
+
   return (
     <div
       className="rounded-lg overflow-hidden my-0.5 text-left border border-white/10"
@@ -398,6 +445,11 @@ export function CodeSnippet({ code, lang }: { code: string; lang: CodeLang }) {
       >
         <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: '#858585' }}>
           {LANG_LABEL[lang]}
+          {tooLargeToHighlight && (
+            <span className="ml-1.5 normal-case tracking-normal text-[#6a6a6a]">
+              · large, highlighting off
+            </span>
+          )}
         </span>
         <span className="flex items-center gap-3">
           {canExplain && (
@@ -420,10 +472,15 @@ export function CodeSnippet({ code, lang }: { code: string; lang: CodeLang }) {
         </span>
       </div>
       <pre
-        className="text-xs sm:text-sm font-mono whitespace-pre overflow-x-auto p-3 leading-relaxed"
-        style={{ color: '#d4d4d4' }}
+        className="text-xs sm:text-sm font-mono whitespace-pre overflow-auto max-h-[60vh] p-3 leading-relaxed"
+        style={{ color: '#d4d4d4', contentVisibility: 'auto' }}
       >
-        <code>{highlight(code, lang)}</code>
+        <code>{rendered}</code>
+        {truncated && (
+          <span className="block mt-2 text-[10px]" style={{ color: '#858585' }}>
+            … showing first {kb(MAX_RENDER_CHARS)} of {kb(code.length)} — use Copy for the full snippet
+          </span>
+        )}
       </pre>
       {(explanation !== null || aiError) && (
         <div className="px-3 py-2 border-t border-white/10 text-xs leading-relaxed" style={{ background: '#252526' }}>

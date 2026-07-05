@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server';
-import { updateSession } from '@/lib/firebase/proxy';
+import { updateSession } from '@/shared/lib/firebase/proxy';
 
 export async function proxy(request: NextRequest) {
   return await updateSession(request);

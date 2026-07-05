@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 import {
   aiRateLimitPerMinute,
   buildPrompt,
@@ -7,7 +7,7 @@ import {
   isAiConfigured,
   modelList,
   type AiRequestBody,
-} from '@/lib/ai-config';
+} from '@/features/ai/lib/ai-config';
 
 export const runtime = 'nodejs';
 

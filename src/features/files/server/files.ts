@@ -1,7 +1,7 @@
 'use server';
 
 import { DownloadInfo, FileRecord } from '@/types';
-import { currentUser } from '@/lib/firebase/session';
+import { currentUser } from '@/shared/lib/firebase/session';
 import {
   getFile,
   deleteFile as fsDeleteFile,
@@ -9,12 +9,12 @@ import {
   countOwnerFiles,
   updateFileExpiry,
   incrementDownloadAndMaybeDestruct,
-} from '@/lib/firebase/files';
+} from '@/shared/lib/firebase/files';
 import {
   deleteObject,
   objectExists,
   signedDownloadUrl,
-} from '@/lib/r2';
+} from '@/shared/lib/r2';
 
 const SIGNED_URL_EXPIRY = 3600; // 1 hour
 

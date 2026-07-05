@@ -3,9 +3,9 @@ import {
   deleteExpiredReceiveSessions,
   deleteFile as fsDeleteFile,
   listExpiredAnonymousFiles,
-} from '@/lib/firebase/files';
-import { deleteExpiredRooms } from '@/lib/firebase/chat';
-import { deleteObject } from '@/lib/r2';
+} from '@/shared/lib/firebase/files';
+import { deleteExpiredRooms } from '@/shared/lib/firebase/chat';
+import { deleteObject } from '@/shared/lib/r2';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 

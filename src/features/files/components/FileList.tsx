@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileRecord } from '@/types';
-import { formatFileSize, getBaseUrl, MAX_USER_FILES } from '@/lib/utils';
-import { deleteFile, reshareFile } from '@/actions/files';
-import CopyButton from './CopyButton';
-import LoadingSpinner from './LoadingSpinner';
-import Button from './ui/Button';
+import { formatFileSize, getBaseUrl, MAX_USER_FILES } from '@/shared/lib/utils';
+import { deleteFile, reshareFile } from '@/features/files/server/files';
+import CopyButton from '@/shared/components/CopyButton';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Button from '@/shared/components/ui/Button';
 import { AlertTriangle, FolderOpen } from 'lucide-react';
 
 interface FileListProps {

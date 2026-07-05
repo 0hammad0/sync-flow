@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { clientAuth } from '@/lib/firebase/client';
+import { clientAuth } from '@/shared/lib/firebase/client';
 import { CheckCircle2, UserRound } from 'lucide-react';
 
 export default function AuthCTA() {

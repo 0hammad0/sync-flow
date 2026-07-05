@@ -1,6 +1,6 @@
 import { adminDb } from './admin';
-import { generateRoomCode, normalizeReactors } from '@/lib/utils';
-import { deletePrefix } from '@/lib/r2';
+import { generateRoomCode, normalizeReactors } from '@/shared/lib/utils';
+import { deletePrefix } from '@/shared/lib/r2';
 import type {
   ChatAttachment,
   ChatMessage,

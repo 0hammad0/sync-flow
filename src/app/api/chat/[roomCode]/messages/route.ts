@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@/lib/firebase/session';
+import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
@@ -10,7 +10,7 @@ import {
   MAX_MESSAGE_BYTES,
   roomStoragePrefix,
   sanitizeSenderName,
-} from '@/lib/firebase/chat';
+} from '@/shared/lib/firebase/chat';
 import type { ChatAttachment, ChatReplyRef } from '@/types';
 
 const MESSAGE_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
@@ -37,8 +37,8 @@ function validateAttachments(raw: unknown, code: string): ChatAttachment[] | nul
   }
   return out;
 }
-import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/lib/utils';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/shared/lib/utils';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 

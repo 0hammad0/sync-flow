@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { clientAuth } from '@/lib/firebase/client';
-import LoadingSpinner from './LoadingSpinner';
-import Logo from './Logo';
-import ThemeToggle from './ThemeToggle';
+import { clientAuth } from '@/shared/lib/firebase/client';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Logo from '@/shared/components/Logo';
+import ThemeToggle from '@/shared/components/ThemeToggle';
 import { FolderOpen, LogOut, MessageSquare, Smartphone } from 'lucide-react';
 
 /** Pill nav links shown to everyone (signed in or not). */

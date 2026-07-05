@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useRef, use } from 'react';
-import { formatFileSize } from '@/lib/utils';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import Button from '@/components/ui/Button';
+import { formatFileSize } from '@/shared/lib/utils';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Button from '@/shared/components/ui/Button';
 import {
   AlertCircle,
   CheckCircle2,

@@ -1,6 +1,6 @@
-import { getFileByToken } from '@/actions/files';
-import DownloadCard from '@/components/DownloadCard';
-import Button from '@/components/ui/Button';
+import { getFileByToken } from '@/features/files/server/files';
+import DownloadCard from '@/features/files/components/DownloadCard';
+import Button from '@/shared/components/ui/Button';
 import { Clock, FileQuestion, ShieldAlert } from 'lucide-react';
 
 interface SharePageProps {

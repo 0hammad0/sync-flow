@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@/lib/firebase/session';
+import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   clearPresence,
@@ -7,9 +7,9 @@ import {
   isRoomExpired,
   sanitizeSenderName,
   upsertPresence,
-} from '@/lib/firebase/chat';
-import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/lib/utils';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+} from '@/shared/lib/firebase/chat';
+import { isValidRoomCode, sanitizeDeviceId, sanitizeIanaTz } from '@/shared/lib/utils';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 

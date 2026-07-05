@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateToken, getRequestOrigin } from '@/lib/utils';
-import { currentUser } from '@/lib/firebase/session';
-import { createReceiveSession } from '@/lib/firebase/files';
+import { generateToken, getRequestOrigin } from '@/shared/lib/utils';
+import { currentUser } from '@/shared/lib/firebase/session';
+import { createReceiveSession } from '@/shared/lib/firebase/files';
 
 const TTL_MS = 10 * 60 * 1000;
 

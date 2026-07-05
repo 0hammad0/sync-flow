@@ -4,9 +4,9 @@ import {
   isRoomExpired,
   sanitizeSenderName,
   upsertPresence,
-} from '@/lib/firebase/chat';
-import { isValidRoomCode, sanitizeDeviceId } from '@/lib/utils';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+} from '@/shared/lib/firebase/chat';
+import { isValidRoomCode, sanitizeDeviceId } from '@/shared/lib/utils';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 

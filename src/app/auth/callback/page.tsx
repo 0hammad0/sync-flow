@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
-import { clientAuth } from '@/lib/firebase/client';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import Button from '@/components/ui/Button';
+import { clientAuth } from '@/shared/lib/firebase/client';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Button from '@/shared/components/ui/Button';
 import { AlertCircle } from 'lucide-react';
 
 const STORED_EMAIL_KEY = 'syncflow.emailForSignIn';

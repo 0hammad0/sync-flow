@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
-import { mintSessionCookie, SESSION_COOKIE } from '@/lib/firebase/session';
+import { adminAuth } from '@/shared/lib/firebase/admin';
+import { mintSessionCookie, SESSION_COOKIE } from '@/shared/lib/firebase/session';
 
 export const runtime = 'nodejs';
 

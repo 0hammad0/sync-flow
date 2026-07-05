@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRoom, isRoomExpired } from '@/lib/firebase/chat';
-import { isValidRoomCode } from '@/lib/utils';
+import { getRoom, isRoomExpired } from '@/shared/lib/firebase/chat';
+import { isValidRoomCode } from '@/shared/lib/utils';
 
 export const runtime = 'nodejs';
 

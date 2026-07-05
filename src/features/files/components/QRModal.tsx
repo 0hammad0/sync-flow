@@ -4,7 +4,7 @@ import { useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { X } from 'lucide-react';
-import CopyButton from './CopyButton';
+import CopyButton from '@/shared/components/CopyButton';
 
 interface QRModalProps {
   isOpen: boolean;

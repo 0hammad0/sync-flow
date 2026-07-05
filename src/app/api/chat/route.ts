@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@/lib/firebase/session';
-import { ALLOWED_TTL_HOURS, createRoom, MAX_ROOM_NAME_LENGTH } from '@/lib/firebase/chat';
-import { getRequestOrigin, sanitizeIanaTz } from '@/lib/utils';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+import { currentUser } from '@/shared/lib/firebase/session';
+import { ALLOWED_TTL_HOURS, createRoom, MAX_ROOM_NAME_LENGTH } from '@/shared/lib/firebase/chat';
+import { getRequestOrigin, sanitizeIanaTz } from '@/shared/lib/utils';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFile, getReceiveSession } from '@/lib/firebase/files';
+import { getFile, getReceiveSession } from '@/shared/lib/firebase/files';
 
 export async function GET(
   _request: NextRequest,

@@ -1,18 +1,18 @@
 'use client';
 
 import { useState, useRef, useMemo } from 'react';
-import { formatFileSize } from '@/lib/utils';
+import { formatFileSize } from '@/shared/lib/utils';
 import { UploadProgress } from '@/types';
 import {
   generateKey,
   exportKey,
   encryptFile,
   isEncryptionSupported,
-} from '@/lib/crypto';
-import CopyButton from './CopyButton';
-import ProgressBar from './ProgressBar';
-import QRModal from './QRModal';
-import Button from './ui/Button';
+} from '@/shared/lib/crypto';
+import CopyButton from '@/shared/components/CopyButton';
+import ProgressBar from '@/features/files/components/ProgressBar';
+import QRModal from '@/features/files/components/QRModal';
+import Button from '@/shared/components/ui/Button';
 import {
   AlertCircle,
   CheckCircle2,

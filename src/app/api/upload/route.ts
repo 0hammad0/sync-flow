@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateToken, sanitizeFileName, getRequestOrigin, MAX_USER_FILES } from '@/lib/utils';
-import { currentUser } from '@/lib/firebase/session';
-import { countOwnerFiles, createFile } from '@/lib/firebase/files';
-import { deleteObject, putObject } from '@/lib/r2';
+import { generateToken, sanitizeFileName, getRequestOrigin, MAX_USER_FILES } from '@/shared/lib/utils';
+import { currentUser } from '@/shared/lib/firebase/session';
+import { countOwnerFiles, createFile } from '@/shared/lib/firebase/files';
+import { deleteObject, putObject } from '@/shared/lib/r2';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 

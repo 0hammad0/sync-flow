@@ -1,4 +1,4 @@
-import ChatLobby from '@/components/ChatLobby';
+import ChatLobby from '@/features/chat/components/ChatLobby';
 
 export const metadata = {
   title: 'Chat Rooms',

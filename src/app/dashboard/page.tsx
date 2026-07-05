@@ -1,7 +1,7 @@
-import { getUserFiles } from '@/actions/files';
-import FileList from '@/components/FileList';
-import MyChatRooms from '@/components/MyChatRooms';
-import Button from '@/components/ui/Button';
+import { getUserFiles } from '@/features/files/server/files';
+import FileList from '@/features/files/components/FileList';
+import MyChatRooms from '@/features/chat/components/MyChatRooms';
+import Button from '@/shared/components/ui/Button';
 import { Lightbulb } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';

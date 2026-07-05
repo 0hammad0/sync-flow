@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatFileSize } from '@/lib/utils';
-import { getKeyFromUrl, importKey, decryptFile, isEncryptionSupported } from '@/lib/crypto';
-import { incrementDownloadCount } from '@/actions/files';
-import LoadingSpinner from './LoadingSpinner';
+import { formatFileSize } from '@/shared/lib/utils';
+import { getKeyFromUrl, importKey, decryptFile, isEncryptionSupported } from '@/shared/lib/crypto';
+import { incrementDownloadCount } from '@/features/files/server/files';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import {
   CheckCircle2,
   Download,

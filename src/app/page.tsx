@@ -1,8 +1,8 @@
-import UploadForm from '@/components/UploadForm';
-import AuthCTA from '@/components/AuthCTA';
-import Reveal from '@/components/Reveal';
+import UploadForm from '@/features/files/components/UploadForm';
+import AuthCTA from '@/shared/components/AuthCTA';
+import Reveal from '@/shared/components/Reveal';
 import Link from 'next/link';
-import { currentUser } from '@/lib/firebase/session';
+import { currentUser } from '@/shared/lib/firebase/session';
 import {
   ArrowRight,
   MessageSquare,

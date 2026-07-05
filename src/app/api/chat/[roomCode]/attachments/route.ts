@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@/lib/firebase/session';
+import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
@@ -9,7 +9,7 @@ import {
   sanitizeSenderName,
   roomStoragePrefix,
   MAX_ATTACHMENT_BYTES,
-} from '@/lib/firebase/chat';
+} from '@/shared/lib/firebase/chat';
 import type { ChatReplyRef } from '@/types';
 import {
   generateToken,
@@ -18,9 +18,9 @@ import {
   sanitizeDeviceId,
   sanitizeFileName,
   sanitizeIanaTz,
-} from '@/lib/utils';
-import { deleteObject, putObject, signedDownloadUrl } from '@/lib/r2';
-import { clientKey, rateLimit } from '@/lib/rate-limit';
+} from '@/shared/lib/utils';
+import { deleteObject, putObject, signedDownloadUrl } from '@/shared/lib/r2';
+import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 

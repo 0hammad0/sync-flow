@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { formatFileSize } from '@/lib/utils';
-import { getFileByToken } from '@/actions/files';
-import { downloadAllAsZip } from '@/lib/zip';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import Button from '@/components/ui/Button';
+import { formatFileSize } from '@/shared/lib/utils';
+import { getFileByToken } from '@/features/files/server/files';
+import { downloadAllAsZip } from '@/shared/lib/zip';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Button from '@/shared/components/ui/Button';
 import Link from 'next/link';
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock, Download } from 'lucide-react';
 

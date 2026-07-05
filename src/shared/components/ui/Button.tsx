@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import LoadingSpinner from '../LoadingSpinner';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dark';
 type Size = 'sm' | 'md' | 'lg';

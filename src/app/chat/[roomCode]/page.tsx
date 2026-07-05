@@ -2,9 +2,9 @@ import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Clock } from 'lucide-react';
-import ChatRoom from '@/components/ChatRoom';
-import { getRoom, isRoomExpired } from '@/lib/firebase/chat';
-import { getRequestOrigin, isValidRoomCode } from '@/lib/utils';
+import ChatRoom from '@/features/chat/components/ChatRoom';
+import { getRoom, isRoomExpired } from '@/shared/lib/firebase/chat';
+import { getRequestOrigin, isValidRoomCode } from '@/shared/lib/utils';
 
 interface ChatRoomPageProps {
   params: Promise<{ roomCode: string }>;

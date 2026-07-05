@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, sendSignInLinkToEmail } from 'firebase/auth';
-import { clientAuth } from '@/lib/firebase/client';
-import { getBaseUrl } from '@/lib/utils';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import Button from '@/components/ui/Button';
+import { clientAuth } from '@/shared/lib/firebase/client';
+import { getBaseUrl } from '@/shared/lib/utils';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import Button from '@/shared/components/ui/Button';
 import Link from 'next/link';
 import { Check } from 'lucide-react';
 

@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Button from './ui/Button';
-import { clientTimezone } from '@/lib/time';
-import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/lib/utils';
+import Button from '@/shared/components/ui/Button';
+import { clientTimezone } from '@/shared/lib/time';
+import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/shared/lib/utils';
 
 const TTL_OPTIONS: ReadonlyArray<{ value: 1 | 24 | 168; label: string }> = [
   { value: 1, label: '1 hour' },
