@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Hide the floating dev-tools badge — it overlaps the chat composer's
+  // bottom-left buttons on mobile viewports.
+  devIndicators: false,
   experimental: {
     serverActions: {
       bodySizeLimit: '100mb',

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatFileSize } from '@/lib/utils';
 import { getFileByToken } from '@/actions/files';
+import { downloadAllAsZip } from '@/lib/zip';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
@@ -90,20 +91,19 @@ export default function ReceivePage() {
     }
   }, []);
 
+  // Browsers block programmatic downloads after the first click, so the
+  // files are fetched and bundled into one zip instead of clicked one by one.
   const downloadAll = useCallback(async () => {
     setDownloading('all');
     try {
+      const items: { name: string; url: string }[] = [];
       for (const f of files) {
         const info = await getFileByToken(f.token);
         if (info.success && info.signedUrl) {
-          const link = document.createElement('a');
-          link.href = info.signedUrl;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
+          items.push({ name: f.name, url: info.signedUrl });
         }
-        await new Promise((r) => setTimeout(r, 600));
       }
+      await downloadAllAsZip(items, 'syncflow-received-files.zip');
     } finally {
       setDownloading(null);
     }

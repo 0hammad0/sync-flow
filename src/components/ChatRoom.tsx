@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import TextareaAutosize from 'react-textarea-autosize';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -27,19 +28,26 @@ import {
   FileText,
   Film,
   Image as ImageIcon,
+  Languages,
   MessageCircle,
   Music,
   Paperclip,
   QrCode,
   Reply,
+  RotateCcw,
   Send,
   Smile,
   SmilePlus,
+  Sparkles,
   UploadCloud,
+  Wand2,
   X,
 } from 'lucide-react';
 import { clientAuth, clientDb } from '@/lib/firebase/client';
 import { clientTimezone, formatChatTime, formatTimeUntil } from '@/lib/time';
+import { downloadAllAsZip } from '@/lib/zip';
+import { CodeSnippet, detectCode, InlineCopyButton, LinkifiedText } from './MessageContent';
+import { browserLanguageName, getAiAvailability, streamAi, stripInlineMarkdown } from '@/lib/ai-client';
 import {
   CHAT_REACTIONS,
   formatFileSize,
@@ -153,17 +161,17 @@ function byteLen(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-function looksLikeCode(content: string): boolean {
-  // Very rough heuristic: fenced markdown, or many leading-tab/4-space lines.
-  if (content.startsWith('```') || content.includes('\n```')) return true;
-  const lines = content.split('\n');
-  let indented = 0;
-  for (const line of lines) {
-    if (/^(\t| {2,})/.test(line)) indented++;
-    if (indented >= 3) return true;
-  }
-  return false;
-}
+// Messages this long (or code snippets) get an explicit copy control.
+const COPYABLE_TEXT_THRESHOLD = 240;
+
+// Composer rewrite presets — sent verbatim as the AI instruction.
+const REWRITE_OPTIONS = [
+  { label: 'Shorter', instruction: 'Make it shorter and punchier' },
+  { label: 'Friendlier', instruction: 'Make it warmer and friendlier' },
+  { label: 'Professional', instruction: 'Make it polished and professional' },
+  { label: 'Fix grammar', instruction: 'Fix grammar, spelling, and punctuation without changing the meaning or tone' },
+  { label: '→ English', instruction: 'Translate it to English' },
+] as const;
 
 export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [user, setUser] = useState<User | null>(null);
@@ -188,11 +196,37 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
   const [dragOver, setDragOver] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  // AI features (OpenRouter via /api/ai) — aiTasks holds what the server
+  // currently offers; controls for unavailable tasks are simply not rendered.
+  const [aiTasks, setAiTasks] = useState<Set<string>>(new Set());
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  const [showJumpDown, setShowJumpDown] = useState(false);
+  // Mobile: while typing, the tool buttons collapse behind a chevron so the
+  // input gets the width (WhatsApp-style). Tapping the chevron re-opens them.
+  const [showToolsWhileTyping, setShowToolsWhileTyping] = useState(false);
+  const [preRewriteDraft, setPreRewriteDraft] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingBeat = useRef(0);
   const dragCounter = useRef(0);
+
+  // Discover which AI tasks the server offers (empty set → no AI controls).
+  useEffect(() => {
+    let cancelled = false;
+    getAiAvailability().then((a) => {
+      if (!cancelled) setAiTasks(new Set(a.tasks));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Hide the site footer and lock body scroll while the chat room is mounted.
   useEffect(() => {
@@ -240,6 +274,16 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     );
     return () => unsub();
   }, [room.code]);
+
+  // Jump straight to the newest messages when the room first loads.
+  const didInitialScroll = useRef(false);
+  useEffect(() => {
+    if (loadingMessages || didInitialScroll.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    didInitialScroll.current = true;
+  }, [loadingMessages, messages]);
 
   // Auto-scroll to bottom on new messages (only if user is already near bottom).
   useEffect(() => {
@@ -776,10 +820,103 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [draft, pendingAttachments, uploadPercent, displayName, room.code, sending, replyTo, deviceId, sendHeartbeat, uploadAttachment]
   );
 
+  /* ------------------------------ AI helpers ----------------------------- */
+
+  // Plain-text transcript of the latest chat messages for AI prompts.
+  const buildTranscript = useCallback(
+    (maxMessages: number) =>
+      messages
+        .filter((m) => m.kind !== 'system')
+        .slice(-maxMessages)
+        .map((m) => {
+          const atts = getAtts(m);
+          const files =
+            atts.length > 0 && !atts[0].is_long_text
+              ? ` [shared ${atts.length === 1 ? 'a file' : `${atts.length} files`}: ${atts.map((a) => a.name).join(', ')}]`
+              : '';
+          return `${m.sender_name}: ${m.content}${files}`;
+        })
+        .join('\n')
+        .slice(-14_000),
+    [messages]
+  );
+
+  // Smart replies: 3 tappable suggestions from the recent conversation.
+  const suggestReplies = useCallback(async () => {
+    if (suggesting) return;
+    setSuggesting(true);
+    setSuggestions([]);
+    setSendError(null);
+    try {
+      const text = await streamAi({
+        task: 'replies',
+        transcript: buildTranscript(12),
+        me: displayName,
+      });
+      const parsed = text
+        .split('\n')
+        .map((s) => s.replace(/^[-*\d.)"'\s]+/, '').replace(/["']+$/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      setSuggestions(parsed);
+      if (parsed.length === 0) setSendError('No suggestions this time — try again.');
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'AI request failed');
+    }
+    setSuggesting(false);
+  }, [suggesting, buildTranscript, displayName]);
+
+  // "Catch me up": streamed room summary shown in a dismissible panel.
+  const catchMeUp = useCallback(async () => {
+    if (summarizing) return;
+    setSummarizing(true);
+    setSummary('');
+    setSummaryExpanded(false);
+    try {
+      await streamAi({ task: 'summary', transcript: buildTranscript(80) }, (t) => setSummary(t));
+    } catch (err) {
+      setSummary(
+        `⚠ ${err instanceof Error ? err.message : 'AI request failed'}`
+      );
+    }
+    setSummarizing(false);
+  }, [summarizing, buildTranscript]);
+
+  // Rewrite the draft in place, streaming into the textarea; undoable.
+  const applyRewrite = useCallback(
+    async (instruction: string) => {
+      const original = draft;
+      if (!original.trim() || rewriting) return;
+      setShowAiPanel(false);
+      setRewriting(true);
+      setPreRewriteDraft(original);
+      setSendError(null);
+      setDraft('');
+      try {
+        const result = await streamAi(
+          { task: 'rewrite', text: original, instruction },
+          (t) => setDraft(t)
+        );
+        setDraft(result);
+      } catch (err) {
+        setDraft(original);
+        setPreRewriteDraft(null);
+        setSendError(err instanceof Error ? err.message : 'AI request failed');
+      }
+      setRewriting(false);
+      textareaRef.current?.focus();
+    },
+    [draft, rewriting]
+  );
+
+  /* ----------------------------------------------------------------------- */
+
   // Throttled typing beat: at most one write per 2.5s while actually typing.
   const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setDraft(value);
+    // Typing (or clearing) re-collapses the mobile tool row.
+    setShowToolsWhileTyping(false);
     if (value.trim() && Date.now() - lastTypingBeat.current > TYPING_THROTTLE_MS) {
       lastTypingBeat.current = Date.now();
       sendHeartbeat(true);
@@ -974,7 +1111,18 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <CopyButton text={joinUrl} />
+            {aiTasks.has('summary') && (
+              <button
+                onClick={catchMeUp}
+                disabled={summarizing || messages.filter((m) => m.kind !== 'system').length === 0}
+                className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Catch me up — AI summary of the conversation"
+                aria-label="Catch me up with an AI summary"
+              >
+                <Sparkles className={`w-4 h-4 ${summarizing ? 'animate-pulse text-brand-text' : ''}`} />
+              </button>
+            )}
+            <CopyButton text={joinUrl} compact />
             <button
               onClick={() => setShowQR(true)}
               className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors"
@@ -986,9 +1134,53 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           </div>
         </div>
 
+        {/* AI room summary panel — collapsed to a teaser; "Read more" expands
+            with a height animation and glow. */}
+        {summary !== null && (
+          <div
+            className={`relative mx-2 sm:mx-4 mt-1.5 px-2.5 py-2 pr-8 bg-brand/5 border rounded-lg animate-fade-in transition-all duration-300 ${
+              summaryExpanded ? 'border-brand/40 shadow-[var(--glow)]' : 'border-brand/20'
+            }`}
+          >
+            <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-text mb-0.5">
+              <Sparkles className="w-3 h-3" />
+              Catch me up
+              {summarizing && <span className="font-normal normal-case tracking-normal text-fg-faint">thinking…</span>}
+            </p>
+            <div
+              className={`text-xs leading-snug whitespace-pre-wrap break-words text-fg-muted transition-[max-height] duration-300 ease-out ${
+                summaryExpanded ? 'max-h-52 overflow-y-auto' : 'max-h-[2.7em] overflow-hidden'
+              }`}
+            >
+              {stripInlineMarkdown(summary) || '…'}
+            </div>
+            {!summarizing && summary && (
+              <button
+                type="button"
+                onClick={() => setSummaryExpanded((e) => !e)}
+                className="mt-1 text-[10px] font-medium text-brand-text underline underline-offset-2 hover:opacity-80 cursor-pointer"
+              >
+                {summaryExpanded ? 'Show less' : 'Read more'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSummary(null)}
+              className="absolute top-1.5 right-1.5 p-1 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
+              aria-label="Dismiss summary"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Messages */}
         <div
           ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setShowJumpDown(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
+          }}
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-canvas/50"
           aria-live="polite"
         >
@@ -1047,6 +1239,26 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </div>
           )}
         </div>
+
+        {/* WhatsApp-style jump-to-latest arrow, floats above the composer */}
+        {showJumpDown && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() =>
+                scrollRef.current?.scrollTo({
+                  top: scrollRef.current.scrollHeight,
+                  behavior: 'smooth',
+                })
+              }
+              className="absolute bottom-3 right-3 sm:right-4 z-10 p-2.5 rounded-full bg-surface border border-edge shadow-lg text-fg-muted hover:text-fg hover:bg-surface-2 cursor-pointer animate-fade-in-scale"
+              title="Jump to latest messages"
+              aria-label="Scroll to bottom"
+            >
+              <ChevronDown className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         {/* Composer */}
         <form
@@ -1149,19 +1361,150 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </div>
           )}
 
+          {/* AI panel: suggest replies + rewrite presets in one place */}
+          {showAiPanel && (
+            <div className="p-2 border border-edge rounded-xl bg-surface-2 animate-fade-in-scale space-y-1.5">
+              {aiTasks.has('replies') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAiPanel(false);
+                    void suggestReplies();
+                  }}
+                  disabled={suggesting || messages.filter((m) => m.kind !== 'system').length === 0}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-brand-text" />
+                  Suggest replies
+                </button>
+              )}
+              {aiTasks.has('rewrite') && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-fg-faint px-1 flex items-center gap-1">
+                    <Wand2 className="w-3 h-3" /> Rewrite:
+                  </span>
+                  {draft.trim() ? (
+                    REWRITE_OPTIONS.map((o) => (
+                      <button
+                        key={o.label}
+                        type="button"
+                        onClick={() => applyRewrite(o.instruction)}
+                        disabled={rewriting}
+                        className="px-2.5 py-1 text-xs bg-surface border border-edge text-fg-muted rounded-full hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {o.label}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-[10px] text-fg-faint">type a message first</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI smart-reply chips + rewrite undo */}
+          {(suggestions.length > 0 || suggesting || preRewriteDraft !== null) && (
+            <div className="flex flex-wrap items-center gap-1.5 px-1 animate-fade-in">
+              {suggesting && (
+                <span className="flex items-center gap-1.5 text-xs text-fg-faint">
+                  <Sparkles className="w-3 h-3 animate-pulse text-brand-text" />
+                  Thinking…
+                </span>
+              )}
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setDraft(s);
+                    setSuggestions([]);
+                    textareaRef.current?.focus();
+                  }}
+                  className="px-3 py-1.5 text-xs bg-brand/5 border border-brand/25 text-brand-text rounded-full hover:bg-brand/10 cursor-pointer transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+              {preRewriteDraft !== null && !rewriting && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(preRewriteDraft);
+                    setPreRewriteDraft(null);
+                    textareaRef.current?.focus();
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-fg-muted underline hover:text-fg cursor-pointer"
+                  title="Restore your original message"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Undo rewrite
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-end gap-1 sm:gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={() => setShowEmoji((s) => !s)}
-              disabled={timeRemaining === 'expired'}
-              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
-                showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
-              } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              title="Emoji"
-              aria-label="Open emoji picker"
+            {/* Mobile-only: while typing the tools collapse behind this chevron */}
+            {draft.length > 0 && !showToolsWhileTyping && (
+              <button
+                type="button"
+                onClick={() => setShowToolsWhileTyping(true)}
+                className="sm:hidden shrink-0 h-10 w-8 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 cursor-pointer animate-fade-in"
+                title="More options"
+                aria-label="Show emoji, AI, and attach buttons"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            )}
+            <div
+              className={`${
+                draft.length > 0 && !showToolsWhileTyping ? 'hidden sm:flex' : 'flex'
+              } items-end gap-1 sm:gap-2 shrink-0`}
             >
-              <Smile className="w-5 h-5" />
-            </button>
+              <button
+                type="button"
+                onClick={() => setShowEmoji((s) => !s)}
+                disabled={timeRemaining === 'expired'}
+                className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
+                  showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
+                } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                title="Emoji"
+                aria-label="Open emoji picker"
+              >
+                <Smile className="w-5 h-5" />
+              </button>
+              {(aiTasks.has('replies') || aiTasks.has('rewrite')) && (
+                <button
+                  type="button"
+                  onClick={() => setShowAiPanel((s) => !s)}
+                  disabled={timeRemaining === 'expired'}
+                  className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
+                    showAiPanel || suggesting || rewriting
+                      ? 'bg-brand/10 text-brand-text'
+                      : 'text-fg-muted hover:bg-surface-2'
+                  } disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
+                  title="AI assistant"
+                  aria-label="Open AI assistant"
+                >
+                  <Sparkles className={`w-5 h-5 ${suggesting || rewriting ? 'animate-pulse' : ''}`} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadPercent !== null || timeRemaining === 'expired'}
+                className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
+                  uploadPercent !== null || timeRemaining === 'expired'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer'
+                }`}
+                title="Attach photo, video, or file"
+                aria-label="Attach photo, video, or file"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -1171,26 +1514,12 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               aria-hidden="true"
               tabIndex={-1}
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadPercent !== null || timeRemaining === 'expired'}
-              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
-                uploadPercent !== null || timeRemaining === 'expired'
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'cursor-pointer'
-              }`}
-              title="Attach photo, video, or file"
-              aria-label="Attach photo, video, or file"
-            >
-              <Paperclip className="w-5 h-5" />
-            </button>
             <TextareaAutosize
               ref={textareaRef}
               value={draft}
               onChange={handleDraftChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message"
+              placeholder="Message"
               title={
                 isTouch ? undefined : 'Enter to send · Shift+Enter for a new line'
               }
@@ -1574,22 +1903,56 @@ const MessageBubble = memo(function MessageBubble({
   const atts = getAtts(message);
   const isLongText = atts.length === 1 && atts[0].is_long_text === true;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
-  const isCode = atts.length === 0 && looksLikeCode(message.content);
+  const codeInfo = atts.length === 0 ? detectCode(message.content) : null;
   const bigEmoji = atts.length === 0 && isEmojiOnly(message.content);
   const allImages = atts.length > 1 && atts.every((a) => (a.mime_type || '').startsWith('image/'));
 
-  // "Download all" — sequential clicks; the browser may ask once to allow
-  // multiple downloads, then each file lands separately.
-  const downloadAll = () => {
-    atts.forEach((a, i) => {
-      window.setTimeout(() => {
-        const link = document.createElement('a');
-        link.href = `${attachmentViewUrl(roomCode, a.key)}&download=1`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }, i * 500);
+  // "Download all" — fetch every attachment and save one zip. Browsers
+  // block programmatic downloads after the first click, so sequential
+  // anchor clicks only ever land the first file.
+  const [zipping, setZipping] = useState(false);
+  // AI translation of this message, streamed in below the original text.
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [canTranslate, setCanTranslate] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getAiAvailability().then((a) => {
+      if (!cancelled) setCanTranslate(a.tasks.includes('translate'));
     });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const translateMessage = async () => {
+    if (translating) return;
+    if (translation !== null) {
+      setTranslation(null); // toggle off
+      return;
+    }
+    setTranslating(true);
+    setTranslation('');
+    try {
+      await streamAi(
+        { task: 'translate', text: message.content, target: browserLanguageName() },
+        (t) => setTranslation(t)
+      );
+    } catch (err) {
+      setTranslation(`⚠ ${err instanceof Error ? err.message : 'Translation failed'}`);
+    }
+    setTranslating(false);
+  };
+  const downloadAll = async () => {
+    if (zipping) return;
+    setZipping(true);
+    try {
+      await downloadAllAsZip(
+        atts.map((a) => ({ name: a.name, url: attachmentViewUrl(roomCode, a.key) })),
+        `syncflow-${roomCode.toLowerCase()}-files.zip`
+      );
+    } finally {
+      setZipping(false);
+    }
   };
   const reactionEntries = Object.entries(message.reactions ?? {})
     .map(([emoji, list]) => [emoji, normalizeReactors(list)] as const)
@@ -1621,6 +1984,21 @@ const MessageBubble = memo(function MessageBubble({
       >
         <Reply className="w-4 h-4" />
       </button>
+      {canTranslate && message.content && !bigEmoji && !codeInfo && !isLongText && (
+        <button
+          type="button"
+          onClick={translateMessage}
+          className={`p-1.5 rounded-full hover:bg-surface-2 cursor-pointer ${
+            translating || translation !== null
+              ? 'text-brand-text'
+              : 'text-fg-faint hover:text-fg'
+          }`}
+          title={translation !== null ? 'Hide translation' : 'Translate (AI)'}
+          aria-label={translation !== null ? 'Hide translation' : 'Translate message with AI'}
+        >
+          <Languages className={`w-4 h-4 ${translating ? 'animate-pulse' : ''}`} />
+        </button>
+      )}
       {showReactions && (
         <div
           ref={reactionsRef}
@@ -1722,13 +2100,14 @@ const MessageBubble = memo(function MessageBubble({
                   <button
                     type="button"
                     onClick={downloadAll}
-                    className={`flex items-center gap-1 underline cursor-pointer ${
+                    disabled={zipping}
+                    className={`flex items-center gap-1 underline cursor-pointer disabled:opacity-60 disabled:cursor-wait ${
                       mine ? 'hover:text-white' : 'hover:text-fg'
                     }`}
-                    title="Download all files"
+                    title="Download all files as a zip"
                   >
                     <Download className="w-3 h-3" />
-                    Download all
+                    {zipping ? 'Preparing zip…' : 'Download all'}
                   </button>
                 </div>
               )}
@@ -1782,34 +2161,49 @@ const MessageBubble = memo(function MessageBubble({
               <div className="text-4xl sm:text-5xl leading-tight py-1 animate-emoji-pop">
                 {message.content}
               </div>
-            ) : isCode ? (
-              <pre
-                className={`text-xs sm:text-sm font-mono whitespace-pre overflow-x-auto ${
-                  mine ? '' : 'text-fg'
-                }`}
-              >
-                {message.content}
-              </pre>
+            ) : codeInfo ? (
+              <CodeSnippet code={codeInfo.code} lang={codeInfo.lang} />
             ) : (
-              <div
-                className="text-sm whitespace-pre-wrap break-words"
-                style={{ wordBreak: 'break-word' }}
-              >
-                {message.content}
-              </div>
+              <LinkifiedText text={message.content} mine={mine} />
             )}
           </div>
         )}
-        {isLarge && (
-          <button
-            type="button"
-            onClick={() => setExpanded((e) => !e)}
-            className={`mt-1 text-[10px] underline ${
-              mine ? 'text-white/80 hover:text-white' : 'text-fg-muted hover:text-fg'
+        {/* AI translation, streamed under the original text */}
+        {translation !== null && (
+          <div
+            className={`mt-1.5 pt-1.5 border-t text-sm whitespace-pre-wrap break-words ${
+              mine ? 'border-white/20' : 'border-edge'
             }`}
+            style={{ wordBreak: 'break-word' }}
           >
-            {expanded ? 'Collapse' : `Show full (${message.content.length.toLocaleString()} chars)`}
-          </button>
+            <p
+              className={`flex items-center gap-1 text-[10px] mb-0.5 ${
+                mine ? 'text-white/70' : 'text-fg-faint'
+              }`}
+            >
+              <Languages className="w-3 h-3" />
+              {translating ? 'Translating…' : `Translated to ${browserLanguageName()}`}
+            </p>
+            {translation || '…'}
+          </div>
+        )}
+        {(isLarge || (!codeInfo && !isLongText && message.content.length >= COPYABLE_TEXT_THRESHOLD)) && (
+          <div className="flex items-center gap-3 mt-1">
+            {isLarge && (
+              <button
+                type="button"
+                onClick={() => setExpanded((e) => !e)}
+                className={`text-[10px] underline ${
+                  mine ? 'text-white/80 hover:text-white' : 'text-fg-muted hover:text-fg'
+                }`}
+              >
+                {expanded ? 'Collapse' : `Show full (${message.content.length.toLocaleString()} chars)`}
+              </button>
+            )}
+            {!codeInfo && message.content.length >= COPYABLE_TEXT_THRESHOLD && (
+              <InlineCopyButton text={message.content} title="Copy message" label="Copy" mine={mine} />
+            )}
+          </div>
         )}
 
         {/* Reaction pills */}
@@ -1870,7 +2264,7 @@ function LongTextView({
   const [loadError, setLoadError] = useState<string | null>(null);
   const viewUrl = `/api/chat/${roomCode}/attachments?key=${encodeURIComponent(att.key)}`;
   const text = full ?? message.content;
-  const asCode = looksLikeCode(text);
+  const codeInfo = detectCode(text);
 
   const loadFull = async () => {
     setLoading(true);
@@ -1888,23 +2282,21 @@ function LongTextView({
   return (
     <div>
       <div className={full ? 'max-h-[420px] overflow-auto rounded' : ''}>
-        {asCode ? (
-          <pre
-            className={`text-xs sm:text-sm font-mono whitespace-pre overflow-x-auto ${
-              mine ? '' : 'text-fg'
-            }`}
-          >
-            {text}
-          </pre>
+        {codeInfo ? (
+          <CodeSnippet code={codeInfo.code} lang={codeInfo.lang} />
         ) : (
-          <div className="text-sm whitespace-pre-wrap break-words" style={{ wordBreak: 'break-word' }}>
-            {text}
-          </div>
+          <LinkifiedText text={text} mine={mine} />
         )}
         {!full && <span className={mine ? 'text-white/60' : 'text-fg-faint'}>…</span>}
       </div>
       {loadError && <p className="mt-1 text-[11px] text-danger-text">{loadError}</p>}
       <div className="flex items-center gap-3 mt-1.5">
+        <InlineCopyButton
+          text={text}
+          title={full ? 'Copy full message' : 'Copy visible preview'}
+          label="Copy"
+          mine={mine}
+        />
         {!full && (
           <button
             type="button"
