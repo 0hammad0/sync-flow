@@ -26,10 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -46,10 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -66,10 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -90,19 +90,16 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:ci'
         run: npm run build
 
-  # ── Check 4: Dependency audit (non-blocking) ──────────────────────────────
+  # ── Check 4: Dependency audit (informational) ─────────────────────────────
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    # Informational only — a transitive advisory shouldn't block a PR, but it
-    # surfaces the report in the checks tab.
-    continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -110,8 +107,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: npm audit (high severity and above)
-        run: npm audit --audit-level=high
+      - name: npm audit (report only — never blocks)
+        # Transitive advisories in the Firebase/AWS SDK trees appear over time
+        # with no safe fix; the report stays visible in the logs but does not
+        # fail the check. Run `npm audit` locally to act on it.
+        run: npm audit --audit-level=high || true
 
   # ── Aggregate gate: one required check that summarizes the rest ────────────
   ci-success:
