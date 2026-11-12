@@ -54,6 +54,7 @@ import {
   isEmojiOnly,
   previewKind,
 } from '@/features/chat/lib/chat-helpers';
+import { useClampToContainer } from '@/features/chat/lib/clamp-to-container';
 import type { ChatAttachment, ChatMessage } from '@/types';
 
 // Touch: hold this long on a bubble to open the action sheet.
@@ -140,33 +141,12 @@ export const MessageBubble = memo(function MessageBubble({
     };
   }, [showReactions]);
 
-  // Clamp the reaction popover inside the viewport — anchoring alone can
-  // push it past either edge next to narrow bubbles on small screens.
-  // Uses the standalone `translate` property so it composes with the
-  // scale-in animation's `transform`.
-  // Also flips it below the actions when the scroll area would clip its top
-  // (the taller "+" grid on a message near the top of the list).
-  useEffect(() => {
-    if (!showReactions) return;
-    const el = reactionsRef.current;
-    if (!el) return;
-    el.style.translate = '';
-    el.style.top = '';
-    el.style.bottom = '';
-    let r = el.getBoundingClientRect();
-    const scroller = el.closest<HTMLElement>('[data-chat-scroll]');
-    const minTop = (scroller?.getBoundingClientRect().top ?? 0) + 4;
-    if (r.top < minTop) {
-      el.style.bottom = 'auto';
-      el.style.top = 'calc(100% + 0.25rem)';
-      r = el.getBoundingClientRect();
-    }
-    const vw = window.innerWidth;
-    let dx = 0;
-    if (r.left < 4) dx = 4 - r.left;
-    else if (r.right > vw - 4) dx = vw - 4 - r.right;
-    if (dx !== 0) el.style.translate = `${dx}px 0`;
-  }, [showReactions, moreEmoji]);
+  // Keep the reaction popover inside the visible message list (not the
+  // window — the chat panel is a card narrower than the window): flips it
+  // below the actions when there's no room above, caps its height if
+  // neither side fits, and shifts it sideways. Re-clamps when the quick bar
+  // swaps to the taller "+" grid, on resize and on scroll.
+  useClampToContainer(reactionsRef, showReactions, moreEmoji);
   const atts = getAtts(message);
   const isLongText = atts.length === 1 && atts[0].is_long_text === true;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
@@ -337,10 +317,13 @@ export const MessageBubble = memo(function MessageBubble({
       {showReactions && (
         <div
           ref={reactionsRef}
-          // Grows toward the bubble (inward); the effect above then clamps
-          // it to the viewport for narrow bubbles near either edge.
-          className={`absolute bottom-full mb-1 z-10 bg-surface border border-edge shadow-lg animate-fade-in-scale ${
-            moreEmoji ? 'rounded-2xl p-1.5' : 'flex items-center gap-0.5 rounded-full px-1.5 py-1'
+          // Grows toward the bubble (inward); useClampToContainer then keeps
+          // it inside the message list. The quick bar wraps and the grid
+          // drops columns / scrolls when the clamp narrows or shortens it.
+          className={`absolute bottom-full mb-1 z-10 w-max bg-surface border border-edge shadow-lg animate-fade-in-scale ${
+            moreEmoji
+              ? 'flex flex-col rounded-2xl p-1.5'
+              : 'flex flex-wrap items-center justify-center gap-0.5 rounded-full px-1.5 py-1'
           } ${mine ? 'left-0' : 'right-0'}`}
         >
           {moreEmoji ? (
@@ -612,13 +595,19 @@ export const MessageBubble = memo(function MessageBubble({
       {actions}
       {sheetOpen &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-label="Message actions">
+          // 8px from the screen edges; never taller than the space below
+          // the site header (scrolls instead, e.g. landscape phones).
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center px-2 pt-[calc(var(--site-header-h,3.75rem)+0.5rem)] pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            role="dialog"
+            aria-label="Message actions"
+          >
             <div
               className="absolute inset-0 bg-black/40 animate-fade-in"
               onClick={() => setSheetOpen(false)}
               aria-hidden="true"
             />
-            <div className="relative w-full max-w-md mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] p-2 bg-surface border border-edge rounded-2xl shadow-lg animate-menu-up">
+            <div className="relative w-full max-w-md max-h-full overflow-y-auto overscroll-contain p-2 bg-surface border border-edge rounded-2xl shadow-lg animate-menu-up">
               {moreEmoji ? (
                 <div className="px-1 pb-2 mb-1 border-b border-edge">
                   <ReactionEmojiGrid
@@ -631,7 +620,8 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                 </div>
               ) : (
-              <div className="flex items-center justify-between gap-0.5 px-1 pb-2 mb-1 border-b border-edge">
+              // Wraps instead of overflowing on very narrow screens.
+              <div className="flex flex-wrap items-center justify-between gap-0.5 px-1 pb-2 mb-1 border-b border-edge">
                 {CHAT_REACTIONS.map((emoji) => {
                   const active = emoji === myReaction;
                   return (

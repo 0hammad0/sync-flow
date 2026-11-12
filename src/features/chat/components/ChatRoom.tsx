@@ -68,6 +68,8 @@ import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import QRModal from '@/features/files/components/QRModal';
 import { MediaViewer } from '@/features/chat/components/MediaViewer';
 import { MessageBubble, SystemNotice } from '@/features/chat/components/MessageBubble';
+import { emojiGridColumns } from '@/features/chat/components/MessageReactions';
+import { useClampToContainer } from '@/features/chat/lib/clamp-to-container';
 import {
   EMOJI_SET,
   HEARTBEAT_MS,
@@ -211,6 +213,12 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [preRewriteDraft, setPreRewriteDraft] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Header alerts menu and the mobile composer tools menu stay inside the
+  // chat panel card (it clips with overflow-hidden).
+  const alertsMenuRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+  useClampToContainer(alertsMenuRef, showAlertsMenu, undefined, { placement: 'below', flipOffset: '0.5rem' });
+  useClampToContainer(toolsMenuRef, showToolsMenu, undefined, { flipOffset: '0.5rem' });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingBeat = useRef(0);
@@ -1374,7 +1382,10 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                   onClick={() => setShowAlertsMenu(false)}
                   aria-hidden="true"
                 />
-                <div className="absolute top-full right-0 mt-2 z-30 w-64 p-1.5 flex flex-col gap-0.5 bg-surface border border-edge rounded-xl shadow-lg animate-fade-in-scale">
+                <div
+                  ref={alertsMenuRef}
+                  className="absolute top-full right-0 mt-2 z-30 w-64 p-1.5 flex flex-col gap-0.5 bg-surface border border-edge rounded-xl shadow-lg animate-fade-in-scale"
+                >
                   <button
                     type="button"
                     onClick={() => void toggleNotify()}
@@ -1731,13 +1742,16 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
 
           {/* Emoji quick picker */}
           {showEmoji && (
-            <div className="grid grid-cols-8 gap-0.5 p-2 border border-edge rounded-xl bg-surface-2 animate-fade-in-scale max-h-40 overflow-y-auto">
+            <div
+              className="grid gap-0.5 p-2 border border-edge rounded-xl bg-surface-2 animate-fade-in-scale max-h-40 overflow-y-auto overflow-x-hidden"
+              style={emojiGridColumns('2rem')}
+            >
               {EMOJI_SET.map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
                   onClick={() => insertEmoji(emoji)}
-                  className="text-xl p-1 rounded-lg hover:bg-surface-3 cursor-pointer transition-colors"
+                  className="flex items-center justify-center text-xl p-1 rounded-lg hover:bg-surface-3 cursor-pointer transition-colors"
                   aria-label={`Insert ${emoji}`}
                 >
                   {emoji}
@@ -1905,7 +1919,10 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                       onClick={() => setShowToolsMenu(false)}
                       aria-hidden="true"
                     />
-                    <div className="absolute bottom-full left-0 mb-2 z-20 min-w-[160px] p-1.5 flex flex-col gap-0.5 bg-surface border border-edge rounded-xl shadow-lg animate-menu-up">
+                    <div
+                      ref={toolsMenuRef}
+                      className="absolute bottom-full left-0 mb-2 z-20 min-w-[160px] p-1.5 flex flex-col gap-0.5 bg-surface border border-edge rounded-xl shadow-lg animate-menu-up"
+                    >
                       <button
                         type="button"
                         onClick={() => {

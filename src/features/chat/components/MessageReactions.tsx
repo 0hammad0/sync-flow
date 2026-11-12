@@ -9,6 +9,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { EMOJI_SET, normalizeReactors } from '@/shared/lib/utils';
+import { clampToContainer } from '@/features/chat/lib/clamp-to-container';
 import type { ChatMessage, ChatReactor } from '@/types';
 
 export interface ReactionGroup {
@@ -70,13 +71,19 @@ export function ReactionPill({
   pillRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const tipId = useId();
+  const tipRef = useRef<HTMLDivElement>(null);
   const total = groups.reduce((n, g) => n + g.reactors.length, 0);
+  // The tooltip is shown by CSS (:hover / :focus-visible); clamp it inside
+  // the message list once it's displayed (next frame).
+  const clampTip = () => requestAnimationFrame(() => clampToContainer(tipRef.current, { flipOffset: '0.375rem' }));
   return (
     <div className={`absolute -bottom-3.5 z-[1] ${mine ? 'right-2' : 'left-2'}`}>
       <button
         ref={pillRef}
         type="button"
         onClick={onOpen}
+        onPointerEnter={clampTip}
+        onFocus={clampTip}
         aria-label={`Reactions: ${reactionSummary(groups)}. Show who reacted`}
         aria-describedby={tipId}
         aria-haspopup="dialog"
@@ -95,9 +102,10 @@ export function ReactionPill({
         )}
       </button>
       <div
+        ref={tipRef}
         id={tipId}
         role="tooltip"
-        className={`hidden pointer-fine:peer-hover:block peer-focus-visible:block absolute bottom-full mb-1.5 w-max max-w-64 px-2.5 py-1.5 rounded-lg bg-fg text-canvas text-xs leading-snug shadow-lg pointer-events-none ${
+        className={`hidden pointer-fine:peer-hover:block peer-focus-visible:block absolute bottom-full mb-1.5 w-max max-w-64 [overflow-wrap:anywhere] px-2.5 py-1.5 rounded-lg bg-fg text-canvas text-xs leading-snug shadow-lg pointer-events-none ${
           mine ? 'right-0' : 'left-0'
         }`}
       >
@@ -105,6 +113,15 @@ export function ReactionPill({
       </div>
     </div>
   );
+}
+
+// Emoji grid columns: up to 8 (the old fixed layout), fewer when the grid
+// is too narrow for 8 cells of `minCell`, so cells never squeeze or overflow.
+// The 0.125rem matches the grid's `gap-0.5`.
+export function emojiGridColumns(minCell: string): React.CSSProperties {
+  return {
+    gridTemplateColumns: `repeat(auto-fill, minmax(max(${minCell}, calc((100% - 7 * 0.125rem) / 8)), 1fr))`,
+  };
 }
 
 // Full emoji grid behind the quick bar's "+" button.
@@ -119,7 +136,10 @@ export function ReactionEmojiGrid({
 }) {
   return (
     <div
-      className={`grid grid-cols-8 gap-0.5 overflow-y-auto ${large ? 'max-h-56' : 'max-h-44 w-72'}`}
+      className={`grid gap-0.5 min-h-0 overflow-y-auto overflow-x-hidden ${
+        large ? 'max-h-56' : 'max-h-44 w-72 max-w-full'
+      }`}
+      style={emojiGridColumns(large ? '2.75rem' : '2rem')}
       role="group"
       aria-label="All reactions"
     >
@@ -130,7 +150,7 @@ export function ReactionEmojiGrid({
             key={emoji}
             type="button"
             onClick={() => onPick(emoji)}
-            className={`${large ? 'text-2xl p-1.5' : 'text-xl p-1'} rounded-lg cursor-pointer transition-colors hover:bg-surface-2 active:bg-surface-2 ${
+            className={`flex items-center justify-center ${large ? 'text-2xl p-1.5' : 'text-xl p-1'} rounded-lg cursor-pointer transition-colors hover:bg-surface-2 active:bg-surface-2 ${
               active ? 'bg-brand/15 ring-1 ring-brand' : ''
             }`}
             aria-label={active ? `Remove ${emoji} reaction` : `React with ${emoji}`}
@@ -265,7 +285,9 @@ export function ReactionDetails({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
+    // Phones: bottom sheet with an 8px gap to the screen edges. sm+: modal
+    // centered below the site header, 16px from every edge.
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4 sm:pt-[calc(var(--site-header-h,3.75rem)+1rem)]">
       <div
         className="absolute inset-0 bg-black/40 animate-fade-in"
         onClick={onClose}
@@ -277,7 +299,7 @@ export function ReactionDetails({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="relative w-full sm:max-w-sm max-h-[70dvh] sm:max-h-[min(28rem,80dvh)] flex flex-col bg-surface border border-edge shadow-lg rounded-t-2xl sm:rounded-2xl pb-[env(safe-area-inset-bottom)] sm:pb-0 outline-none animate-menu-up"
+        className="relative w-full max-w-md sm:max-w-sm max-h-[min(70dvh,100%)] sm:max-h-[min(28rem,100%)] flex flex-col bg-surface border border-edge shadow-lg rounded-2xl outline-none animate-menu-up"
       >
         <div
           onPointerDown={onDragStart}
