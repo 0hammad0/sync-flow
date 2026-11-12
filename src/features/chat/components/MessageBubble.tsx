@@ -55,6 +55,7 @@ import {
   previewKind,
 } from '@/features/chat/lib/chat-helpers';
 import { useClampToContainer } from '@/features/chat/lib/clamp-to-container';
+import { VoiceNote } from './VoiceNote';
 import type { ChatAttachment, ChatMessage } from '@/types';
 
 // Touch: hold this long on a bubble to open the action sheet.
@@ -149,6 +150,7 @@ export const MessageBubble = memo(function MessageBubble({
   useClampToContainer(reactionsRef, showReactions, moreEmoji);
   const atts = getAtts(message);
   const isLongText = atts.length === 1 && atts[0].is_long_text === true;
+  const voiceAtt = atts.length === 1 && atts[0].voice ? atts[0] : null;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
   const codeInfo = atts.length === 0 ? detectCode(message.content) : null;
   const bigEmoji = atts.length === 0 && isEmojiOnly(message.content);
@@ -452,6 +454,16 @@ export const MessageBubble = memo(function MessageBubble({
 
         {isLongText ? (
           <LongTextView message={message} roomCode={roomCode} mine={mine} />
+        ) : voiceAtt ? (
+          <VoiceNote
+            messageId={message.id}
+            attachment={voiceAtt}
+            roomCode={roomCode}
+            mine={mine}
+            senderName={message.sender_name}
+            playedByOthers={(message.played_by ?? []).some((k) => k !== myDeviceHash)}
+            playedByMe={!!myDeviceHash && (message.played_by ?? []).includes(myDeviceHash)}
+          />
         ) : (
           atts.length > 0 && (
             <div>
@@ -850,10 +862,13 @@ function AttachmentView({
   if (kind === 'image') {
     return (
       <div className="relative group/media mb-1 w-fit max-w-full">
+        {/* Min size: while the image loads (0px) or when it is tiny, the tap
+            target would shrink to nothing and the download button would
+            hang outside the bubble. */}
         <button
           type="button"
           onClick={() => onOpenViewer(attachment.key)}
-          className="block max-w-full cursor-zoom-in"
+          className="flex items-center justify-center min-w-24 min-h-24 max-w-full cursor-zoom-in"
           title="View image"
           aria-label={`View image ${attachment.name}`}
         >

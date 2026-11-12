@@ -78,6 +78,13 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  // Lets env(safe-area-inset-*) report the notch / home-indicator sizes
+  // (the composer and sheets already pad by them).
+  viewportFit: "cover",
+  // Android Chrome: shrink the layout when the keyboard opens, so the
+  // fixed chat panel (and its composer) stays above the keyboard. iOS
+  // ignores this; useVisualViewportHeight handles iOS.
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f5f4ef" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0d0c" },

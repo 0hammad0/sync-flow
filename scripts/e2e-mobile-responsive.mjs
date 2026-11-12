@@ -9,13 +9,25 @@
 // Usage: node scripts/e2e-mobile-responsive.mjs [baseUrl]
 import puppeteer from 'puppeteer-core';
 import { mkdirSync } from 'fs';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 
 const BASE = process.argv[2] || 'http://localhost:3001';
-const CHROME = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe';
+// Set CHROME_PATH to override. Defaults: macOS, then Windows.
+const CHROME =
+  process.env.CHROME_PATH ||
+  (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : process.platform === 'win32'
+      ? 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'
+      : '/usr/bin/google-chrome');
 const DEVICE_ID = 'device-e2e-mobile-1111';
 const fail = (msg) => { console.error('FAIL:', msg); process.exit(1); };
 
-mkdirSync(new URL('./screenshots', import.meta.url), { recursive: true });
+// SHOTS_DIR overrides where screenshots go.
+const SHOTS = process.env.SHOTS_DIR || fileURLToPath(new URL('./screenshots', import.meta.url));
+mkdirSync(SHOTS, { recursive: true });
+const shot = (name) => join(SHOTS, name);
 
 // --- Seed a room with realistic content via the API ---
 const createRes = await fetch(`${BASE}/api/chat`, {
@@ -63,7 +75,35 @@ form.append('caption', 'an image');
 form.append('tz', 'UTC');
 const att = await (await fetch(`${BASE}/api/chat/${room.code}/attachments`, { method: 'POST', body: form })).json();
 if (!att.success) fail('seed attachment: ' + JSON.stringify(att));
-console.log(`seeded room ${room.code} (reply, reactions, long token, emoji, image)`);
+// voice note (direct-to-R2 flow: presign → PUT → complete). The bytes are
+// a stand-in — the layout checks only need the bubble, not real audio.
+{
+  const bytes = Buffer.alloc(4096, 1);
+  const pre = await (
+    await fetch(`${BASE}/api/chat/${room.code}/attachments/presign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        originalName: 'voice-note.webm',
+        size: bytes.length,
+        mimeType: 'audio/webm;codecs=opus',
+        voice: { duration_ms: 12_400, peaks: Array.from({ length: 48 }, (_, i) => (i * 37) % 256) },
+      }),
+    })
+  ).json();
+  if (!pre.success) fail('seed voice presign: ' + JSON.stringify(pre));
+  const put = await fetch(pre.uploadUrl, { method: 'PUT', headers: { 'Content-Type': pre.contentType }, body: bytes });
+  if (!put.ok) fail('seed voice PUT: ' + put.status);
+  const done = await (
+    await fetch(`${BASE}/api/chat/${room.code}/attachments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket: pre.ticket, senderName: 'Alice', tz: 'UTC', deviceId: 'device-alice-111111' }),
+    })
+  ).json();
+  if (!done.success) fail('seed voice complete: ' + JSON.stringify(done));
+}
+console.log(`seeded room ${room.code} (reply, reactions, long token, emoji, image, voice)`);
 
 // --- Browser checks ---
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
@@ -71,6 +111,13 @@ const VIEWPORTS = [
   { name: 'iphone-se-320', width: 320, height: 568 },
   { name: 'android-360', width: 360, height: 740 },
   { name: 'iphone-14-390', width: 390, height: 844 },
+  { name: 'pixel-landscape-740', width: 740, height: 360 },
+  { name: 'ipad-mini-768', width: 768, height: 1024 },
+  { name: 'ipad-landscape-1024', width: 1024, height: 768 },
+  // Mouse at phone width (narrow desktop window): touch screens hide the
+  // hover react/reply buttons (they long-press instead), so the reaction
+  // popover clamping is checked here.
+  { name: 'narrow-mouse-360', width: 360, height: 740, touch: false },
 ];
 
 // Bounding-box audit: nothing may stick out horizontally; report offenders.
@@ -109,7 +156,13 @@ async function auditOffscreen(page, label) {
 
 for (const vp of VIEWPORTS) {
   const page = await browser.newPage();
-  await page.setViewport({ width: vp.width, height: vp.height, isMobile: true, deviceScaleFactor: 2 });
+  await page.setViewport({
+    width: vp.width,
+    height: vp.height,
+    isMobile: vp.touch !== false,
+    hasTouch: vp.touch !== false,
+    deviceScaleFactor: 2,
+  });
   await page.evaluateOnNewDocument(
     (name, dev) => {
       localStorage.setItem('syncflow.chatName', name);
@@ -120,7 +173,39 @@ for (const vp of VIEWPORTS) {
   );
   await page.goto(`${BASE}/chat/${room.code}`, { waitUntil: 'networkidle2', timeout: 60000 });
   await page.waitForSelector('textarea', { timeout: 30000 });
-  await new Promise((r) => setTimeout(r, 1500)); // let snapshot render
+  // Messages arrive by a live Firestore listener (~1.7s here), after the
+  // textarea. Wait for the last seeded message, not a fixed delay.
+  await page.waitForSelector('.voice-note', { timeout: 20000 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 300)); // let layout settle
+
+  // Voice: the note renders, and the mic (empty composer) is a 44px+ target.
+  const voice = await page.evaluate(() => {
+    const note = document.querySelector('.voice-note');
+    const mic = document.querySelector('button[aria-label="Record voice note"]');
+    const r = mic?.getBoundingClientRect();
+    return { note: !!note, mic: r ? { w: r.width, h: r.height } : null };
+  });
+  if (!voice.note) fail(`${vp.name}: voice note bubble not rendered`);
+  // Waveform bars and the right slot must stay inside the voice note box
+  // (the viewport audit misses spill that stays on screen).
+  const spill = await page.evaluate(() => {
+    const note = document.querySelector('.voice-note');
+    const box = note.getBoundingClientRect();
+    const bad = [];
+    for (const el of note.querySelectorAll('span, button, div')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0) continue;
+      if (el.getAttribute('aria-hidden') === 'true' && el.classList.contains('rounded-full') && r.width <= 14) continue; // seek dot
+      if (r.right > box.right + 1 || r.left < box.left - 5) bad.push(`${el.tagName} l=${Math.round(r.left)} r=${Math.round(r.right)}`);
+    }
+    const bubble = note.parentElement.closest('[class*="rounded-2xl"]')?.getBoundingClientRect();
+    if (bubble && (box.right > bubble.right + 1 || box.left < bubble.left - 1)) bad.push(`note outside bubble ${Math.round(box.left)}-${Math.round(box.right)} vs ${Math.round(bubble.left)}-${Math.round(bubble.right)}`);
+    return bad.slice(0, 5);
+  });
+  if (spill.length) fail(`${vp.name}: voice note content spills out:\n  ${spill.join('\n  ')}`);
+  if (!voice.mic || voice.mic.w < 44 || voice.mic.h < 44) {
+    fail(`${vp.name}: mic button missing or under 44px: ${JSON.stringify(voice.mic)}`);
+  }
 
   // 1+2: nothing off screen in the resting state
   await auditOffscreen(page, `${vp.name} resting`);
@@ -147,7 +232,10 @@ for (const vp of VIEWPORTS) {
   if (layout.formBottom > layout.vh + 1) {
     fail(`[${vp.name}] composer pushed off screen (bottom=${layout.formBottom}, vh=${layout.vh})`);
   }
-  if (layout.vh - layout.formBottom > 4) {
+  // From sm (640px) on tall screens the chat is a floating card with a 16px
+  // margin (sm:[@media(min-height:500px)]:my-4); phones are edge to edge.
+  const cardGap = vp.width >= 640 && vp.height >= 500 ? 17 : 0;
+  if (layout.vh - layout.formBottom > 4 + cardGap) {
     fail(`[${vp.name}] chat does not stretch to bottom (gap=${Math.round(layout.vh - layout.formBottom)}px)`);
   }
 
@@ -155,12 +243,18 @@ for (const vp of VIEWPORTS) {
   await page.click('button[aria-label="Open emoji picker"]');
   await new Promise((r) => setTimeout(r, 350));
   await auditOffscreen(page, `${vp.name} emoji-panel`);
-  await page.screenshot({ path: new URL(`./screenshots/${vp.name}-emoji.png`, import.meta.url).pathname.slice(1) });
+  await page.screenshot({ path: shot(`${vp.name}-emoji.png`) });
   await page.click('button[aria-label="Open emoji picker"]');
 
   // 5: reaction popover open on first AND last message → on screen
   const reactBtns = await page.$$('button[aria-label="React to message"]');
-  for (const [i, btn] of [[0, reactBtns[0]], [1, reactBtns[reactBtns.length - 1]]]) {
+  if (vp.touch !== false) {
+    // Hidden on touch screens by design (pointer-coarse:hidden).
+    const visible = await page.$$eval('button[aria-label="React to message"]', (els) =>
+      els.some((el) => el.getBoundingClientRect().width > 0)
+    );
+    if (visible) fail(`[${vp.name}] hover react buttons are showing on a touch screen`);
+  } else for (const [i, btn] of [[0, reactBtns[0]], [1, reactBtns[reactBtns.length - 1]]]) {
     await btn.click();
     await new Promise((r) => setTimeout(r, 350));
     await auditOffscreen(page, `${vp.name} reaction-popover-${i}`);
@@ -168,14 +262,16 @@ for (const vp of VIEWPORTS) {
     await new Promise((r) => setTimeout(r, 150));
   }
 
-  // 5b: outside click/touch closes the reaction popover
-  await reactBtns[0].click();
-  await new Promise((r) => setTimeout(r, 300));
-  if (!(await page.$('button[aria-label^="React with"]'))) fail(`[${vp.name}] reaction popover did not open`);
-  await page.click('textarea'); // a guaranteed-outside tap target
-  await new Promise((r) => setTimeout(r, 300));
-  if (await page.$('button[aria-label^="React with"]')) {
-    fail(`[${vp.name}] reaction popover did NOT close on outside click`);
+  // 5b: outside click/touch closes the reaction popover (mouse only, see 5)
+  if (vp.touch === false) {
+    await reactBtns[0].click();
+    await new Promise((r) => setTimeout(r, 300));
+    if (!(await page.$('button[aria-label^="React with"]'))) fail(`[${vp.name}] reaction popover did not open`);
+    await page.click('textarea'); // a guaranteed-outside tap target
+    await new Promise((r) => setTimeout(r, 300));
+    if (await page.$('button[aria-label^="React with"]')) {
+      fail(`[${vp.name}] reaction popover did NOT close on outside click`);
+    }
   }
 
   // 5c: composer textarea auto-grows with content and caps at ~6 rows
@@ -197,7 +293,7 @@ for (const vp of VIEWPORTS) {
     return { bottom: form.getBoundingClientRect().bottom, vh: window.innerHeight };
   });
   if (grown.bottom > grown.vh + 1) fail(`[${vp.name}] grown composer pushed off screen`);
-  await page.screenshot({ path: new URL(`./screenshots/${vp.name}-composer-grown.png`, import.meta.url).pathname.slice(1) });
+  await page.screenshot({ path: shot(`${vp.name}-composer-grown.png`) });
   // clear draft
   await page.evaluate(() => {
     const ta = document.querySelector('textarea');
@@ -218,11 +314,11 @@ for (const vp of VIEWPORTS) {
     return !!el?.closest('[role="dialog"]');
   });
   if (!headerCovered) fail(`[${vp.name}] media viewer does not cover the site header (z-index)`);
-  await page.screenshot({ path: new URL(`./screenshots/${vp.name}-viewer.png`, import.meta.url).pathname.slice(1) });
+  await page.screenshot({ path: shot(`${vp.name}-viewer.png`) });
   await page.keyboard.press('Escape');
   await new Promise((r) => setTimeout(r, 200));
 
-  await page.screenshot({ path: new URL(`./screenshots/${vp.name}-chat.png`, import.meta.url).pathname.slice(1) });
+  await page.screenshot({ path: shot(`${vp.name}-chat.png`) });
   console.log(`${vp.name}: resting, emoji panel, reaction popovers, media viewer — all within viewport; composer at bottom edge`);
   await page.close();
 }

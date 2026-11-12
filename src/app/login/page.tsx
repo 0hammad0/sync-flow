@@ -168,7 +168,7 @@ export default function LoginPage() {
             placeholder="you@example.com"
             required
             autoComplete="email"
-            className="input-base w-full px-3 sm:px-4 py-2.5 sm:py-3 text-base sm:text-sm"
+            className="input-base w-full px-3 sm:px-4 py-2.5 sm:py-3 text-base pointer-fine:sm:text-sm"
             aria-describedby="email-help"
           />
           <p id="email-help" className="mt-1.5 text-xs text-fg-faint">

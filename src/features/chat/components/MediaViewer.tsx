@@ -35,10 +35,12 @@ export function MediaViewer({
       else if (e.key === 'ArrowRight' && nextKey) onNavigate(nextKey);
     };
     document.addEventListener('keydown', onKey);
+    // Restore whatever was there (the chat page locks body scroll itself).
+    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = prevOverflow;
     };
   }, [onClose, onNavigate, prevKey, nextKey]);
 

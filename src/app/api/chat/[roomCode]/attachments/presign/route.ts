@@ -10,7 +10,8 @@ export const runtime = 'nodejs';
 
 /**
  * Step 1 of a direct-to-R2 chat attachment. Body (JSON):
- * { originalName, size, mimeType, longText? }.
+ * { originalName, size, mimeType, longText?, voice? }. `voice` ({ duration_ms,
+ * peaks }) marks a recorded voice note; see features/chat/lib/voice.ts.
  * Returns { uploadUrl, contentType, ticket }. Step 3 is a JSON POST to
  * /api/chat/[roomCode]/attachments with { ticket, senderName, caption, ... }.
  */
@@ -38,6 +39,7 @@ export async function POST(
     size: body.size,
     mimeType: body.mimeType,
     longText: body.longText === true,
+    voice: body.voice,
   });
   if ('error' in planned) return planned.error;
   const { plan } = planned;

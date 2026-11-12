@@ -84,7 +84,7 @@ export default function ChatRoomSkeleton() {
             <div className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-xl skeleton" />
             <div className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-xl skeleton" />
             <div className="input-base flex-1 min-w-0 h-10 sm:h-11 px-3 flex items-center">
-              <span className="text-base sm:text-sm text-fg-faint">Message</span>
+              <span className="text-base pointer-fine:sm:text-sm text-fg-faint">Message</span>
             </div>
             <div className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-surface-3" />
           </div>
