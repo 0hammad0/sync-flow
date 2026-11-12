@@ -8,15 +8,32 @@ import {
   listOwnerFiles,
   countOwnerFiles,
   updateFileExpiry,
-  incrementDownloadAndMaybeDestruct,
+  claimDownload,
+  deleteIfSpent,
 } from '@/shared/lib/firebase/files';
 import {
   deleteObject,
   objectExists,
   signedDownloadUrl,
 } from '@/shared/lib/r2';
+import { isAllowedExpiry } from '@/shared/lib/limits';
 
-const SIGNED_URL_EXPIRY = 3600; // 1 hour
+// Signed URLs are handed out per click, after the download is counted, so
+// they only need to live long enough to start the transfer.
+const SIGNED_URL_EXPIRY = 300; // 5 minutes
+// getFileByToken's URL (unlimited files only — nothing to bypass). The
+// receive page fetches several files with it in one go, so keep it longer.
+const PAGE_URL_EXPIRY = 3600; // 1 hour
+
+/** Delete a used-up file once its last signed URL has had time to finish. */
+async function sweepIfSpent(token: string, minAgeMs: number): Promise<boolean> {
+  const path = await deleteIfSpent(token, minAgeMs);
+  if (!path) return false;
+  await deleteObject(path).catch((err) =>
+    console.error('R2 delete after self-destruct failed:', err)
+  );
+  return true;
+}
 
 export async function getFileByToken(token: string): Promise<DownloadInfo> {
   try {
@@ -40,6 +57,7 @@ export async function getFileByToken(token: string): Promise<DownloadInfo> {
 
     // Download limit
     if (file.max_downloads !== null && file.download_count >= file.max_downloads) {
+      await sweepIfSpent(token, SIGNED_URL_EXPIRY * 1000).catch(() => {});
       return { success: false, error: 'download_limit_reached' };
     }
 
@@ -50,9 +68,14 @@ export async function getFileByToken(token: string): Promise<DownloadInfo> {
       return { success: false, error: 'File not found in storage' };
     }
 
-    const signedUrl = await signedDownloadUrl(file.file_path, SIGNED_URL_EXPIRY, {
-      downloadFilename: file.is_encrypted ? undefined : file.original_name,
-    });
+    // Only unlimited files get a URL up front (the receive page uses it).
+    // Limited files must go through requestDownload(), which counts first.
+    const signedUrl =
+      file.max_downloads === null
+        ? await signedDownloadUrl(file.file_path, PAGE_URL_EXPIRY, {
+            downloadFilename: file.is_encrypted ? undefined : file.original_name,
+          })
+        : undefined;
 
     const downloadsRemaining =
       file.max_downloads !== null ? file.max_downloads - file.download_count : null;
@@ -75,22 +98,90 @@ export async function getFileByToken(token: string): Promise<DownloadInfo> {
   }
 }
 
-export async function incrementDownloadCount(
-  token: string
-): Promise<{ success: boolean; selfDestruct?: boolean; error?: string }> {
+export interface DownloadGrant {
+  success: boolean;
+  signedUrl?: string;
+  downloadsRemaining?: number | null;
+  /** True when this download used up the limit — call finishDownload() after. */
+  lastDownload?: boolean;
+  error?: string;
+}
+
+/**
+ * Count one download, then return a short-lived signed URL. Refuses once the
+ * limit is reached or the link has expired.
+ */
+export async function requestDownload(token: string): Promise<DownloadGrant> {
   try {
-    const result = await incrementDownloadAndMaybeDestruct(token);
-    if (result.selfDestruct && result.filePath) {
-      // Best-effort R2 delete; the Firestore doc is already gone from the txn.
-      await deleteObject(result.filePath).catch((err) =>
-        console.error('R2 delete after self-destruct failed:', err)
-      );
-      return { success: true, selfDestruct: true };
+    if (typeof token !== 'string' || !token) return { success: false, error: 'not_found' };
+    const file = await getFile(token);
+    if (!file) return { success: false, error: 'not_found' };
+
+    // Check storage before counting, so a missing object doesn't burn a download.
+    if (!(await objectExists(file.file_path))) {
+      await fsDeleteFile(token).catch(() => {});
+      return { success: false, error: 'not_found' };
     }
-    return { success: true };
+
+    const claim = await claimDownload(token);
+    if (claim.status !== 'ok') {
+      const error =
+        claim.status === 'expired'
+          ? 'expired'
+          : claim.status === 'limit'
+          ? 'download_limit_reached'
+          : 'not_found';
+      return { success: false, error };
+    }
+
+    const signedUrl = await signedDownloadUrl(file.file_path, SIGNED_URL_EXPIRY, {
+      downloadFilename: file.is_encrypted ? undefined : file.original_name,
+    });
+    return {
+      success: true,
+      signedUrl,
+      downloadsRemaining:
+        file.max_downloads !== null ? Math.max(0, file.max_downloads - claim.newCount) : null,
+      lastDownload: claim.spent,
+    };
   } catch (error) {
-    console.error('Increment download count error:', error);
-    return { success: false, error: 'Failed to update download count' };
+    console.error('Request download error:', error);
+    return { success: false, error: 'An unexpected error occurred' };
+  }
+}
+
+/**
+ * Called by the client after the last allowed download finished: deletes the
+ * file now instead of waiting for the sweep. Only acts on used-up files.
+ */
+export async function finishDownload(token: string): Promise<{ success: boolean; deleted?: boolean }> {
+  try {
+    if (typeof token !== 'string' || !token) return { success: false };
+    return { success: true, deleted: await sweepIfSpent(token, 0) };
+  } catch (error) {
+    console.error('Finish download error:', error);
+    return { success: false };
+  }
+}
+
+/**
+ * Signed URL for an in-page preview. Only for files without a download limit —
+ * a preview of a limited file would be a free, uncounted download.
+ */
+export async function requestPreview(token: string): Promise<{ success: boolean; signedUrl?: string; error?: string }> {
+  try {
+    if (typeof token !== 'string' || !token) return { success: false, error: 'not_found' };
+    const file = await getFile(token);
+    if (!file) return { success: false, error: 'not_found' };
+    if (file.expires_at && new Date(file.expires_at) < new Date()) {
+      return { success: false, error: 'expired' };
+    }
+    if (file.max_downloads !== null) return { success: false, error: 'limited' };
+    const signedUrl = await signedDownloadUrl(file.file_path, SIGNED_URL_EXPIRY);
+    return { success: true, signedUrl };
+  } catch (error) {
+    console.error('Request preview error:', error);
+    return { success: false, error: 'An unexpected error occurred' };
   }
 }
 
@@ -107,7 +198,16 @@ export async function getUserFiles(): Promise<FileRecord[]> {
   try {
     const user = await currentUser();
     if (!user) return [];
-    return await listOwnerFiles(user.uid);
+    const files = await listOwnerFiles(user.uid);
+    // Self-destruct files whose limit was used up (and whose last URL is stale).
+    const swept = await Promise.all(
+      files.map((f) =>
+        f.max_downloads !== null && f.download_count >= f.max_downloads
+          ? sweepIfSpent(f.token, SIGNED_URL_EXPIRY * 1000).catch(() => false)
+          : Promise.resolve(false)
+      )
+    );
+    return files.filter((_, i) => !swept[i]);
   } catch (error) {
     console.error('Get user files error:', error);
     return [];
@@ -121,6 +221,11 @@ export async function reshareFile(
   try {
     const user = await currentUser();
     if (!user) return { success: false, error: 'Not authenticated' };
+    // Server actions take any value from the client: only the "Set expiry"
+    // choices a signed-in user is offered (null = never).
+    if (!isAllowedExpiry(expiresInHours, true)) {
+      return { success: false, error: 'That expiry option is not available' };
+    }
 
     const file = await getFile(token);
     if (!file) return { success: false, error: 'File not found' };
@@ -128,10 +233,8 @@ export async function reshareFile(
       return { success: false, error: 'Not authorized to modify this file' };
     }
 
-    let expires_at: string | null = null;
-    if (expiresInHours && expiresInHours > 0) {
-      expires_at = new Date(Date.now() + expiresInHours * 3600 * 1000).toISOString();
-    }
+    const expires_at =
+      expiresInHours !== null ? new Date(Date.now() + expiresInHours * 3600 * 1000).toISOString() : null;
     await updateFileExpiry(token, expires_at);
     return { success: true };
   } catch (error) {

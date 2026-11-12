@@ -11,10 +11,10 @@ interface RevealProps {
 }
 
 /**
- * Scroll-reveal wrapper: fades + slides children in the first time they
- * enter the viewport. Pure CSS transition (see .reveal in globals.css);
- * the IntersectionObserver toggles a class directly on the DOM node —
- * no state, no re-renders.
+ * Scroll-reveal wrapper: fades + rises children in the first time they
+ * enter the viewport. Pure CSS transition (see .reveal in globals.css) —
+ * content is only hidden under `html.js`, so it is fully visible with
+ * scripts off, and reduced-motion users get it immediately.
  */
 export default function Reveal({
   children,
@@ -27,7 +27,6 @@ export default function Reveal({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // SSR / old browsers: just show it.
     if (typeof IntersectionObserver === 'undefined') {
       el.classList.add('is-visible');
       return;
@@ -39,7 +38,7 @@ export default function Reveal({
           io.disconnect();
         }
       },
-      { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
     );
     io.observe(el);
     return () => io.disconnect();
@@ -47,8 +46,7 @@ export default function Reveal({
 
   return (
     <Tag
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ref={ref as any}
+      ref={ref as React.Ref<never>}
       className={`reveal ${className}`}
       style={delay ? ({ '--reveal-delay': `${delay}ms` } as React.CSSProperties) : undefined}
     >

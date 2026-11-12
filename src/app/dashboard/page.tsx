@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getUserFiles } from '@/features/files/server/files';
 import FileList from '@/features/files/components/FileList';
 import MyChatRooms from '@/features/chat/components/MyChatRooms';
@@ -5,6 +6,11 @@ import Button from '@/shared/components/ui/Button';
 import { Lightbulb } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'My Files',
+  robots: { index: false, follow: false },
+};
 
 export default async function DashboardPage() {
   const files = await getUserFiles();
@@ -42,7 +48,7 @@ export default async function DashboardPage() {
           <ul className="text-xs text-fg-muted space-y-1.5">
             <li className="flex items-start gap-2">
               <span className="text-fg-faint">•</span>
-              <span>Click <strong className="text-fg">Copy</strong> to get a file&apos;s share link</span>
+              <span>Click <strong className="text-fg">Copy</strong> to get a file&apos;s share link (encrypted files show their link only once, at upload)</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-fg-faint">•</span>

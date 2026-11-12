@@ -1,102 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateToken, sanitizeFileName, MAX_USER_FILES } from '@/shared/lib/utils';
-import {
-  attachFileToSession,
-  countOwnerFiles,
-  createFile,
-  getReceiveSession,
-  MAX_SESSION_FILES,
-} from '@/shared/lib/firebase/files';
-import { deleteObject, putObject } from '@/shared/lib/r2';
+import { putObject } from '@/shared/lib/r2';
+import { finishSendUpload, planSendUpload } from '@/features/files/server/send-upload';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-
+/**
+ * Legacy multipart phone → PC upload, kept on purpose for scripts and API
+ * clients that post multipart (as scripts/e2e-*.mjs do with the matching
+ * /api/upload route). No page in the app calls it: the phone uses
+ * /api/send/presign → PUT to R2 → /api/send/complete. The file body passes
+ * through this function, so hosting body caps apply (Vercel: ~4.5 MB).
+ * Same rules as the direct flow (shared send-upload.ts).
+ */
 export async function POST(request: NextRequest) {
   try {
+    // Shares the presign route's bucket (40 per minute per IP).
+    const rl = rateLimit(`send:${clientKey(request)}`, 40, 60_000);
+    if (!rl.allowed) {
+      return tooManyRequests('Too many uploads — slow down and try again.', rl.retryAfterMs);
+    }
+
     const formData = await request.formData();
-
     const file = formData.get('file') as Blob | null;
-    const originalName = formData.get('originalName') as string | null;
-    const mimeType = formData.get('mimeType') as string | null;
-    const sessionToken = formData.get('sessionToken') as string | null;
-
-    if (!file || !originalName || !sessionToken) {
+    if (!file) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ success: false, error: 'File size exceeds 100MB limit' }, { status: 400 });
-    }
 
-    const session = await getReceiveSession(sessionToken);
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
-    }
-    if (new Date(session.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
-    }
-    // Sessions accept multiple files until they expire (WhatsApp-style
-    // batch sending from the phone) — capped to stop runaway scripts.
-    const alreadySent = session.file_tokens?.length ?? (session.file_token ? 1 : 0);
-    if (alreadySent >= MAX_SESSION_FILES) {
-      return NextResponse.json(
-        { success: false, error: `Session limit reached (${MAX_SESSION_FILES} files)` },
-        { status: 400 }
-      );
-    }
-
-    if (session.receiver_id) {
-      const count = await countOwnerFiles(session.receiver_id);
-      if (count >= MAX_USER_FILES) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `The receiver has reached their file limit (${MAX_USER_FILES} files). They need to delete some files first.`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    const fileToken = generateToken();
-    const sanitizedName = sanitizeFileName(originalName);
-    const filePath = `${fileToken}/${sanitizedName}`;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const planned = await planSendUpload({
+      sessionToken: formData.get('sessionToken'),
+      originalName: formData.get('originalName'),
+      mimeType: formData.get('mimeType'),
+      size: file.size,
+    });
+    if ('error' in planned) return planned.error;
+    const { plan } = planned;
 
     try {
-      await putObject(filePath, buffer, mimeType || 'application/octet-stream');
+      await putObject(plan.key, Buffer.from(await file.arrayBuffer()), plan.mime);
     } catch (err) {
       console.error('R2 upload error:', err);
       return NextResponse.json({ success: false, error: 'Failed to upload file' }, { status: 500 });
     }
 
-    try {
-      await createFile({
-        token: fileToken,
-        file_path: filePath,
-        original_name: originalName,
-        size: file.size,
-        mime_type: mimeType || 'application/octet-stream',
-        owner_id: session.receiver_id ?? null,
-        is_encrypted: false,
-        expires_at: null,
-        max_downloads: null,
-      });
-    } catch (err) {
-      console.error('Firestore write error:', err);
-      await deleteObject(filePath).catch(() => {});
-      return NextResponse.json({ success: false, error: 'Failed to save file metadata' }, { status: 500 });
-    }
-
-    try {
-      await attachFileToSession(sessionToken, fileToken);
-    } catch (err) {
-      console.error('Session update error:', err);
-      // Non-fatal: file is uploaded; PC poll will time out.
-    }
-
-    return NextResponse.json({ success: true, token: fileToken });
+    return finishSendUpload(plan);
   } catch (error) {
     console.error('Send error:', error);
     return NextResponse.json({ success: false, error: 'An unexpected error occurred' }, { status: 500 });

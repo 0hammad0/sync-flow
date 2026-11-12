@@ -14,6 +14,7 @@ export default function CopyButton({ text, compact = false }: CopyButtonProps) {
 
   return (
     <button
+      type="button"
       onClick={() => copy(text)}
       className={`${compact ? 'px-2 sm:px-4' : 'px-3 sm:px-4'} py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer btn-hover whitespace-nowrap inline-flex items-center gap-1.5 ${
         copied

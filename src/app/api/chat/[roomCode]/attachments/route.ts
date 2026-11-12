@@ -1,27 +1,28 @@
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
+  deviceKey,
   getMessage,
   getRoom,
+  isAlreadyExistsError,
+  isAttachmentClaimed,
   isRoomExpired,
   sanitizeSenderName,
   roomStoragePrefix,
-  MAX_ATTACHMENT_BYTES,
 } from '@/shared/lib/firebase/chat';
 import type { ChatReplyRef } from '@/types';
-import {
-  generateToken,
-  isValidMessageId,
-  isValidRoomCode,
-  MAX_LONG_TEXT_BYTES,
-  sanitizeDeviceId,
-  sanitizeFileName,
-  sanitizeIanaTz,
-} from '@/shared/lib/utils';
+import { isValidMessageId, isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
 import { deleteObject, putObject, signedDownloadUrl } from '@/shared/lib/r2';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { readUploadTicket, verifyUploadedObject } from '@/shared/lib/upload-ticket';
+import {
+  planAttachment,
+  signAttachmentProof,
+  type AttachmentPlan,
+} from '@/features/chat/server/attachment-upload';
 
 export const runtime = 'nodejs';
 
@@ -43,17 +44,23 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'invalid_code' }, { status: 400 });
   }
 
+  // JSON body = step 3 of the direct-to-R2 flow (the bytes are already in R2;
+  // presign applied the upload limit). Completing posts a message, so it
+  // shares the message-send bucket (30 per 10s per IP + room) — the ticket
+  // alone must not be a way around it.
+  const isJson = (request.headers.get('content-type') || '').includes('application/json');
+  if (isJson) {
+    const rl = rateLimit(`chat:msg:${code}:${clientKey(request)}`, 30, 10_000);
+    if (!rl.allowed) return tooManyRequests('Too many messages, slow down.', rl.retryAfterMs);
+    return completeDirectUpload(request, code);
+  }
+
+  // Legacy multipart path: the body passes through this function, so hosting
+  // body caps apply. The app no longer uses it (it uploads direct-to-R2), but
+  // scripts/e2e-chat.mjs does — keep it.
   // Attachments are heavier than text — 10 per minute per (IP + room).
   const rl = rateLimit(`chat:attach:${code}:${clientKey(request)}`, 10, 60_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many uploads, slow down.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-      }
-    );
-  }
+  if (!rl.allowed) return tooManyRequests('Too many uploads, slow down.', rl.retryAfterMs);
 
   let formData: FormData;
   try {
@@ -63,114 +70,226 @@ export async function POST(
   }
 
   const file = formData.get('file') as Blob | null;
-  const originalName = formData.get('originalName');
-  const senderName = sanitizeSenderName(formData.get('senderName'));
-  const caption = formData.get('caption');
-  const tz = sanitizeIanaTz(formData.get('tz'));
-  const replyToIdRaw = formData.get('replyToId');
-
-  if (replyToIdRaw !== null && replyToIdRaw !== '' && !isValidMessageId(replyToIdRaw)) {
-    return NextResponse.json({ success: false, error: 'invalid replyToId' }, { status: 400 });
-  }
-  const replyToId = typeof replyToIdRaw === 'string' && replyToIdRaw !== '' ? replyToIdRaw : null;
-
-  if (!file || typeof originalName !== 'string' || originalName.length === 0) {
+  if (!file) {
     return NextResponse.json({ success: false, error: 'file and originalName required' }, { status: 400 });
   }
-  if (senderName.length === 0) {
-    return NextResponse.json({ success: false, error: 'senderName empty' }, { status: 400 });
-  }
-  if (file.size === 0) {
-    return NextResponse.json({ success: false, error: 'File is empty' }, { status: 400 });
-  }
-  if (file.size > MAX_ATTACHMENT_BYTES) {
-    return NextResponse.json(
-      { success: false, error: 'File size exceeds 100MB limit' },
-      { status: 413 }
-    );
-  }
-  // Long-text bodies (the overflow path for big typed messages) cap at 15MB.
   const isLongText = formData.get('longText') === '1';
-  if (isLongText && file.size > MAX_LONG_TEXT_BYTES) {
-    return NextResponse.json(
-      { success: false, error: 'Message is too long (limit 15 MB).' },
-      { status: 413 }
-    );
-  }
-  // Multipart encoding CRLF-normalizes text fields (browsers included) —
-  // undo it so captions/previews keep the exact newlines the user typed.
-  const captionText =
-    typeof caption === 'string'
-      ? caption.replace(/\r\n/g, '\n').slice(0, MAX_CAPTION_LENGTH)
-      : '';
+  const planned = planAttachment(code, {
+    originalName: formData.get('originalName'),
+    size: file.size,
+    mimeType: file.type,
+    longText: isLongText,
+  });
+  if ('error' in planned) return planned.error;
+  const fields = readMessageFields({
+    senderName: formData.get('senderName'),
+    caption: formData.get('caption'),
+    tz: formData.get('tz'),
+    replyToId: formData.get('replyToId'),
+    deviceId: formData.get('deviceId'),
+    uploadOnly: formData.get('uploadOnly') === '1',
+  });
+  if ('error' in fields) return fields.error;
 
   try {
-    const room = await getRoom(code);
-    if (!room) {
-      return NextResponse.json({ success: false, error: 'not_found' }, { status: 404 });
-    }
-    if (isRoomExpired(room)) {
-      return NextResponse.json({ success: false, error: 'expired' }, { status: 410 });
-    }
+    const pre = await checkRoomAndReply(code, fields.replyToId);
+    if ('error' in pre) return pre.error;
 
-    // Server-built quote ref — clients can't forge who/what they reply to.
-    let reply_to: ChatReplyRef | undefined;
-    if (replyToId) {
-      const target = await getMessage(code, replyToId);
-      if (!target || target.kind === 'system') {
-        return NextResponse.json(
-          { success: false, error: 'reply_target_not_found' },
-          { status: 400 }
-        );
-      }
-      reply_to = buildReplyRef(target);
-    }
-
-    const sanitizedName = sanitizeFileName(originalName);
-    const key = `${roomStoragePrefix(code)}${generateToken()}/${sanitizedName}`;
-    const mimeType = isLongText
-      ? 'text/plain; charset=utf-8'
-      : file.type || 'application/octet-stream';
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await putObject(key, buffer, mimeType);
-
-    // Multi-file albums: each file is uploaded separately (uploadOnly=1),
-    // then ONE message referencing all of them is posted via /messages.
-    // Orphans from abandoned sends are reclaimed with the room's prefix wipe.
-    if (formData.get('uploadOnly') === '1') {
-      return NextResponse.json({
-        success: true,
-        attachment: { key, name: originalName, size: file.size, mime_type: mimeType },
-      });
-    }
-
-    const user = await currentUser();
-    try {
-      const message = await addMessage(code, {
-        sender_name: senderName,
-        sender_id: user?.uid ?? null,
-        sender_device_id: sanitizeDeviceId(formData.get('deviceId')),
-        content: captionText,
-        sender_tz: tz,
-        attachment: {
-          key,
-          name: originalName,
-          size: file.size,
-          mime_type: mimeType,
-          is_long_text: isLongText,
-        },
-        reply_to,
-      });
-      return NextResponse.json({ success: true, id: message.id });
-    } catch (err) {
-      // Roll back the R2 upload so we don't leave an orphan blob.
-      await deleteObject(key).catch(() => {});
-      throw err;
-    }
+    await putObject(planned.plan.key, Buffer.from(await file.arrayBuffer()), planned.plan.mime);
+    return await finishAttachment(code, planned.plan, fields, pre.reply_to);
   } catch (err) {
     console.error('Chat attachment error:', err);
     return NextResponse.json({ success: false, error: 'unexpected' }, { status: 500 });
+  }
+}
+
+/**
+ * Message id for the message a ticket posts. Derived from the object key
+ * (random per presign), so posting twice with one ticket targets the same
+ * doc and `.create()` rejects the second — each ticket posts at most once.
+ * 32 hex chars fits MESSAGE_ID_RE, so replies/reactions accept it.
+ */
+function ticketMessageId(key: string): string {
+  return createHash('sha256').update(key).digest('hex').slice(0, 32);
+}
+
+const ticketUsed = () =>
+  NextResponse.json(
+    { success: false, error: 'This upload was already sent.' },
+    { status: 409 }
+  );
+
+async function completeDirectUpload(request: NextRequest, code: string) {
+  const body = await request.json().catch(() => null);
+  const data = readUploadTicket<{ kind: string; plan: AttachmentPlan }>(body?.ticket);
+  if (!data || data.kind !== 'chat' || data.plan.code !== code) {
+    return NextResponse.json(
+      { success: false, error: 'This upload has expired or is invalid. Please upload again.' },
+      { status: 400 }
+    );
+  }
+  const { plan } = data;
+  const messageId = ticketMessageId(plan.key);
+
+  // Replay of a ticket whose file is already in a message (its own, or an
+  // album's): reject BEFORE any error path below can delete the object,
+  // which now belongs to that message. The claim batch in addMessage is the
+  // race-proof guard; this is the early exit. Repeating an uploadOnly
+  // complete before the album is sent only returns the same proof again —
+  // the claim still lets that file be posted once.
+  const [claimed, existing] = await Promise.all([
+    isAttachmentClaimed(code, plan.key).catch(() => false),
+    getMessage(code, messageId).catch(() => null),
+  ]);
+  if (claimed || existing) return ticketUsed();
+  const fields = readMessageFields({
+    senderName: body.senderName,
+    caption: body.caption,
+    tz: body.tz,
+    replyToId: body.replyToId,
+    deviceId: body.deviceId,
+    uploadOnly: body.uploadOnly === true,
+  });
+  if ('error' in fields) {
+    await deleteObject(plan.key).catch(() => {});
+    return fields.error;
+  }
+
+  try {
+    const problem = await verifyUploadedObject(plan.key, plan.size);
+    if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
+
+    const pre = await checkRoomAndReply(code, fields.replyToId);
+    if ('error' in pre) {
+      await deleteObject(plan.key).catch(() => {});
+      return pre.error;
+    }
+    return await finishAttachment(code, plan, fields, pre.reply_to, messageId);
+  } catch (err) {
+    console.error('Chat attachment complete error:', err);
+    return NextResponse.json({ success: false, error: 'unexpected' }, { status: 500 });
+  }
+}
+
+// ---------- shared by the direct complete and legacy multipart paths ----------
+
+interface MessageFields {
+  senderName: string;
+  captionText: string;
+  tz: ReturnType<typeof sanitizeIanaTz>;
+  replyToId: string | null;
+  /** Hashed device id (deviceKey) — never the raw one. */
+  deviceId: string | null;
+  uploadOnly: boolean;
+}
+
+function readMessageFields(input: {
+  senderName: unknown;
+  caption: unknown;
+  tz: unknown;
+  replyToId: unknown;
+  deviceId: unknown;
+  uploadOnly: boolean;
+}): MessageFields | { error: NextResponse } {
+  const replyToIdRaw = input.replyToId ?? null;
+  if (replyToIdRaw !== null && replyToIdRaw !== '' && !isValidMessageId(replyToIdRaw)) {
+    return { error: NextResponse.json({ success: false, error: 'invalid replyToId' }, { status: 400 }) };
+  }
+  const senderName = sanitizeSenderName(input.senderName);
+  if (senderName.length === 0) {
+    return { error: NextResponse.json({ success: false, error: 'senderName empty' }, { status: 400 }) };
+  }
+  return {
+    senderName,
+    // Multipart encoding CRLF-normalizes text fields (browsers included) —
+    // undo it so captions/previews keep the exact newlines the user typed.
+    captionText:
+      typeof input.caption === 'string'
+        ? input.caption.replace(/\r\n/g, '\n').slice(0, MAX_CAPTION_LENGTH)
+        : '',
+    tz: sanitizeIanaTz(input.tz),
+    replyToId: typeof replyToIdRaw === 'string' && replyToIdRaw !== '' ? replyToIdRaw : null,
+    deviceId: deviceKey(input.deviceId),
+    uploadOnly: input.uploadOnly,
+  };
+}
+
+async function checkRoomAndReply(
+  code: string,
+  replyToId: string | null
+): Promise<{ reply_to: ChatReplyRef | undefined } | { error: NextResponse }> {
+  const room = await getRoom(code);
+  if (!room) {
+    return { error: NextResponse.json({ success: false, error: 'not_found' }, { status: 404 }) };
+  }
+  if (isRoomExpired(room)) {
+    return { error: NextResponse.json({ success: false, error: 'expired' }, { status: 410 }) };
+  }
+  // Server-built quote ref — clients can't forge who/what they reply to.
+  let reply_to: ChatReplyRef | undefined;
+  if (replyToId) {
+    const target = await getMessage(code, replyToId);
+    if (!target || target.kind === 'system') {
+      return {
+        error: NextResponse.json({ success: false, error: 'reply_target_not_found' }, { status: 400 }),
+      };
+    }
+    reply_to = buildReplyRef(target);
+  }
+  return { reply_to };
+}
+
+/** The object is in R2: return album metadata, or post the message. */
+async function finishAttachment(
+  code: string,
+  plan: AttachmentPlan,
+  fields: MessageFields,
+  reply_to: ChatReplyRef | undefined,
+  /** Set on the ticket path: makes the post single-use (see ticketMessageId). */
+  messageId?: string
+): Promise<NextResponse> {
+  // Multi-file albums: each file is uploaded separately (uploadOnly),
+  // then ONE message referencing all of them is posted via /messages, which
+  // only accepts files carrying this proof.
+  // Orphans from abandoned sends are reclaimed with the room's prefix wipe.
+  if (fields.uploadOnly) {
+    const attachment = { key: plan.key, name: plan.name, size: plan.size, mime_type: plan.mime };
+    return NextResponse.json({
+      success: true,
+      attachment: { ...attachment, proof: signAttachmentProof(code, attachment) },
+    });
+  }
+
+  const user = await currentUser();
+  try {
+    const message = await addMessage(
+      code,
+      {
+        sender_name: fields.senderName,
+        sender_id: user?.uid ?? null,
+        sender_device_id: fields.deviceId,
+        content: fields.captionText,
+        sender_tz: fields.tz,
+        attachment: {
+          key: plan.key,
+          name: plan.name,
+          size: plan.size,
+          mime_type: plan.mime,
+          is_long_text: plan.longText,
+        },
+        reply_to,
+      },
+      // Ticket path: also claim the key, so an album can't reuse this file.
+      { id: messageId, claimKeys: messageId ? [plan.key] : undefined }
+    );
+    return NextResponse.json({ success: true, id: message.id });
+  } catch (err) {
+    // A concurrent replay won the create: the object is that message's file,
+    // so leave it alone.
+    if (messageId && isAlreadyExistsError(err)) return ticketUsed();
+    // Roll back the R2 upload so we don't leave an orphan blob.
+    await deleteObject(plan.key).catch(() => {});
+    throw err;
   }
 }
 

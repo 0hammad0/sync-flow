@@ -6,6 +6,15 @@ export const runtime = 'nodejs';
 
 // POST — exchange a fresh Firebase ID token for an httpOnly session cookie.
 export async function POST(request: NextRequest) {
+  // Login CSRF guard: a cross-site <form> could otherwise post an attacker's
+  // token (text/plain bodies still parse as JSON) and sign the victim into
+  // the attacker's account. Only our own pages, sending real JSON, may call this.
+  const origin = request.headers.get('origin');
+  const contentType = request.headers.get('content-type') ?? '';
+  if (origin !== request.nextUrl.origin || !contentType.toLowerCase().startsWith('application/json')) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   let body: { idToken?: string };
   try {
     body = await request.json();
@@ -35,10 +44,12 @@ export async function POST(request: NextRequest) {
   return res;
 }
 
-// DELETE — sign out: revoke refresh tokens, clear cookie.
+// DELETE — sign out on this device: clear this browser's cookie only. Other
+// devices stay signed in. `?everywhere=1` also revokes the user's refresh
+// tokens, which ends every session (no UI uses it yet).
 export async function DELETE(request: NextRequest) {
   const cookieValue = request.cookies.get(SESSION_COOKIE)?.value;
-  if (cookieValue) {
+  if (cookieValue && request.nextUrl.searchParams.get('everywhere') === '1') {
     try {
       const decoded = await adminAuth().verifySessionCookie(cookieValue);
       await adminAuth().revokeRefreshTokens(decoded.uid);

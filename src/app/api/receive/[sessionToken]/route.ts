@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFile, getReceiveSession } from '@/shared/lib/firebase/files';
 
+/**
+ * GET — the PC polls this for files sent to its session. An expired session
+ * still returns its files (status 'expired'): a file presigned just before
+ * the end can land later, and the PC keeps polling for a grace period to show
+ * it. `?peek=1` (used by the phone) answers 410 once the session has expired.
+ */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ sessionToken: string }> }
 ) {
   try {
@@ -13,8 +19,17 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
-    if (new Date(session.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
+    const expired = new Date(session.expires_at) < new Date();
+
+    // Seconds left by the server clock, so a skewed device clock can't drift the timer.
+    const expiresIn = Math.max(0, Math.floor((new Date(session.expires_at).getTime() - Date.now()) / 1000));
+
+    // ?peek=1 — the phone only needs to know the link is still open (no file reads).
+    if (request.nextUrl.searchParams.get('peek') === '1') {
+      if (expired) {
+        return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 });
+      }
+      return NextResponse.json({ success: true, expiresAt: session.expires_at, expiresIn });
     }
 
     const tokens =
@@ -38,18 +53,20 @@ export async function GET(
       return NextResponse.json({
         success: true,
         // The session stays open for more files until it expires.
-        status: 'completed',
+        status: expired ? 'expired' : 'completed',
         file: files[files.length - 1] ?? null, // legacy single-file readers
         files,
         expiresAt: session.expires_at,
+        expiresIn,
       });
     }
 
     return NextResponse.json({
       success: true,
-      status: 'waiting',
+      status: expired ? 'expired' : 'waiting',
       files: [],
       expiresAt: session.expires_at,
+      expiresIn,
     });
   } catch (error) {
     console.error('Check receive session error:', error);

@@ -3,10 +3,15 @@
 // flip features off — the API route and the UI adapt automatically.
 //
 // Env knobs (all optional):
-//   OPENROUTER_API_KEY   — required for AI to be enabled at all
+//   OPENROUTER_API_KEY   — main provider; AI is on when this or GEMINI_API_KEY is set
 //   OPENROUTER_MODEL     — primary model (default: first FALLBACK_MODELS entry)
+//   GEMINI_API_KEY       — Google Gemini, used when OpenRouter can't answer
+//   GEMINI_MODEL         — Gemini model (default: DEFAULT_GEMINI_MODEL)
 //   AI_TASKS_DISABLED    — comma list to turn tasks off, e.g. "replies,translate"
 //   AI_RATE_LIMIT        — requests/min per IP (default 15)
+//   AI_DAILY_LIMIT       — total requests/day per server instance (default 500)
+
+import { rewriteInstruction } from './rewrite-presets';
 
 export const AI_TASK_IDS = ['replies', 'summary', 'rewrite', 'translate', 'explain'] as const;
 export type AiTask = (typeof AI_TASK_IDS)[number];
@@ -29,8 +34,17 @@ export function modelList(): string[] {
   return [primary, ...FALLBACK_MODELS.filter((m) => m !== primary)].slice(0, 3);
 }
 
+// Fallback provider. A stable, free-tier Flash model; see
+// https://ai.google.dev/gemini-api/docs/models for the current list.
+const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+
+export function geminiModel(): string {
+  return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+}
+
+/** AI is on when at least one provider key is set. */
 export function isAiConfigured(): boolean {
-  return Boolean(process.env.OPENROUTER_API_KEY);
+  return Boolean(process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY);
 }
 
 export function disabledTasks(): Set<string> {
@@ -54,14 +68,20 @@ export function aiRateLimitPerMinute(): number {
   return Number.isFinite(n) && n > 0 ? n : 15;
 }
 
+export function aiDailyLimit(): number {
+  const n = Number(process.env.AI_DAILY_LIMIT);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 500;
+}
+
 /* ----------------------------- task prompts ----------------------------- */
 
 export interface AiRequestBody {
   task?: string;
+  room?: string; // code of the live chat room the request comes from
   transcript?: string; // replies / summary
   me?: string; // replies: who is asking
   text?: string; // rewrite / translate
-  instruction?: string; // rewrite
+  preset?: string; // rewrite: id from REWRITE_PRESETS
   target?: string; // translate: language name
   code?: string; // explain
   lang?: string; // explain
@@ -78,6 +98,13 @@ function clip(s: unknown, max: number): string {
   return typeof s === 'string' ? s.slice(0, max) : '';
 }
 
+// Language names go into the system prompt, so only allow what a language
+// name looks like ("English", "Brazilian Portuguese", "Chinese (Traditional)").
+function languageName(s: unknown): string {
+  const v = clip(s, 40).trim();
+  return /^[\p{L} ()-]{2,40}$/u.test(v) ? v : '';
+}
+
 interface TaskDef {
   build: (body: AiRequestBody) => { system: string; user: string } | null;
   maxTokens: number;
@@ -90,14 +117,15 @@ const TASKS: Record<AiTask, TaskDef> = {
     temperature: 0.9,
     build: (body) => {
       const transcript = clip(body.transcript, 12_000);
-      const me = clip(body.me, 64) || 'the user';
+      const me = clip(body.me, 64).replace(/\s+/g, ' ').trim() || 'the user';
       if (!transcript) return null;
       return {
         system:
-          `You suggest quick chat replies. Given a conversation, suggest 3 different short replies that ${me} could plausibly send next. ` +
+          'You suggest quick chat replies. Given a conversation, suggest 3 different short replies that the named participant could plausibly send next. ' +
           'Output exactly 3 replies, one per line, with no numbering, bullets, quotes, or explanations. ' +
           "Match the conversation's language and tone. Keep each reply under 12 words.",
-        user: transcript,
+        // The name is user-chosen, so it rides in the user turn, not the system prompt.
+        user: `Participant: ${me}\n\nConversation:\n${transcript}`,
       };
     },
   },
@@ -123,7 +151,8 @@ const TASKS: Record<AiTask, TaskDef> = {
     temperature: 0.4,
     build: (body) => {
       const text = clip(body.text, 6_000);
-      const instruction = clip(body.instruction, 200);
+      // Fixed server-side presets only — never free text from the client.
+      const instruction = rewriteInstruction(body.preset);
       if (!text || !instruction) return null;
       return {
         system:
@@ -140,7 +169,7 @@ const TASKS: Record<AiTask, TaskDef> = {
     temperature: 0.3,
     build: (body) => {
       const text = clip(body.text, 6_000);
-      const target = clip(body.target, 60) || 'English';
+      const target = languageName(body.target) || 'English';
       if (!text) return null;
       return {
         system:

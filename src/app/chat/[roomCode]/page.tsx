@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Clock } from 'lucide-react';
-import ChatRoom from '@/features/chat/components/ChatRoom';
+import ChatRoomLoader from '@/features/chat/components/ChatRoomLoader';
 import { getRoom, isRoomExpired } from '@/shared/lib/firebase/chat';
 import { getRequestOrigin, isValidRoomCode } from '@/shared/lib/utils';
 
@@ -42,5 +42,5 @@ export default async function ChatRoomPage({ params }: ChatRoomPageProps) {
   }
 
   const joinUrl = `${getRequestOrigin(await headers())}/chat/${room.code}`;
-  return <ChatRoom room={room} joinUrl={joinUrl} />;
+  return <ChatRoomLoader room={room} joinUrl={joinUrl} />;
 }

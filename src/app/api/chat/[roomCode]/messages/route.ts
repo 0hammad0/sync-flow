@@ -3,8 +3,10 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
+  deviceKey,
   getMessage,
   getRoom,
+  isAlreadyExistsError,
   isRoomExpired,
   MAX_ATTACHMENT_BYTES,
   MAX_MESSAGE_BYTES,
@@ -15,10 +17,10 @@ import {
   isValidMessageId,
   isValidRoomCode,
   MAX_ALBUM_FILES,
-  sanitizeDeviceId,
   sanitizeIanaTz,
 } from '@/shared/lib/utils';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { isValidAttachmentProof } from '@/features/chat/server/attachment-upload';
 import type { ChatAttachment, ChatReplyRef } from '@/types';
 
 export const runtime = 'nodejs';
@@ -26,8 +28,10 @@ export const runtime = 'nodejs';
 /**
  * Validate a client-supplied attachments array (files were uploaded
  * beforehand via /attachments?uploadOnly=1). Keys are constrained to THIS
- * room's storage prefix so a message can't point at other rooms' files.
- * Returns the cleaned array, or null when the shape is invalid.
+ * room's storage prefix so a message can't point at other rooms' files, and
+ * each entry must carry the proof the upload step signed for exactly this
+ * room, key, name, size and type — so only files this server stored can be
+ * posted. Returns the cleaned array, or null when anything is off.
  */
 function validateAttachments(raw: unknown, code: string): ChatAttachment[] | null {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ALBUM_FILES) return null;
@@ -35,12 +39,16 @@ function validateAttachments(raw: unknown, code: string): ChatAttachment[] | nul
   const out: ChatAttachment[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') return null;
-    const { key, name, size, mime_type } = entry as Record<string, unknown>;
+    const { key, name, size, mime_type, proof } = entry as Record<string, unknown>;
     if (typeof key !== 'string' || !key.startsWith(prefix) || key.includes('..')) return null;
     if (typeof name !== 'string' || name.length === 0 || name.length > 255) return null;
     if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0 || size > MAX_ATTACHMENT_BYTES) return null;
     if (typeof mime_type !== 'string' || mime_type.length > 120) return null;
-    out.push({ key, name, size, mime_type });
+    // One key twice would also break the claim batch in addMessage.
+    if (out.some((a) => a.key === key)) return null;
+    const att: ChatAttachment = { key, name, size, mime_type };
+    if (!isValidAttachmentProof(code, att, proof)) return null;
+    out.push(att);
   }
   return out;
 }
@@ -59,15 +67,7 @@ export async function POST(
   // 30 messages per 10 seconds per (IP + room) — generous for normal chat,
   // tight enough to stop runaway scripts.
   const rl = rateLimit(`chat:msg:${code}:${clientKey(request)}`, 30, 10_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many messages, slow down.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-      }
-    );
-  }
+  if (!rl.allowed) return tooManyRequests('Too many messages, slow down.', rl.retryAfterMs);
 
   let body: {
     senderName?: unknown;
@@ -146,20 +146,31 @@ export async function POST(
     }
 
     const user = await currentUser();
-    const message = await addMessage(code, {
-      sender_name: senderName,
-      sender_id: user?.uid ?? null,
-      sender_device_id: sanitizeDeviceId(body.deviceId),
-      content,
-      sender_tz: tz,
-      // Single file keeps the legacy field too so older readers still work.
-      attachment: attachments?.length === 1 ? attachments[0] : undefined,
-      attachments,
-      reply_to,
-    });
+    const message = await addMessage(
+      code,
+      {
+        sender_name: senderName,
+        sender_id: user?.uid ?? null,
+        sender_device_id: deviceKey(body.deviceId),
+        content,
+        sender_tz: tz,
+        // Single file keeps the legacy field too so older readers still work.
+        attachment: attachments?.length === 1 ? attachments[0] : undefined,
+        attachments,
+        reply_to,
+      },
+      // Each uploaded file can be posted once; a replay fails as a whole.
+      { claimKeys: attachments?.map((a) => a.key) }
+    );
 
     return NextResponse.json({ success: true, id: message.id });
   } catch (err) {
+    if (isAlreadyExistsError(err)) {
+      return NextResponse.json(
+        { success: false, error: 'These files were already sent.' },
+        { status: 409 }
+      );
+    }
     console.error('Send message error:', err);
     return NextResponse.json(
       { success: false, error: 'unexpected' },

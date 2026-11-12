@@ -12,20 +12,35 @@ service cloud.firestore {
 
     // Chat rooms: clients READ directly (so the real-time onSnapshot listener
     // works without a server hop), but all WRITES go through /api/chat/* on
-    // the server. Security relies on the 8-char room code being unguessable.
+    // the server. The 8-char room code is the capability: knowing it lets you
+    // open that one room, but nobody can enumerate rooms or their messages.
     match /rooms/{roomCode} {
-      allow read: if true;
+      // get = open one room by its code. list = only your own rooms, signed
+      // in (MyChatRooms queries where created_by == uid, which this requires).
+      allow get: if true;
+      allow list: if request.auth != null
+        && resource.data.created_by == request.auth.uid;
       allow write: if false;
 
+      // The room exists and has not expired. `expires_at` is an ISO string
+      // (rules can't parse it), so the server also stores `expires_at_ts` as
+      // a Firestore Timestamp — see shared/lib/firebase/chat.ts.
+      function roomIsLive() {
+        let roomPath = /databases/$(database)/documents/rooms/$(roomCode);
+        return exists(roomPath)
+          && get(roomPath).data.get('expires_at_ts', null) is timestamp
+          && get(roomPath).data.expires_at_ts > request.time;
+      }
+
       match /messages/{messageId} {
-        allow read: if true;
+        allow get, list: if roomIsLive();
         allow write: if false;
       }
 
       // Ephemeral typing/online docs — read-only for clients, written by
       // the server heartbeat endpoint.
       match /presence/{deviceId} {
-        allow read: if true;
+        allow get, list: if roomIsLive();
         allow write: if false;
       }
     }

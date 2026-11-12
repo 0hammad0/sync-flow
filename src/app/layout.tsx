@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
 import Header from "@/shared/components/Header";
-import Logo from "@/shared/components/Logo";
+import SiteFooter from "@/shared/components/SiteFooter";
+import { siteUrl } from "@/shared/lib/site";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,36 +21,29 @@ const spaceGrotesk = Space_Grotesk({
   weight: ["500", "700"],
 });
 
-function getMetadataBaseUrl(): URL {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return new URL(process.env.NEXT_PUBLIC_APP_URL);
-  }
-  if (process.env.VERCEL_URL) {
-    return new URL(`https://${process.env.VERCEL_URL}`);
-  }
-  return new URL("http://localhost:3000");
-}
+const TITLE = "SyncFlow — Private file sharing, phone-to-PC transfers and chat rooms";
+const DESCRIPTION =
+  "Share files with end-to-end encrypted links, send files from your phone to your PC with a QR code, or open a temporary chat room. Free, open source, no account needed.";
 
 export const metadata: Metadata = {
-  metadataBase: getMetadataBaseUrl(),
+  metadataBase: siteUrl(),
+  applicationName: "SyncFlow",
   title: {
-    default: "SyncFlow - Fast & Secure File Sharing",
-    template: "%s | SyncFlow",
+    default: TITLE,
+    template: "%s · SyncFlow",
   },
-  description:
-    "Share files instantly with end-to-end encryption. Upload, get a link, and share. Transfer files between phone and PC with QR codes. No sign-up required.",
+  description: DESCRIPTION,
   keywords: [
     "file sharing",
-    "file transfer",
+    "end-to-end encrypted file sharing",
     "send files",
     "share files",
-    "encrypted file sharing",
-    "QR code transfer",
-    "phone to PC",
-    "secure upload",
-    "instant file sharing",
+    "phone to PC transfer",
+    "QR code file transfer",
+    "temporary chat room",
+    "open source",
   ],
-  authors: [{ name: "SyncFlow" }],
+  authors: [{ name: "SyncFlow contributors", url: "https://github.com/0hammad0/sync-flow" }],
   creator: "SyncFlow",
   publisher: "SyncFlow",
   robots: {
@@ -64,37 +57,20 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
+  // Images come from the file-based opengraph-image / twitter-image routes.
   openGraph: {
     type: "website",
     locale: "en_US",
     siteName: "SyncFlow",
-    title: "SyncFlow - Fast & Secure File Sharing",
-    description:
-      "Share files instantly with end-to-end encryption. Transfer between devices with QR codes. No sign-up required.",
-    images: [
-      {
-        url: "/logo.png",
-        width: 512,
-        height: 512,
-        alt: "SyncFlow Logo",
-      },
-    ],
+    title: TITLE,
+    description: DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: "SyncFlow - Fast & Secure File Sharing",
-    description:
-      "Share files instantly with end-to-end encryption. Transfer between devices with QR codes.",
-    images: ["/logo.png"],
+    title: TITLE,
+    description: DESCRIPTION,
   },
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-    ],
-    apple: [
-      { url: "/logo.png", sizes: "180x180", type: "image/png" },
-    ],
-  },
+  // favicon.ico, icon.svg and apple-icon.png are file-based (src/app/*).
   manifest: "/manifest.json",
 };
 
@@ -108,9 +84,13 @@ export const viewport: Viewport = {
   ],
 };
 
-// Runs before paint: applies the saved theme (dark by default) so there is
-// no flash of the wrong theme.
-const themeInitScript = `(function(){try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){document.documentElement.classList.add('dark');}})();`;
+// Runs before paint:
+//  - marks <html class="js"> so scroll reveals / tabs only hide content when
+//    scripts actually run;
+//  - applies the saved theme (system preference otherwise) — no theme flash;
+//  - copies the signed-in hint onto <html data-auth> so the header and account
+//    prompts render the right variant on first paint (see auth-state.ts).
+const initScript = `(function(){var r=document.documentElement;r.classList.add('js');try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;r.classList.toggle('dark',d);if(localStorage.getItem('sf-auth')==='1')r.setAttribute('data-auth','in');}catch(e){r.classList.add('dark');}})();`;
 
 export default function RootLayout({
   children,
@@ -120,38 +100,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script dangerouslySetInnerHTML={{ __html: initScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} antialiased bg-canvas text-fg min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} antialiased bg-canvas text-fg min-h-screen flex flex-col`}
         suppressHydrationWarning
       >
-        {/* Ambient aurora backdrop — fixed, behind every page */}
-        <div className="aurora" aria-hidden="true">
-          <div className="aurora-spot" />
-        </div>
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
+        {/* Static ambient backdrop — no blur filters, no animation */}
+        <div className="backdrop" aria-hidden="true" />
         <Header />
-        <main className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+        <main id="main" tabIndex={-1} className="site-main flex-1">
           {children}
         </main>
-        <footer id="site-footer" className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 mt-4 border-t border-edge">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs text-fg-faint">
-              <Logo size={16} className="w-4 h-4" />
-              <span className="font-mono tracking-wide">
-                © {new Date().getFullYear()} SyncFlow
-              </span>
-            </div>
-            <nav className="flex items-center gap-5 text-xs text-fg-muted">
-              <Link href="/terms" className="hover:text-fg transition-colors">
-                Terms of Service
-              </Link>
-              <Link href="/privacy" className="hover:text-fg transition-colors">
-                Privacy Policy
-              </Link>
-            </nav>
-          </div>
-        </footer>
+        <SiteFooter />
       </body>
     </html>
   );
