@@ -3,8 +3,10 @@
 // flip features off — the API route and the UI adapt automatically.
 //
 // Env knobs (all optional):
-//   OPENROUTER_API_KEY   — required for AI to be enabled at all
+//   OPENROUTER_API_KEY   — main provider; AI is on when this or GEMINI_API_KEY is set
 //   OPENROUTER_MODEL     — primary model (default: first FALLBACK_MODELS entry)
+//   GEMINI_API_KEY       — Google Gemini, used when OpenRouter can't answer
+//   GEMINI_MODEL         — Gemini model (default: DEFAULT_GEMINI_MODEL)
 //   AI_TASKS_DISABLED    — comma list to turn tasks off, e.g. "replies,translate"
 //   AI_RATE_LIMIT        — requests/min per IP (default 15)
 //   AI_DAILY_LIMIT       — total requests/day per server instance (default 500)
@@ -32,8 +34,17 @@ export function modelList(): string[] {
   return [primary, ...FALLBACK_MODELS.filter((m) => m !== primary)].slice(0, 3);
 }
 
+// Fallback provider. A stable, free-tier Flash model; see
+// https://ai.google.dev/gemini-api/docs/models for the current list.
+const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+
+export function geminiModel(): string {
+  return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+}
+
+/** AI is on when at least one provider key is set. */
 export function isAiConfigured(): boolean {
-  return Boolean(process.env.OPENROUTER_API_KEY);
+  return Boolean(process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY);
 }
 
 export function disabledTasks(): Set<string> {

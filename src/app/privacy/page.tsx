@@ -117,10 +117,11 @@ export default function PrivacyPage() {
         </ul>
         <p>
           That text goes to <strong>OpenRouter</strong> (openrouter.ai), which passes it to the
-          upstream AI model provider that generates the answer. Both process it under their own
-          terms and privacy policies. Files, file shares, the contents of attachments and Phone →
-          PC transfers are never sent to AI. AI answers can be wrong; check them before you rely
-          on them.
+          upstream AI model provider that generates the answer. If OpenRouter can&apos;t answer,
+          the same text may instead go to <strong>Google Gemini</strong> (the Gemini API by
+          Google). Each processes it under its own terms and privacy policy. Files, file shares,
+          the contents of attachments and Phone → PC transfers are never sent to AI. AI answers
+          can be wrong; check them before you rely on them.
         </p>
       </LegalSection>
 
@@ -173,7 +174,8 @@ export default function PrivacyPage() {
           private bucket. Downloads happen only through short-lived signed URLs. Metadata,
           accounts and chat messages are stored in Google Firebase (Firestore and Firebase
           Authentication). Emails are delivered over SMTP. If AI features are enabled, the text
-          you send to them is processed by OpenRouter and the model provider (see{' '}
+          you send to them is processed by OpenRouter and the model provider, or by Google Gemini
+          as a fallback (see{' '}
           <InlineLink href="#ai">AI features</InlineLink>). These providers process data on our
           behalf and under their own security commitments.
         </p>

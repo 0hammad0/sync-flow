@@ -195,7 +195,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
   const [dragOver, setDragOver] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
-  // AI features (OpenRouter via /api/ai) — aiTasks holds what the server
+  // AI features (OpenRouter, Gemini fallback, via /api/ai) — aiTasks holds what the server
   // currently offers; controls for unavailable tasks are simply not rendered.
   const [aiTasks, setAiTasks] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);

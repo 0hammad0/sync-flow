@@ -117,7 +117,8 @@ export default function TermsPage() {
         <p>
           Where the operator has enabled them, chat rooms offer AI features (summaries, reply
           suggestions, rewrite, translate and explain code). They run only when you trigger them,
-          and the text involved is sent to OpenRouter and an upstream AI model provider, as
+          and the text involved is sent to OpenRouter and an upstream AI model provider (or, as a
+          fallback, to Google Gemini), as
           described in our <InlineLink href="/privacy#ai">Privacy Policy</InlineLink>. AI output
           can be inaccurate or incomplete; you are responsible for checking it before you use or
           share it.

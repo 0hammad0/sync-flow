@@ -48,8 +48,8 @@
 - **Rich text** — URLs become clickable links with one-click copy, code is auto-detected and rendered as a syntax-highlighted snippet with a copy button, and long messages get a copy control
 - **Mobile-first composer** — Tools collapse into an animated drop-up menu while typing so the input takes the full width
 
-### AI (optional, via OpenRouter)
-AI controls appear only when an `OPENROUTER_API_KEY` is configured, and each is user-triggered (never automatic):
+### AI (optional, via OpenRouter, with Google Gemini as fallback)
+AI controls appear only when an `OPENROUTER_API_KEY` or `GEMINI_API_KEY` is configured, and each is user-triggered (never automatic):
 - **Smart replies** — Tappable one-line reply suggestions from the recent conversation
 - **Catch me up** — A quick summary of what you missed in a busy room
 - **Rewrite** — Reword your draft (shorter, friendlier, professional, fix grammar, translate) — streamed back into the composer with undo
@@ -69,6 +69,7 @@ AI controls appear only when an `OPENROUTER_API_KEY` is configured, and each is 
 | Web Crypto API | AES-256-GCM encryption |
 | [qrcode.react](https://npmjs.com/package/qrcode.react) | QR code generation |
 | [OpenRouter](https://openrouter.ai/) | Optional AI features (streamed, free-tier friendly) |
+| [Google Gemini API](https://ai.google.dev/) | Optional AI fallback when OpenRouter can't answer |
 
 ## Quick Start
 
@@ -77,7 +78,7 @@ AI controls appear only when an `OPENROUTER_API_KEY` is configured, and each is 
 - Node.js 22+ (firebase-admin 14 needs it)
 - A [Firebase](https://console.firebase.google.com/) project (free Spark plan works)
 - A [Cloudflare](https://dash.cloudflare.com/) account with R2 enabled
-- *(Optional)* An [OpenRouter](https://openrouter.ai/) account for the AI features
+- *(Optional)* An [OpenRouter](https://openrouter.ai/) account for the AI features, and/or a [Gemini API key](https://aistudio.google.com/apikey) as fallback
 
 ### 1. Clone and install
 
@@ -194,18 +195,23 @@ The AI features (smart replies, room summaries, rewrite, translate, explain code
    OPENROUTER_API_KEY=sk-or-v1-your-key-here
    ```
 3. Restart the dev server. AI controls now appear in the chat.
+4. *(Optional)* Add `GEMINI_API_KEY` (from [Google AI Studio](https://aistudio.google.com/apikey)) as a fallback.
+
+**How the Gemini fallback works:** each request goes to OpenRouter first. If OpenRouter can't answer (no key, network error, no first text within 15 s, every free model busy or rate-limited, 401/402/404/408, or a 5xx), the same request goes once to Gemini with the same prompt and limits. The browser gets the same text stream either way. The switch only happens before any text is sent, so answers never mix; if OpenRouter fails mid-answer, the answer just ends. OpenRouter 400/403 (bad request, moderation block) are not retried on Gemini. If Gemini fails too, the user sees the same error as without it. One request counts once against the rate and daily limits. With no `GEMINI_API_KEY`, nothing changes.
 
 Everything is driven by [`src/features/ai/lib/ai-config.ts`](src/features/ai/lib/ai-config.ts) (task list, prompts, and the free-model fallback chain) plus a few env knobs:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENROUTER_API_KEY` | — | Required to enable AI at all |
+| `OPENROUTER_API_KEY` | — | Main AI provider. AI is on when this or `GEMINI_API_KEY` is set |
 | `OPENROUTER_MODEL` | `google/gemma-4-31b-it:free` | Primary model; falls back through other free models automatically |
+| `GEMINI_API_KEY` | — | Optional Google Gemini key, used when OpenRouter can't answer (or alone if OpenRouter is not set) |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | Gemini model for the fallback |
 | `AI_TASKS_DISABLED` | — | Comma list to turn tasks off, e.g. `replies,translate` |
 | `AI_RATE_LIMIT` | `15` | AI requests per minute per IP |
 | `AI_DAILY_LIMIT` | `500` | Total AI requests per day, per server instance |
 
-**Notes:** the API key is only ever used server-side (via `/api/ai`); free models are rate-limited upstream, so the route retries on congestion and only touches unencrypted content — end-to-end encrypted file bodies are never sent to any AI provider.
+**Notes:** the API keys are only ever used server-side (via `/api/ai`); free models are rate-limited upstream, so the route retries on congestion and only touches unencrypted content — end-to-end encrypted file bodies are never sent to any AI provider.
 
 ## Usage
 
@@ -248,7 +254,7 @@ src/
 │   │   ├── send/                 # Phone → PC uploads: code, presign, complete
 │   │   ├── receive/              # Receive session endpoints
 │   │   ├── chat/[roomCode]/      # Chat: messages, attachments, reactions, presence, heartbeat
-│   │   ├── ai/                   # OpenRouter proxy (streamed) + feature discovery
+│   │   ├── ai/                   # AI proxy (OpenRouter, Gemini fallback; streamed) + feature discovery
 │   │   ├── session/              # Mint/clear Firebase session cookie
 │   │   ├── send-email/           # Email a share link via nodemailer
 │   │   └── cleanup/              # Daily cron: expired guest files, sessions, rooms
@@ -304,7 +310,7 @@ src/
 | Cron secret | `/api/cleanup` refuses every call without `CRON_SECRET` |
 | Chat identity | Each browser keeps a secret device id; rooms store only its SHA-256 hash, so a hash read from a room can't be used to act as that device |
 | Chat attachments | Each uploaded file gets a signed proof; a message can only attach files with a valid proof, and each file only once |
-| AI privacy | The OpenRouter key stays server-side; only unencrypted content is ever sent, and only on explicit user action |
+| AI privacy | AI keys stay server-side; only unencrypted text is sent, only on explicit user action, to OpenRouter or, as fallback, Google Gemini |
 
 ## Scripts
 
@@ -324,7 +330,7 @@ The `scripts/` folder also contains Puppeteer-based end-to-end checks (`e2e-chat
 
 1. Push to GitHub
 2. Import project in [Vercel](https://vercel.com)
-3. Add all environment variables from `.env.local` (note: `FIREBASE_PRIVATE_KEY` newline handling — paste as-is including the literal `\n` sequences inside double quotes). Add `OPENROUTER_API_KEY` too if you want the AI features. Add `CRON_SECRET` (see below).
+3. Add all environment variables from `.env.local` (note: `FIREBASE_PRIVATE_KEY` newline handling — paste as-is including the literal `\n` sequences inside double quotes). Add `OPENROUTER_API_KEY` (and optionally `GEMINI_API_KEY`) too if you want the AI features. Add `CRON_SECRET` (see below).
 4. Set the project's Node.js version to 22.x or newer (Settings → Build and Deployment)
 5. Deploy
 6. Deploy the Firestore rules and indexes (step 5 of Quick Start) — Vercel does not do this

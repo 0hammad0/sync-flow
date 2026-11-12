@@ -31,7 +31,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'What does the AI see?',
-    a: 'Nothing unless you ask. AI features only exist in chat rooms, only when the person running the server has turned them on, and only run when you click one. Then the text that action needs (recent messages for a catch-up summary or reply ideas, or the one message or code snippet you picked) is sent to OpenRouter and the AI model that answers. Files, file shares and Phone → PC transfers are never sent to AI.',
+    a: 'Nothing unless you ask. AI features only exist in chat rooms, only when the person running the server has turned them on, and only run when you click one. Then the text that action needs (recent messages for a catch-up summary or reply ideas, or the one message or code snippet you picked) is sent to OpenRouter and the AI model that answers (or to Google Gemini if OpenRouter is unavailable). Files, file shares and Phone → PC transfers are never sent to AI.',
   },
   {
     q: 'Who builds SyncFlow, and how do I get help?',

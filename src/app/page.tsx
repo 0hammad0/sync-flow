@@ -212,7 +212,7 @@ const VISIBILITY: { label: string; cells: [Cell, Cell, Cell] }[] = [
     cells: [
       { tone: 'private', head: 'Never' },
       { tone: 'private', head: 'Never' },
-      { tone: 'info', head: 'Only when you click an AI action', text: 'If the server has AI turned on, that action’s text goes to OpenRouter and the model that answers.' },
+      { tone: 'info', head: 'Only when you click an AI action', text: 'If the server has AI turned on, that action’s text goes to OpenRouter and the model that answers, or to Google Gemini as a fallback.' },
     ],
   },
 ];
