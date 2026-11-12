@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Clock, X } from 'lucide-react';
 import Button from '@/shared/components/ui/Button';
+import RoomLinkPending from '@/features/chat/components/RoomLinkPending';
 import { clientTimezone, formatTimeUntil } from '@/shared/lib/time';
 import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/shared/lib/utils';
 import {
@@ -51,6 +52,9 @@ export default function ChatLobby() {
   // Name is optional; expiry defaults to 24h.
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    // No double submits. `creating` is never reset on success, so the button
+    // keeps its spinner until the room page (or its skeleton) replaces this one.
+    if (creating || joining) return;
     setCreating(true);
     setError(null);
     try {
@@ -78,6 +82,7 @@ export default function ChatLobby() {
   // so checking here first would just read the room twice.
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (joining || creating) return;
     const code = joinCode.trim().toUpperCase();
     if (!isValidRoomCode(code)) {
       setError(`Code must be ${ROOM_CODE_LENGTH} letters/digits (no I, O, 0, 1, L).`);
@@ -203,18 +208,27 @@ export default function ChatLobby() {
             {recentRooms.map((r) => (
               <li
                 key={r.code}
-                className="flex items-center gap-2 p-1 pl-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in"
+                // The text dims while this card's navigation is pending
+                // (RoomLinkPending renders the data attribute only then). Not
+                // the li itself: animate-fade-in's `forwards` fill pins its opacity.
+                className="flex items-center gap-2 p-1 pl-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in group/room"
               >
-                <Link href={`/chat/${r.code}`} className="min-w-0 flex-1 py-2 cursor-pointer">
-                  <p className="text-sm font-medium text-fg truncate">{r.name || 'Untitled room'}</p>
-                  <p className="text-xs text-fg-muted mt-0.5 flex items-center gap-1.5">
-                    <span className="font-mono tracking-widest text-brand-text">{r.code}</span>
-                    <span>&middot;</span>
-                    <Clock className="w-3 h-3" />
-                    <span title={new Date(r.expires_at).toLocaleString()}>
-                      {formatTimeUntil(r.expires_at)} left
-                    </span>
-                  </p>
+                <Link
+                  href={`/chat/${r.code}`}
+                  className="min-w-0 flex-1 py-2 cursor-pointer flex items-center gap-2"
+                >
+                  <div className="min-w-0 flex-1 transition-opacity group-has-[[data-room-link-pending]]/room:opacity-60">
+                    <p className="text-sm font-medium text-fg truncate">{r.name || 'Untitled room'}</p>
+                    <p className="text-xs text-fg-muted mt-0.5 flex items-center gap-1.5">
+                      <span className="font-mono tracking-widest text-brand-text">{r.code}</span>
+                      <span>&middot;</span>
+                      <Clock className="w-3 h-3" />
+                      <span title={new Date(r.expires_at).toLocaleString()}>
+                        {formatTimeUntil(r.expires_at)} left
+                      </span>
+                    </p>
+                  </div>
+                  <RoomLinkPending />
                 </Link>
                 <button
                   type="button"

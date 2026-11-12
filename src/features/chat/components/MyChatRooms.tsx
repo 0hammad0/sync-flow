@@ -15,6 +15,7 @@ import { clientAuth, clientDb } from '@/shared/lib/firebase/client';
 import { formatTimeUntil } from '@/shared/lib/time';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import Button from '@/shared/components/ui/Button';
+import RoomLinkPending from '@/features/chat/components/RoomLinkPending';
 import { MessageSquare } from 'lucide-react';
 import type { ChatRoom } from '@/types';
 
@@ -123,9 +124,9 @@ export default function MyChatRooms() {
           {active.map((r) => (
             <li
               key={r.code}
-              className="flex items-center justify-between gap-3 p-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in"
+              className="flex items-center justify-between gap-3 p-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in group/room"
             >
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 transition-opacity group-has-[[data-room-link-pending]]/room:opacity-60">
                 <p className="text-sm font-medium text-fg truncate">
                   {r.name || 'Untitled room'}
                 </p>
@@ -139,9 +140,9 @@ export default function MyChatRooms() {
               </div>
               <Link
                 href={`/chat/${r.code}`}
-                className="shrink-0 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-brand/10 text-brand-text hover:bg-brand/20 cursor-pointer transition-colors"
+                className="shrink-0 inline-flex items-center px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-brand/10 text-brand-text hover:bg-brand/20 cursor-pointer transition-colors"
               >
-                Open
+                <RoomLinkPending idle="Open" />
               </Link>
             </li>
           ))}
