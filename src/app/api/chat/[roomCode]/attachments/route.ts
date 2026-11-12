@@ -254,6 +254,11 @@ async function finishAttachment(
   // only accepts files carrying this proof.
   // Orphans from abandoned sends are reclaimed with the room's prefix wipe.
   if (fields.uploadOnly) {
+    // Voice notes are always sent on their own, never inside an album.
+    if (plan.voice) {
+      await deleteObject(plan.key).catch(() => {});
+      return NextResponse.json({ success: false, error: 'invalid voice note' }, { status: 400 });
+    }
     const attachment = { key: plan.key, name: plan.name, size: plan.size, mime_type: plan.mime };
     return NextResponse.json({
       success: true,
@@ -277,6 +282,7 @@ async function finishAttachment(
           size: plan.size,
           mime_type: plan.mime,
           is_long_text: plan.longText,
+          ...(plan.voice ? { voice: plan.voice } : {}),
         },
         reply_to,
       },

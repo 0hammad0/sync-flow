@@ -271,12 +271,51 @@ export function buildReplyRef(target: ChatMessage): ChatReplyRef {
           ? 'audio'
           : 'file';
   }
+  const voice = atts.length === 1 ? atts[0].voice : undefined;
   const snippet = target.content
     ? target.content.slice(0, 120)
-    : atts.length > 1
+    : voice
+      ? `Voice message (${voiceClock(voice.duration_ms)})`
+      : atts.length > 1
       ? `${atts[0].name} +${atts.length - 1} more`
       : (atts[0]?.name ?? '');
   return { id: target.id, sender_name: target.sender_name, snippet, attachment_kind };
+}
+
+/** 0:07 / 1:23 — kept local so this server module stays free of feature imports. */
+function voiceClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, '0')}`;
+}
+
+/** Cap on stored listeners per note — bounds the doc size in big rooms. */
+const MAX_PLAYED_BY = 200;
+
+/**
+ * Record that a listener played a voice note (WhatsApp's "played" state).
+ * Only voice notes count, the sender never counts, and each device is
+ * stored once. Returns true when this call added the listener.
+ */
+export async function markVoicePlayed(
+  code: string,
+  messageId: string,
+  listener: string
+): Promise<boolean> {
+  const ref = messagesRef(code).doc(messageId);
+  return adminDb().runTransaction(async (txn) => {
+    const snap = await txn.get(ref);
+    if (!snap.exists) throw new Error('message_not_found');
+    const data = snap.data() as ChatMessage;
+    const atts = messageAttachments(data);
+    if (data.kind === 'system' || atts.length !== 1 || !atts[0].voice) {
+      throw new Error('not_a_voice_note');
+    }
+    if (data.sender_device_id && data.sender_device_id === listener) return false;
+    const played = data.played_by ?? [];
+    if (played.includes(listener) || played.length >= MAX_PLAYED_BY) return false;
+    txn.update(ref, { played_by: [...played, listener] });
+    return true;
+  });
 }
 
 /**

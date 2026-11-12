@@ -339,7 +339,7 @@ export default function SendPage({ params }: SendPageProps) {
                 placeholder="Paste text or a link"
                 rows={5}
                 disabled={expired}
-                className="input-base w-full px-3 py-2.5 text-base sm:text-sm resize-y"
+                className="input-base w-full px-3 py-2.5 text-base pointer-fine:sm:text-sm resize-y"
                 aria-label="Text to send"
               />
               <Button variant="primary" size="lg" fullWidth onClick={sendText} disabled={!text.trim() || expired}>

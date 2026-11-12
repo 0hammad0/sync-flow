@@ -6,7 +6,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
 import { roomStoragePrefix, MAX_ATTACHMENT_BYTES } from '@/shared/lib/firebase/chat';
 import { generateToken, MAX_LONG_TEXT_BYTES, sanitizeFileName } from '@/shared/lib/utils';
-import type { ChatAttachment } from '@/types';
+import { isVoiceMime, sanitizeVoice, VOICE_MAX_BYTES } from '@/features/chat/lib/voice';
+import type { ChatAttachment, ChatVoice } from '@/types';
 
 export interface AttachmentPlan {
   code: string;
@@ -15,11 +16,20 @@ export interface AttachmentPlan {
   size: number;
   mime: string;
   longText: boolean;
+  /** Voice note metadata. Carried inside the signed ticket, so it can't change after presign. */
+  voice?: ChatVoice;
 }
 
 export function planAttachment(
   code: string,
-  input: { originalName: unknown; size: unknown; mimeType: unknown; longText: boolean }
+  input: {
+    originalName: unknown;
+    size: unknown;
+    mimeType: unknown;
+    longText: boolean;
+    /** Present only for recorded voice notes. */
+    voice?: unknown;
+  }
 ): { plan: AttachmentPlan } | { error: NextResponse } {
   const fail = (error: string, status = 400) => ({
     error: NextResponse.json({ success: false, error }, { status }),
@@ -34,6 +44,15 @@ export function planAttachment(
   if (input.longText && size > MAX_LONG_TEXT_BYTES) {
     return fail('Message is too long (limit 15 MB).', 413);
   }
+  let voice: ChatVoice | undefined;
+  if (input.voice !== undefined && input.voice !== null) {
+    if (input.longText) return fail('invalid voice note');
+    if (!isVoiceMime(input.mimeType)) return fail('Unsupported voice note format');
+    if (size > VOICE_MAX_BYTES) return fail('Voice note is too large', 413);
+    const clean = sanitizeVoice(input.voice);
+    if (!clean) return fail('invalid voice note');
+    voice = clean;
+  }
   const mime = input.longText
     ? 'text/plain; charset=utf-8'
     : typeof input.mimeType === 'string' && input.mimeType
@@ -47,6 +66,7 @@ export function planAttachment(
       size,
       mime,
       longText: input.longText,
+      ...(voice ? { voice } : {}),
     },
   };
 }

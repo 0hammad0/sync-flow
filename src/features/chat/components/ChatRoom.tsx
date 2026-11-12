@@ -82,6 +82,7 @@ import {
   SOUND_KEY,
   STORED_NAME_KEY,
   TYPING_THROTTLE_MS,
+  attachmentViewUrl,
   byteLen,
   deviceIdHash,
   friendlyError,
@@ -97,6 +98,10 @@ import {
   toggleReactionLocal,
   writeStorage,
 } from '@/features/chat/lib/chat-helpers';
+import { VoiceComposer } from '@/features/chat/components/VoiceComposer';
+import { voiceExtension } from '@/features/chat/lib/voice';
+import { voicePlayer, type VoiceTrack } from '@/features/chat/lib/voice-player';
+import type { VoiceRecording } from '@/features/chat/lib/voice-recorder';
 import type {
   ChatAttachment,
   ChatMessage,
@@ -179,6 +184,10 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Voice notes: recorder showing (keeps the mic mounted), and the last note
+  // that failed to upload, kept so "Retry" doesn't lose the recording.
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [failedVoice, setFailedVoice] = useState<VoiceRecording | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
@@ -213,6 +222,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [preRewriteDraft, setPreRewriteDraft] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   // Header alerts menu and the mobile composer tools menu stay inside the
   // chat panel card (it clips with overflow-hidden).
   const alertsMenuRef = useRef<HTMLDivElement>(null);
@@ -728,6 +738,147 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [displayName, room.code, replyTo, deviceId]
   );
 
+  // Voice note: straight to R2 (presign → PUT → complete), posted as its own
+  // message. Length and waveform bars travel in the signed ticket.
+  const sendVoice = useCallback(
+    (rec: VoiceRecording) => {
+      if (uploadBusy.current) {
+        setFailedVoice(rec);
+        setSendError(UPLOAD_BUSY_NOTE);
+        return;
+      }
+      uploadBusy.current = true;
+      setSendError(null);
+      setFailedVoice(null);
+      setUploadPercent(0);
+      setUploadLabel('Sending voice note');
+      const sentReplyId = replyTo?.id ?? null;
+      const name = `voice-note.${voiceExtension(rec.mime)}`;
+
+      void directUpload({
+        presignUrl: `/api/chat/${room.code}/attachments/presign`,
+        presignBody: {
+          originalName: name,
+          size: rec.blob.size,
+          mimeType: rec.mime,
+          voice: { duration_ms: rec.durationMs, peaks: rec.peaks },
+        },
+        blob: rec.blob,
+        completeUrl: `/api/chat/${room.code}/attachments`,
+        completeBody: (ticket) => ({
+          ticket,
+          senderName: displayName,
+          caption: '',
+          tz: clientTimezone(),
+          deviceId,
+          replyToId: sentReplyId,
+        }),
+        onProgress: setUploadPercent,
+      }).then((res) => {
+        uploadBusy.current = false;
+        setUploadPercent(null);
+        setUploadLabel(null);
+        if (res.success) {
+          stickToBottom.current = true;
+          setReplyTo((r) => (r?.id === sentReplyId ? null : r));
+        } else {
+          setFailedVoice(rec);
+          setSendError(friendlyError(res.error || 'Voice note failed to send.'));
+        }
+      });
+    },
+    [displayName, room.code, replyTo, deviceId]
+  );
+
+  // Phone keyboard (iOS): Safari does not shrink the page for the keyboard,
+  // it slides the view up instead — the header scrolls away and the fixed
+  // panel ends up partly under the keyboard. Lift the panel's bottom edge to
+  // the keyboard top and undo the slide. Android resizes the page itself
+  // (interactive-widget=resizes-content), so the gap below is 0 there.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const panel = panelRef.current;
+    if (!vv || !panel) return;
+    let settle: number | null = null;
+    const apply = () => {
+      // Pinch-zoomed: the viewport is small because of the zoom, not a
+      // keyboard — leave the user's zoom alone.
+      if (vv.scale > 1.01) return;
+      const gap = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+      const next = gap > 1 ? `${gap}px` : '';
+      if (panel.style.bottom !== next) {
+        const list = scrollRef.current;
+        const nearBottom = !!list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+        panel.style.bottom = next;
+        if (list && nearBottom) list.scrollTop = list.scrollHeight;
+      }
+      // The panel already sits above the keyboard: put the page back so the
+      // header stays visible. Also clears iOS 26's leftover offset after
+      // the keyboard closes.
+      if (vv.offsetTop > 0 || window.scrollY > 0) window.scrollTo(0, 0);
+    };
+    const later = () => {
+      if (settle) window.clearTimeout(settle);
+      settle = window.setTimeout(apply, 300);
+    };
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    window.addEventListener('focusout', later);
+    window.addEventListener('orientationchange', later);
+    apply();
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      window.removeEventListener('focusout', later);
+      window.removeEventListener('orientationchange', later);
+      if (settle) window.clearTimeout(settle);
+      panel.style.bottom = '';
+    };
+  }, [askingName]);
+
+  // Shared voice player: when a note ends, play the next message if it is
+  // a voice note too; tell the server the first time we play someone
+  // else's note (their mic badge turns "played").
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    const player = voicePlayer();
+    const toTrack = (m: ChatMessage): VoiceTrack | null => {
+      const atts = getAtts(m);
+      const a = atts.length === 1 ? atts[0] : null;
+      if (m.kind === 'system' || !a?.voice) return null;
+      return {
+        id: m.id,
+        url: attachmentViewUrl(room.code, a.key),
+        mime: a.mime_type,
+        durationMs: a.voice.duration_ms,
+        title: `Voice message from ${m.sender_name}`,
+      };
+    };
+    player.nextResolver = (id) => {
+      const list = messagesRef.current.filter((m) => m.kind !== 'system');
+      const i = list.findIndex((m) => m.id === id);
+      return i >= 0 && i + 1 < list.length ? toTrack(list[i + 1]) : null;
+    };
+    player.onFirstPlay = (id) => {
+      const m = messagesRef.current.find((x) => x.id === id);
+      if (!m || !deviceHash || m.sender_device_id === deviceHash) return;
+      if (m.played_by?.includes(deviceHash)) return;
+      void fetch(`/api/chat/${room.code}/played`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: id, deviceId }),
+      }).catch(() => {});
+    };
+    return () => {
+      player.pause();
+      player.nextResolver = null;
+      player.onFirstPlay = null;
+    };
+  }, [room.code, deviceHash, deviceId]);
+
   // Store one file in R2 (no message yet) with progress; resolves to its
   // metadata. Albums upload each file separately so per-request limits never
   // apply to the batch.
@@ -1240,7 +1391,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             placeholder="Your name"
             // 16px on mobile — anything smaller makes iOS Safari zoom the
             // page when the field is focused (and it stays zoomed).
-            className="input-base w-full px-3 py-2.5 text-base sm:text-sm"
+            className="input-base w-full px-3 py-2.5 text-base pointer-fine:sm:text-sm"
           />
           <button
             type="submit"
@@ -1261,18 +1412,24 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     );
   }
 
+  // Empty box → mic (WhatsApp). Stays while recording even if the box changes.
+  const showMic =
+    voiceActive ||
+    (!draft.trim() && pendingAttachments.length === 0 && !sending && timeRemaining !== 'expired');
+
   return (
     // position:fixed takes the chat out of the document flow entirely — the
     // body's min-h-screen otherwise leaves the PAGE scrollable on phones
     // (100vh > visible height while browser toolbars are shown).
     <div
-      className="fixed inset-x-0 bottom-0 top-[var(--site-header-h,3.75rem)] flex flex-col overflow-hidden animate-fade-in bg-canvas"
+      ref={panelRef}
+      className="fixed inset-x-0 bottom-0 top-[var(--site-header-h,3.75rem)] flex flex-col overflow-hidden animate-fade-in bg-canvas pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <div className="relative flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-surface sm:my-4 sm:border sm:border-edge sm:rounded-3xl sm:shadow-[var(--shadow-card)] overflow-hidden">
+      <div className="relative flex flex-col flex-1 min-h-0 w-full max-w-2xl mx-auto bg-surface sm:[@media(min-height:500px)]:my-4 sm:border sm:border-edge sm:rounded-3xl sm:shadow-[var(--shadow-card)] overflow-hidden">
         {/* Drop zone overlay */}
         {dragOver && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-canvas/85 backdrop-blur-sm pointer-events-none animate-fade-in rounded-3xl">
@@ -1330,7 +1487,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               <button
                 onClick={catchMeUp}
                 disabled={summarizing || messages.filter((m) => m.kind !== 'system').length === 0}
-                className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="relative p-2 bg-surface border border-edge after:absolute after:-inset-1 after:content-[''] sm:after:hidden text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Catch me up — AI summary of the conversation"
                 aria-label="Catch me up with an AI summary"
               >
@@ -1349,7 +1506,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </button>
             <button
               onClick={() => setShowQR(true)}
-              className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors max-sm:hidden"
+              className="relative p-2 bg-surface border border-edge after:absolute after:-inset-1 after:content-[''] sm:after:hidden text-fg-muted rounded-lg hover:bg-surface-3 hover:text-fg cursor-pointer transition-colors max-sm:hidden"
               title="Show QR code for joining"
               aria-label="Show QR code for joining"
             >
@@ -1368,7 +1525,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </button>
             <button
               onClick={handleLeave}
-              className="p-2 bg-surface border border-edge text-fg-muted rounded-lg hover:bg-danger/10 hover:text-danger-text cursor-pointer transition-colors"
+              className="relative p-2 bg-surface border border-edge after:absolute after:-inset-1 after:content-[''] sm:after:hidden text-fg-muted rounded-lg hover:bg-danger/10 hover:text-danger-text cursor-pointer transition-colors"
               title="Leave room"
               aria-label="Leave room"
             >
@@ -1469,7 +1626,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               <button
                 type="button"
                 onClick={() => setWarningDismissed(true)}
-                className="shrink-0 p-1 rounded-lg hover:bg-surface-2 cursor-pointer"
+                className="shrink-0 p-1 rounded-lg hover:bg-surface-2 cursor-pointer relative after:absolute after:-inset-2.5 after:content-[''] pointer-fine:after:hidden"
                 aria-label="Dismiss warning"
               >
                 <X className="w-3.5 h-3.5" />
@@ -1522,7 +1679,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             <button
               type="button"
               onClick={() => setSummary(null)}
-              className="absolute top-1.5 right-1.5 p-1 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
+              className="absolute top-1.5 right-1.5 p-1 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer after:absolute after:-inset-2.5 after:content-[''] pointer-fine:after:hidden"
               aria-label="Dismiss summary"
             >
               <X className="w-3.5 h-3.5" />
@@ -1652,7 +1809,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               <button
                 type="button"
                 onClick={() => setCatchUpOffer(false)}
-                className="p-1.5 mr-1 rounded-full text-fg-faint hover:text-fg cursor-pointer"
+                className="p-1.5 mr-1 rounded-full text-fg-faint hover:text-fg cursor-pointer relative after:absolute after:-inset-2.5 after:content-[''] pointer-fine:after:hidden"
                 aria-label="Dismiss"
               >
                 <X className="w-3 h-3" />
@@ -1695,7 +1852,30 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           className="border-t border-edge bg-surface px-2 sm:px-4 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 space-y-2"
         >
           {sendError && (
-            <p className="text-xs text-danger-text px-1">{sendError}</p>
+            <p className="text-xs text-danger-text px-1 flex items-center gap-2 flex-wrap">
+              <span>{sendError}</span>
+              {failedVoice && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => sendVoice(failedVoice)}
+                    className="font-semibold underline cursor-pointer py-1"
+                  >
+                    Retry voice note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFailedVoice(null);
+                      setSendError(null);
+                    }}
+                    className="underline text-fg-muted cursor-pointer py-1"
+                  >
+                    Discard
+                  </button>
+                </>
+              )}
+            </p>
           )}
 
           {/* Reply preview (WhatsApp-style bar above the input) */}
@@ -1714,7 +1894,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               <button
                 type="button"
                 onClick={() => setReplyTo(null)}
-                className="p-1 text-fg-faint hover:text-fg cursor-pointer"
+                className="p-1 text-fg-faint hover:text-fg cursor-pointer relative after:absolute after:-inset-2.5 after:content-[''] pointer-fine:after:hidden"
                 aria-label="Cancel reply"
               >
                 <X className="w-4 h-4" />
@@ -1782,7 +1962,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                     <button
                       type="button"
                       onClick={() => setPendingAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      className="shrink-0 p-0.5 rounded text-fg-faint hover:text-fg hover:bg-surface-3 cursor-pointer transition-colors"
+                      className="shrink-0 p-0.5 rounded text-fg-faint hover:text-fg hover:bg-surface-3 cursor-pointer transition-colors relative after:absolute after:-inset-2.5 after:content-[''] pointer-fine:after:hidden"
                       aria-label={`Remove ${att.name}`}
                     >
                       <X className="w-3 h-3" />
@@ -1890,7 +2070,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             </div>
           )}
 
-          <div className="flex items-end gap-1 sm:gap-2 min-w-0">
+          <div className="relative flex items-end gap-1 sm:gap-2 min-w-0">
             {/* Mobile-only: while typing the tools collapse behind a "+"
                 that opens a drop-up menu with the same options. */}
             {draft.length > 0 && (
@@ -1977,7 +2157,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                   type="button"
                   onClick={() => setShowEmoji((s) => !s)}
                   disabled={timeRemaining === 'expired'}
-                  className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
+                  className={`shrink-0 h-11 w-11 flex items-center justify-center rounded-xl transition-colors ${
                     showEmoji ? 'bg-brand/10 text-brand-text' : 'text-fg-muted hover:bg-surface-2'
                   } ${timeRemaining === 'expired' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   title="Emoji"
@@ -1990,7 +2170,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                     type="button"
                     onClick={() => setShowAiPanel((s) => !s)}
                     disabled={timeRemaining === 'expired'}
-                    className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl transition-colors ${
+                    className={`shrink-0 h-11 w-11 flex items-center justify-center rounded-xl transition-colors ${
                       showAiPanel || suggesting || rewriting
                         ? 'bg-brand/10 text-brand-text'
                         : 'text-fg-muted hover:bg-surface-2'
@@ -2005,7 +2185,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadPercent !== null || timeRemaining === 'expired'}
-                  className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
+                  className={`shrink-0 h-11 w-11 flex items-center justify-center rounded-xl text-fg-muted hover:bg-surface-2 transition-colors ${
                     uploadPercent !== null || timeRemaining === 'expired'
                       ? 'opacity-50 cursor-not-allowed'
                       : 'cursor-pointer'
@@ -2038,18 +2218,29 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               }
               minRows={1}
               maxRows={6}
-              className="input-base no-scrollbar flex-1 min-w-0 px-3 py-2 sm:py-2.5 text-base sm:text-sm leading-snug resize-none"
+              className="input-base no-scrollbar flex-1 min-w-0 max-h-[30dvh] px-3 py-2 sm:py-2.5 text-base pointer-fine:sm:text-sm leading-snug resize-none"
               // Not disabled while sending: a disabled field loses focus and
               // the phone keyboard closes after every message.
               disabled={timeRemaining === 'expired'}
             />
+            {showMic ? (
+              <VoiceComposer
+                disabled={uploadPercent !== null || timeRemaining === 'expired'}
+                onSend={sendVoice}
+                onError={(msg) => {
+                  setFailedVoice(null);
+                  setSendError(msg);
+                }}
+                onActiveChange={setVoiceActive}
+              />
+            ) : (
             <button
               type="submit"
               // Don't steal focus from the textarea (keeps the keyboard up).
               onPointerDown={(e) => e.preventDefault()}
               onMouseDown={(e) => e.preventDefault()}
               disabled={sending || uploadPercent !== null || (!draft.trim() && pendingAttachments.length === 0) || timeRemaining === 'expired'}
-              className={`shrink-0 h-10 w-10 sm:h-11 sm:w-11 flex items-center justify-center rounded-xl text-white transition-all duration-200 ${
+              className={`shrink-0 h-11 w-11 flex items-center justify-center rounded-xl text-white transition-all duration-200 ${
                 sending || uploadPercent !== null || (!draft.trim() && pendingAttachments.length === 0) || timeRemaining === 'expired'
                   ? 'bg-surface-3 text-fg-faint cursor-not-allowed'
                   : 'bg-flow hover:brightness-110 hover:shadow-[var(--glow)] cursor-pointer'
@@ -2063,6 +2254,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                 <Send className="w-5 h-5" />
               )}
             </button>
+            )}
           </div>
           <p className="text-[10px] text-fg-faint px-1">
             Sending as <span className="font-medium text-fg-muted">{displayName}</span>

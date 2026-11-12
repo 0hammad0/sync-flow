@@ -76,6 +76,15 @@ export interface ChatAttachment {
   // Firestore limit): message.content holds a preview, the full text lives
   // in R2 and renders expanded in the bubble, not as a file card.
   is_long_text?: boolean;
+  // Set when this file is a recorded voice note: the bubble draws the
+  // waveform and length from here, without downloading the audio first.
+  voice?: ChatVoice;
+}
+
+// Voice-note metadata, measured in the browser while recording.
+export interface ChatVoice {
+  duration_ms: number;
+  peaks: number[];     // waveform bars, 0–255 each (VOICE_PEAKS of them)
 }
 
 // Compact reference to the message being replied to — denormalized so a
@@ -128,4 +137,7 @@ export interface ChatMessage {
   // emoji -> reactors (one reaction per device). Old messages may still hold
   // plain name strings — normalizeReactors() upgrades them on read.
   reactions?: Record<string, ChatReactor[]>;
+  // Voice notes only: public device keys of listeners who played it
+  // (never the sender). Drives the "played" mic colour on the sender's side.
+  played_by?: string[];
 }

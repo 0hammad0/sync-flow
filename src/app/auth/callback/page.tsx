@@ -157,7 +157,7 @@ export default function AuthCallbackPage() {
             required
             autoComplete="email"
             aria-label="Email address"
-            className="input-base w-full px-3 py-2.5 text-base sm:text-sm"
+            className="input-base w-full px-3 py-2.5 text-base pointer-fine:sm:text-sm"
           />
           <Button type="submit" variant="primary" size="md" fullWidth>
             Continue

@@ -130,7 +130,7 @@ export default function ChatLobby() {
             onChange={(e) => setName(e.target.value)}
             maxLength={80}
             placeholder="e.g. project standup"
-            className="input-base w-full mb-3 px-3 py-2 text-base sm:text-sm"
+            className="input-base w-full mb-3 px-3 py-2 text-base pointer-fine:sm:text-sm"
           />
 
           <label htmlFor="room-ttl" className="block text-xs font-medium text-fg mb-1.5">
@@ -183,7 +183,7 @@ export default function ChatLobby() {
             placeholder="ABC23XYZ"
             autoComplete="off"
             spellCheck={false}
-            className="input-base w-full mb-4 px-3 py-2 text-base sm:text-sm font-mono uppercase tracking-widest"
+            className="input-base w-full mb-4 px-3 py-2 text-base pointer-fine:sm:text-sm font-mono uppercase tracking-widest"
           />
 
           <Button
