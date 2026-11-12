@@ -87,17 +87,18 @@ export interface ChatReplyRef {
   attachment_kind: 'image' | 'video' | 'audio' | 'file' | null;
 }
 
-// Ephemeral presence doc at rooms/{code}/presence/{deviceId}. Server-written
+// Ephemeral presence doc at rooms/{code}/presence/{deviceKey}. Server-written
 // (heartbeats), client-read in real time. Online/typing are derived
 // client-side from the timestamps — nothing has to be written to "go offline".
 export interface ChatPresence {
-  device_id: string;
+  device_id: string;          // public device key (sha256 of the raw id), also the doc id
   name: string;
   last_seen: string;          // ISO UTC, server-stamped
   typing_until: string | null; // ISO UTC — typing while this is in the future
 }
 
-// Who reacted: a stable per-device id plus the display name at reaction time.
+// Who reacted: the public device key (sha256 of the raw device id) plus the
+// display name at reaction time.
 // Identity is the id — two people sharing a display name stay distinct.
 export interface ChatReactor {
   id: string;
@@ -108,8 +109,9 @@ export interface ChatMessage {
   id: string;
   sender_name: string;
   sender_id: string | null;
-  // Per-device id of the sender (random UUID minted in the browser).
-  // Used for "is this my message" — display names can collide.
+  // Public device key of the sender: first 32 hex chars of sha256(raw device
+  // id). The raw id stays secret in the browser. Used for "is this my
+  // message" (display names can collide); see deviceIdHash() / deviceKey().
   sender_device_id?: string | null;
   content: string;          // text, or caption when attachment is present (may be '')
   created_at: string;       // ISO UTC, server-stamped

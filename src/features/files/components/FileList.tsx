@@ -4,50 +4,74 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileRecord } from '@/types';
 import { formatFileSize, getBaseUrl, MAX_USER_FILES } from '@/shared/lib/utils';
+import { SHARE_EXPIRY_OPTIONS } from '@/shared/lib/limits';
 import { deleteFile, reshareFile } from '@/features/files/server/files';
 import CopyButton from '@/shared/components/CopyButton';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import Button from '@/shared/components/ui/Button';
-import { AlertTriangle, FolderOpen } from 'lucide-react';
+import QRModal from '@/features/files/components/QRModal';
+import { AlertTriangle, FolderOpen, Lock, QrCode } from 'lucide-react';
 
 interface FileListProps {
   files: FileRecord[];
 }
 
-const EXPIRY_OPTIONS = [
-  { label: '1 hour', value: 1 },
-  { label: '24 hours', value: 24 },
-  { label: '7 days', value: 168 },
-  { label: '30 days', value: 720 },
-  { label: 'Never', value: null },
-];
+// Every choice a signed-in user has (reshareFile accepts the same set).
+// Short "Never" label: these sit in a row of small buttons.
+const EXPIRY_OPTIONS = SHARE_EXPIRY_OPTIONS.map((o) => ({
+  label: o.hours === null ? 'Never' : o.label,
+  value: o.hours,
+}));
+
+const ENCRYPTED_LINK_HELP =
+  "The decryption key is only in the link shown right after upload. SyncFlow never stores it, so the full link can't be shown again. Use the link you copied then.";
 
 function isExpired(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
   return new Date(expiresAt) < new Date();
 }
 
+/** "in 43m" / "in 5h" / "in 6 days" / "Never". */
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return 'Never';
+  const diffMs = new Date(expiresAt).getTime() - Date.now();
+  if (diffMs <= 0) return 'Expired';
+  const mins = Math.max(1, Math.floor(diffMs / 60_000));
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `in ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function formatDownloads(file: FileRecord): string {
+  const count = file.download_count ?? 0;
+  if (file.max_downloads !== null) return `${count} / ${file.max_downloads} downloads`;
+  return `${count} download${count === 1 ? '' : 's'}`;
+}
+
 export default function FileList({ files }: FileListProps) {
   const router = useRouter();
   const [deletingToken, setDeletingToken] = useState<string | null>(null);
+  const [confirmDeleteToken, setConfirmDeleteToken] = useState<string | null>(null);
   const [resharingToken, setResharingToken] = useState<string | null>(null);
   const [showReshareModal, setShowReshareModal] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ token: string; message: string } | null>(null);
+  const [qrFile, setQrFile] = useState<FileRecord | null>(null);
 
   const expiredFiles = files.filter(f => isExpired(f.expires_at));
   const hasExpiredFiles = expiredFiles.length > 0;
 
   const handleDelete = async (token: string) => {
-    if (!confirm('Are you sure you want to delete this file? This action cannot be undone and the share link will stop working.')) {
-      return;
-    }
-
     setDeletingToken(token);
+    setRowError(null);
     const result = await deleteFile(token);
 
     if (result.success) {
+      setConfirmDeleteToken(null);
       router.refresh();
     } else {
-      alert(result.error || 'Failed to delete file');
+      setRowError({ token, message: result.error || 'Failed to delete file' });
     }
 
     setDeletingToken(null);
@@ -55,13 +79,14 @@ export default function FileList({ files }: FileListProps) {
 
   const handleReshare = async (token: string, expiresInHours: number | null) => {
     setResharingToken(token);
+    setRowError(null);
     const result = await reshareFile(token, expiresInHours);
 
     if (result.success) {
       setShowReshareModal(null);
       router.refresh();
     } else {
-      alert(result.error || 'Failed to update file');
+      setRowError({ token, message: result.error || 'Failed to update file' });
     }
 
     setResharingToken(null);
@@ -106,7 +131,7 @@ export default function FileList({ files }: FileListProps) {
                 {expiredFiles.length} expired {expiredFiles.length === 1 ? 'file' : 'files'}
               </p>
               <p className="text-xs text-fg-muted mt-0.5">
-                Expired files can&apos;t be downloaded. Delete them to free up space or reshare to extend the expiry.
+                Expired files can&apos;t be downloaded. Delete them to free up space, or reshare to set a new expiry.
               </p>
             </div>
           </div>
@@ -117,7 +142,11 @@ export default function FileList({ files }: FileListProps) {
         const shareUrl = `${getBaseUrl()}/share/${file.token}`;
         const isDeleting = deletingToken === file.token;
         const isResharing = resharingToken === file.token;
+        const isConfirmingDelete = confirmDeleteToken === file.token;
         const fileExpired = isExpired(file.expires_at);
+        const limitReached =
+          file.max_downloads !== null && (file.download_count ?? 0) >= file.max_downloads;
+        const error = rowError?.token === file.token ? rowError.message : null;
 
         return (
           <div
@@ -129,13 +158,27 @@ export default function FileList({ files }: FileListProps) {
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <h3 className="font-medium text-fg truncate text-sm sm:text-base" title={file.original_name}>
                     {file.original_name}
                   </h3>
+                  {file.is_encrypted && (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold bg-brand/10 text-brand-text rounded-md"
+                      title={ENCRYPTED_LINK_HELP}
+                    >
+                      <Lock className="w-3 h-3" aria-hidden="true" />
+                      ENCRYPTED
+                    </span>
+                  )}
                   {fileExpired && (
-                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-warning/15 text-warning-text rounded-md">
+                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold bg-warning/15 text-warning-text rounded-md">
                       EXPIRED
+                    </span>
+                  )}
+                  {limitReached && (
+                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold bg-danger/10 text-danger-text rounded-md">
+                      LIMIT REACHED
                     </span>
                   )}
                 </div>
@@ -145,16 +188,44 @@ export default function FileList({ files }: FileListProps) {
                     month: 'short',
                     day: 'numeric'
                   })}
-                  {file.expires_at && !fileExpired && (
-                    <span className="text-fg-faint">
-                      {' '}• Expires {new Date(file.expires_at).toLocaleDateString()}
+                </p>
+                <p className="text-xs text-fg-faint mt-0.5">
+                  {formatDownloads(file)}
+                  {!fileExpired && (
+                    <span
+                      suppressHydrationWarning
+                      title={file.expires_at ? new Date(file.expires_at).toLocaleString() : undefined}
+                    >
+                      {' '}• Expires {formatExpiry(file.expires_at)}
                     </span>
                   )}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {!fileExpired && <CopyButton text={shareUrl} />}
+              <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                {!fileExpired &&
+                  (file.is_encrypted ? (
+                    <span
+                      className="text-[11px] text-fg-faint max-w-[11rem] leading-tight"
+                      title={ENCRYPTED_LINK_HELP}
+                    >
+                      Encrypted — link only shown at upload
+                    </span>
+                  ) : (
+                    <>
+                      <CopyButton text={shareUrl} />
+                      <button
+                        type="button"
+                        onClick={() => setQrFile(file)}
+                        className="px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-surface-2 border border-edge text-fg-muted hover:bg-surface-3 hover:text-fg transition-all duration-200 cursor-pointer btn-hover inline-flex items-center gap-1.5"
+                        title="Show QR code"
+                        aria-label={`Show QR code for ${file.original_name}`}
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">QR</span>
+                      </button>
+                    </>
+                  ))}
 
                 {/* Reshare button for expired files */}
                 {fileExpired ? (
@@ -169,39 +240,68 @@ export default function FileList({ files }: FileListProps) {
                   <button
                     onClick={() => setShowReshareModal(file.token)}
                     className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg bg-surface-2 text-fg-muted hover:bg-surface-3 hover:text-fg transition-all duration-200 cursor-pointer btn-hover"
-                    title="Extend expiry time"
+                    title="Set a new expiry, counted from now"
                   >
-                    Extend
+                    Set expiry
                   </button>
                 )}
 
-                <button
-                  onClick={() => handleDelete(file.token)}
-                  disabled={isDeleting}
-                  className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-1.5 min-w-[70px] sm:min-w-[80px] ${
-                    isDeleting
-                      ? 'bg-surface-2 text-fg-faint cursor-not-allowed'
-                      : 'bg-danger/10 text-danger-text hover:bg-danger/20 cursor-pointer btn-hover'
-                  }`}
-                  title="Permanently delete this file"
-                >
-                  {isDeleting ? (
-                    <>
-                      <LoadingSpinner size="sm" className="text-fg-faint" />
-                      <span className="hidden sm:inline">Deleting</span>
-                    </>
-                  ) : (
-                    'Delete'
-                  )}
-                </button>
+                {!isConfirmingDelete && (
+                  <button
+                    onClick={() => {
+                      setConfirmDeleteToken(file.token);
+                      setRowError(null);
+                    }}
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-all duration-200 bg-danger/10 text-danger-text hover:bg-danger/20 cursor-pointer btn-hover"
+                    title="Permanently delete this file"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Reshare Modal */}
+            {/* Inline delete confirmation */}
+            {isConfirmingDelete && (
+              <div className="mt-3 pt-3 border-t border-edge flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <p className="text-xs text-fg-muted" role="alert">
+                  Delete this file? The link stops working and it can&apos;t be undone.
+                </p>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => handleDelete(file.token)}
+                    disabled={isDeleting}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 inline-flex items-center gap-1.5 ${
+                      isDeleting
+                        ? 'bg-surface-2 text-fg-faint cursor-not-allowed'
+                        : 'bg-danger text-white hover:brightness-110 cursor-pointer'
+                    }`}
+                  >
+                    {isDeleting ? (
+                      <>
+                        <LoadingSpinner size="sm" className="text-fg-faint" />
+                        Deleting
+                      </>
+                    ) : (
+                      'Yes, delete'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteToken(null)}
+                    disabled={isDeleting}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-fg-muted hover:bg-surface-3 transition-all duration-200 cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Set expiry panel */}
             {showReshareModal === file.token && (
               <div className="mt-3 pt-3 border-t border-edge">
                 <p className="text-xs text-fg-muted mb-2">
-                  {fileExpired ? 'Reshare with new expiry:' : 'Extend expiry to:'}
+                  {fileExpired ? 'Reshare with a new expiry, counted from now:' : 'New expiry, counted from now (this replaces the current one):'}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {EXPIRY_OPTIONS.map((option) => (
@@ -227,12 +327,27 @@ export default function FileList({ files }: FileListProps) {
                 </div>
               </div>
             )}
+
+            <div aria-live="polite">
+              {error && (
+                <p className="mt-2 text-xs text-danger-text" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
           </div>
         );
       })}
       <p className="text-xs text-fg-faint text-center pt-2">
         Deleting a file will permanently remove it and disable its share link.
       </p>
+
+      <QRModal
+        isOpen={qrFile !== null}
+        onClose={() => setQrFile(null)}
+        url={qrFile ? `${getBaseUrl()}/share/${qrFile.token}` : ''}
+        fileName={qrFile?.original_name || ''}
+      />
     </div>
   );
 }

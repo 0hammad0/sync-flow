@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getFileByToken } from '@/features/files/server/files';
 import DownloadCard from '@/features/files/components/DownloadCard';
 import Button from '@/shared/components/ui/Button';
@@ -5,6 +6,16 @@ import { Clock, FileQuestion, ShieldAlert } from 'lucide-react';
 
 interface SharePageProps {
   params: Promise<{ token: string }>;
+}
+
+// Generic on purpose: never put the file name in the title. Link previews
+// keep the site-wide Open Graph tags from the root layout.
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'Download a file',
+    description: 'Someone shared a file with you on SyncFlow.',
+    robots: { index: false, follow: false },
+  };
 }
 
 function ErrorState({
@@ -72,7 +83,7 @@ export default async function SharePage({ params }: SharePageProps) {
   }
 
   // Handle generic not found
-  if (!downloadInfo.success || !downloadInfo.signedUrl) {
+  if (!downloadInfo.success || !downloadInfo.fileName) {
     return (
       <ErrorState
         icon={FileQuestion}
@@ -89,7 +100,6 @@ export default async function SharePage({ params }: SharePageProps) {
         fileName={downloadInfo.fileName!}
         fileSize={downloadInfo.fileSize!}
         mimeType={downloadInfo.mimeType!}
-        signedUrl={downloadInfo.signedUrl}
         isEncrypted={downloadInfo.isEncrypted || false}
         createdAt={downloadInfo.createdAt || new Date().toISOString()}
         expiresAt={downloadInfo.expiresAt || null}

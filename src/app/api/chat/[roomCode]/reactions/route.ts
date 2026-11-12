@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  deviceKey,
   getRoom,
   isRoomExpired,
   sanitizeSenderName,
   toggleReaction,
 } from '@/shared/lib/firebase/chat';
-import { CHAT_REACTIONS, isValidMessageId, isValidRoomCode, sanitizeDeviceId } from '@/shared/lib/utils';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { CHAT_REACTIONS, isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -26,15 +27,7 @@ export async function POST(
   }
 
   const rl = rateLimit(`chat:react:${code}:${clientKey(request)}`, 30, 10_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many reactions, slow down.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-      }
-    );
-  }
+  if (!rl.allowed) return tooManyRequests('Too many reactions, slow down.', rl.retryAfterMs);
 
   let body: { messageId?: unknown; emoji?: unknown; senderName?: unknown; deviceId?: unknown };
   try {
@@ -56,8 +49,8 @@ export async function POST(
   if (senderName.length === 0) {
     return NextResponse.json({ success: false, error: 'senderName empty' }, { status: 400 });
   }
-  // Identity = per-device id; clients without one (old tabs) key by name.
-  const deviceId = sanitizeDeviceId(body.deviceId);
+  // Identity = hashed per-device id; clients without one (old tabs) key by name.
+  const deviceId = deviceKey(body.deviceId);
   const reactor = { id: deviceId ?? `legacy:${senderName}`, name: senderName };
 
   try {

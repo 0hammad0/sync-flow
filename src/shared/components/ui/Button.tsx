@@ -22,7 +22,7 @@ interface ButtonProps {
 }
 
 const VARIANTS: Record<Variant, string> = {
-  // The flagship gradient button — brand violet → cyan with a glow on hover
+  // The flagship gradient button — deep teal → deep cyan (white text ≥4.7:1)
   primary:
     'bg-flow text-white shadow-md hover:shadow-[var(--glow)] hover:brightness-110',
   secondary:
@@ -60,6 +60,7 @@ export default function Button({
   const classes = [
     'inline-flex items-center justify-center font-medium select-none',
     'transition-all duration-200 cursor-pointer btn-hover',
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
     VARIANTS[variant],
     SIZES[size],
     fullWidth ? 'w-full' : '',
@@ -72,7 +73,7 @@ export default function Button({
   const content = loading ? (
     <>
       <LoadingSpinner size="sm" className="text-current" />
-      {loadingText && <span>{loadingText}</span>}
+      <span className={loadingText ? undefined : 'sr-only'}>{loadingText || 'Loading…'}</span>
     </>
   ) : (
     children
@@ -91,6 +92,7 @@ export default function Button({
       type={type}
       onClick={onClick}
       disabled={isDisabled}
+      aria-busy={loading || undefined}
       className={classes}
       title={title}
     >

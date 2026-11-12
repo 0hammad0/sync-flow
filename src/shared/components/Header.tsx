@@ -1,66 +1,78 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import { clientAuth } from '@/shared/lib/firebase/client';
+import { clearAuthHint, useSignedIn } from '@/shared/lib/auth-state';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import Logo from '@/shared/components/Logo';
 import ThemeToggle from '@/shared/components/ThemeToggle';
-import { FolderOpen, LogOut, MessageSquare, Smartphone } from 'lucide-react';
+import {
+  FileUp,
+  FolderOpen,
+  LogIn,
+  LogOut,
+  MessagesSquare,
+  Smartphone,
+  type LucideIcon,
+} from 'lucide-react';
 
-/** Pill nav links shown to everyone (signed in or not). */
-function FeatureLinks() {
-  return (
-    <>
-      <Link
-        href="/chat"
-        className="text-xs sm:text-sm text-fg-muted hover:text-brand-text transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl hover:bg-brand/10 flex items-center gap-1.5 font-medium"
-        title="Temporary chat rooms"
-      >
-        <MessageSquare className="w-4 h-4" />
-        <span className="max-[480px]:hidden">Chat</span>
-      </Link>
-      <Link
-        href="/receive"
-        className="text-xs sm:text-sm text-fg-muted hover:text-brand-text transition-all duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl hover:bg-brand/10 flex items-center gap-1.5 font-medium"
-        title="Receive files from your phone"
-      >
-        <Smartphone className="w-4 h-4" />
-        <span className="max-[480px]:hidden">Receive</span>
-      </Link>
-    </>
-  );
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  isActive: (path: string) => boolean;
 }
 
+/** The three tools — same names as the landing page and footer. */
+const TOOLS: NavItem[] = [
+  { href: '/', label: 'Share files', icon: FileUp, isActive: (p) => p === '/' },
+  {
+    href: '/receive',
+    label: 'Phone → PC',
+    icon: Smartphone,
+    isActive: (p) => p === '/receive' || p.startsWith('/receive/'),
+  },
+  {
+    href: '/chat',
+    label: 'Chat rooms',
+    icon: MessagesSquare,
+    isActive: (p) => p === '/chat' || p.startsWith('/chat/'),
+  },
+];
+
+const navLink =
+  'relative inline-flex items-center gap-2 h-9 px-2.5 sm:px-3 rounded-lg text-sm font-medium transition-colors duration-200';
+
 export default function Header() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const pathname = usePathname() ?? '/';
   const [signingOut, setSigningOut] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(clientAuth(), (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+  // Keeps <html data-auth> in sync with Firebase; the signed-in/out variants
+  // below are both rendered and CSS picks one before first paint.
+  useSignedIn();
 
-  // Floating-island header: flat at the top of the page, detaches into a
-  // centered glass pill once the user scrolls.
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
+    const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // The phone upload page (/send/…) is a focused, single-task screen.
+  if (pathname.startsWith('/send/')) return null;
 
   const handleSignOut = async () => {
     setSigningOut(true);
     try {
       await signOut(clientAuth());
       await fetch('/api/session', { method: 'DELETE' });
+      clearAuthHint();
+      // Full reload on purpose: it drops every piece of signed-in client state.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = '/';
     } catch (error) {
       console.error('Sign out error:', error);
@@ -68,73 +80,95 @@ export default function Header() {
     }
   };
 
+  const onDashboard = pathname === '/dashboard' || pathname.startsWith('/dashboard/');
+
   return (
     <header
-      className={`sticky top-0 z-50 transition-[padding] duration-300 ${
-        scrolled ? 'pt-2 sm:pt-3 px-2 sm:px-4' : 'pt-0 px-0'
+      className={`sticky top-0 z-50 border-b transition-[background-color,border-color,box-shadow] duration-300 ${
+        scrolled
+          ? 'border-edge bg-[var(--overlay)] backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_0_var(--edge),0_12px_32px_-24px_rgba(0,0,0,0.35)]'
+          : 'border-transparent bg-transparent'
       }`}
     >
-      <div
-        className={`mx-auto flex items-center justify-between gap-2 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-          scrolled
-            ? 'max-w-3xl glass rounded-full px-3 sm:px-5 py-2 shadow-[var(--shadow-card-hover)]'
-            : 'max-w-4xl bg-transparent border-b border-edge px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3.5'
-        }`}
-      >
+      <div className="mx-auto flex h-14 sm:h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:px-6 lg:px-8">
         <Link
           href="/"
-          className="flex items-center gap-2 transition-opacity duration-200 hover:opacity-80 shrink-0"
+          className="flex items-center gap-2 shrink-0 rounded-lg transition-opacity duration-200 hover:opacity-80"
+          aria-label="SyncFlow home"
         >
-          <Logo className="w-7 h-7 sm:w-8 sm:h-8" />
-          <span className="font-display text-lg sm:text-xl font-bold tracking-tight text-fg max-[360px]:hidden">
-            Sync<span className="text-flow">Flow</span>
+          <Logo className="w-7 h-7 sm:w-8 sm:h-8" decorative />
+          <span className="font-display text-lg sm:text-xl font-bold tracking-tight text-fg max-[400px]:hidden">
+            SyncFlow
           </span>
         </Link>
 
-        <nav className="flex items-center gap-0.5 sm:gap-1.5">
-          <FeatureLinks />
+        <div className="flex items-center gap-1 sm:gap-2">
+          <nav aria-label="Tools">
+            <ul className="flex items-center gap-0.5 sm:gap-1">
+              {TOOLS.map(({ href, label, icon: Icon, isActive }) => {
+                const active = isActive(pathname);
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      aria-current={active ? 'page' : undefined}
+                      title={label}
+                      className={`${navLink} ${
+                        active
+                          ? 'text-fg bg-surface-2'
+                          : 'text-fg-muted hover:text-fg hover:bg-surface-2/70'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 ${active ? 'text-brand-text' : ''}`} aria-hidden="true" />
+                      <span className="max-md:sr-only">{label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
 
-          {loading ? (
-            <div className="flex items-center px-3 py-2">
-              <LoadingSpinner size="sm" className="text-fg-faint" />
-            </div>
-          ) : user ? (
-            <>
-              <Link
-                href="/dashboard"
-                className="text-xs sm:text-sm text-fg-muted hover:text-fg transition-colors duration-200 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl hover:bg-surface-2 flex items-center gap-1.5 font-medium"
-                title="Your uploaded files"
-              >
-                <FolderOpen className="w-4 h-4" />
-                <span className="max-[560px]:hidden">My Files</span>
-              </Link>
-              <button
-                onClick={handleSignOut}
-                disabled={signingOut}
-                className="text-xs sm:text-sm text-fg-muted hover:text-fg transition-colors duration-200 cursor-pointer px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl hover:bg-surface-2 disabled:opacity-50 flex items-center gap-1.5 font-medium"
-                title="Sign out"
-              >
-                {signingOut ? (
-                  <LoadingSpinner size="sm" className="text-fg-faint" />
-                ) : (
-                  <>
-                    <LogOut className="w-4 h-4" />
-                    <span className="max-[560px]:hidden">Sign Out</span>
-                  </>
-                )}
-              </button>
-            </>
-          ) : (
+          <span className="hidden sm:block h-5 w-px bg-edge-strong" aria-hidden="true" />
+
+          {/* Account — both variants rendered, CSS shows the right one */}
+          <div className="when-signed-in flex items-center gap-0.5 sm:gap-1">
             <Link
-              href="/login"
-              className="text-xs sm:text-sm bg-flow text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-medium cursor-pointer btn-hover hover:shadow-[var(--glow)] hover:brightness-110 transition-all duration-200 whitespace-nowrap"
+              href="/dashboard"
+              aria-current={onDashboard ? 'page' : undefined}
+              title="My Files"
+              className={`${navLink} ${
+                onDashboard ? 'text-fg bg-surface-2' : 'text-fg-muted hover:text-fg hover:bg-surface-2/70'
+              }`}
             >
-              Sign In
+              <FolderOpen className="w-4 h-4" aria-hidden="true" />
+              <span className="max-lg:sr-only">My Files</span>
             </Link>
-          )}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              title="Sign out"
+              className={`${navLink} text-fg-muted hover:text-fg hover:bg-surface-2/70 cursor-pointer disabled:opacity-60 disabled:cursor-wait`}
+            >
+              {signingOut ? (
+                <LoadingSpinner size="sm" className="text-fg-faint" />
+              ) : (
+                <LogOut className="w-4 h-4" aria-hidden="true" />
+              )}
+              <span className="max-lg:sr-only">{signingOut ? 'Signing out…' : 'Sign out'}</span>
+            </button>
+          </div>
+
+          <Link
+            href="/login"
+            className="when-signed-out inline-flex items-center gap-1.5 h-9 px-3 sm:px-3.5 rounded-lg text-sm font-semibold bg-fg text-canvas transition-opacity duration-200 hover:opacity-90 whitespace-nowrap"
+          >
+            <LogIn className="w-4 h-4 max-sm:hidden" aria-hidden="true" />
+            Sign in
+          </Link>
 
           <ThemeToggle />
-        </nav>
+        </div>
       </div>
     </header>
   );

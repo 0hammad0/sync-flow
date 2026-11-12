@@ -34,6 +34,63 @@ export function r2(): S3Client {
   return client;
 }
 
+// Separate client for presigned browser uploads. Newer SDKs add flexible
+// checksum params (x-amz-checksum-crc32 of an EMPTY body) to presigned PUTs,
+// which a browser upload of the real file can never satisfy — so only
+// compute checksums when an operation strictly requires one.
+let presignClient: S3Client | null = null;
+
+function r2Presign(): S3Client {
+  r2(); // reuse the credential check + error message
+  if (!presignClient) {
+    presignClient = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+    });
+  }
+  return presignClient;
+}
+
+/**
+ * Presigned PUT URL so the browser uploads straight to R2. This bypasses the
+ * hosting platform's request-body cap (Vercel functions reject bodies over
+ * ~4.5 MB with 413 FUNCTION_PAYLOAD_TOO_LARGE before our code runs).
+ * Content-Type and Content-Length are signed, so R2 rejects a PUT whose type
+ * or size differs from what the server approved.
+ */
+export async function signedUploadUrl(
+  key: string,
+  contentType: string,
+  contentLength: number,
+  expiresIn: number = 900
+): Promise<string> {
+  const cmd = new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    ContentType: contentType,
+    ContentLength: contentLength,
+  });
+  return getSignedUrl(r2Presign(), cmd, {
+    expiresIn,
+    signableHeaders: new Set(['content-type', 'content-length']),
+  });
+}
+
+/** Size in bytes of a stored object, or null when it does not exist. */
+export async function objectSize(key: string): Promise<number | null> {
+  try {
+    const res = await r2().send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    return res.ContentLength ?? null;
+  } catch (err: unknown) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    const name = (err as { name?: string })?.name;
+    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return null;
+    throw err;
+  }
+}
+
 export async function putObject(key: string, body: Buffer | Uint8Array, contentType: string): Promise<void> {
   await r2().send(
     new PutObjectCommand({
@@ -83,15 +140,7 @@ export async function deletePrefix(prefix: string): Promise<number> {
 }
 
 export async function objectExists(key: string): Promise<boolean> {
-  try {
-    await r2().send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
-    return true;
-  } catch (err: unknown) {
-    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
-    const name = (err as { name?: string })?.name;
-    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return false;
-    throw err;
-  }
+  return (await objectSize(key)) !== null;
 }
 
 export async function signedDownloadUrl(

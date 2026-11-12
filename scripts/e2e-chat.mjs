@@ -10,6 +10,11 @@ import {
 } from 'firebase/firestore';
 // (presence uses the same collection/onSnapshot imports)
 import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
+
+// The server stores only a public key for each device: the first 32 hex
+// chars of sha256(raw id). Same as deviceKey() in shared/lib/firebase/chat.ts.
+const devKey = (raw) => createHash('sha256').update(raw).digest('hex').slice(0, 32);
 
 const BASE = process.argv[2] || 'http://localhost:3001';
 const fail = (msg) => { console.error('FAIL:', msg); process.exit(1); };
@@ -150,7 +155,7 @@ console.log(`4. Bob   -> delivered to listener in ${lat2}ms`);
     }
     fail(`reactions never reached expected state: ${label}`);
   }
-  const hasReactor = (list, id) => (list ?? []).some((r) => r.id === id);
+  const hasReactor = (list, id) => (list ?? []).some((r) => r.id === devKey(id));
 
   const BOB = 'device-bob-11111111';
   const CHARLIE = 'device-charlie-1111';
@@ -199,7 +204,7 @@ console.log(`4. Bob   -> delivered to listener in ${lat2}ms`);
   const samMsgB = await send('Sam', 'I am Sam on phone', { deviceId: SAM_B });
   const mA = snapshots.find((s) => s.id === samMsgA.id);
   const mB = snapshots.find((s) => s.id === samMsgB.id);
-  if (mA.sender_device_id !== SAM_A || mB.sender_device_id !== SAM_B)
+  if (mA.sender_device_id !== devKey(SAM_A) || mB.sender_device_id !== devKey(SAM_B))
     fail(`sender_device_id wrong: ${mA.sender_device_id}, ${mB.sender_device_id}`);
   console.log('4t. same-name fix: two "Sam" devices kept distinct for reactions AND message ownership');
 }
@@ -233,26 +238,26 @@ console.log(`4. Bob   -> delivered to listener in ${lat2}ms`);
   // keep-alive beat → online (recent last_seen, no typing flag)
   await beat('Alice', ALICE_DEV, undefined);
   await waitPresence(
-    (ps) => ps.some((p) => p.device_id === ALICE_DEV && Date.now() - new Date(p.last_seen).getTime() < 60_000),
+    (ps) => ps.some((p) => p.device_id === devKey(ALICE_DEV) && Date.now() - new Date(p.last_seen).getTime() < 60_000),
     'Alice online'
   );
   // typing beat → typing_until in the future
   await beat('Alice', ALICE_DEV, true);
   await waitPresence(
-    (ps) => ps.some((p) => p.device_id === ALICE_DEV && p.typing_until && new Date(p.typing_until).getTime() > Date.now()),
+    (ps) => ps.some((p) => p.device_id === devKey(ALICE_DEV) && p.typing_until && new Date(p.typing_until).getTime() > Date.now()),
     'Alice typing'
   );
   // explicit stop → flag cleared
   await beat('Alice', ALICE_DEV, false);
   await waitPresence(
-    (ps) => ps.some((p) => p.device_id === ALICE_DEV && p.typing_until === null),
+    (ps) => ps.some((p) => p.device_id === devKey(ALICE_DEV) && p.typing_until === null),
     'Alice stopped typing'
   );
   // keep-alive must NOT stomp a live typing flag
   await beat('Alice', ALICE_DEV, true);
   await beat('Alice', ALICE_DEV, undefined);
   await waitPresence(
-    (ps) => ps.some((p) => p.device_id === ALICE_DEV && p.typing_until && new Date(p.typing_until).getTime() > Date.now()),
+    (ps) => ps.some((p) => p.device_id === devKey(ALICE_DEV) && p.typing_until && new Date(p.typing_until).getTime() > Date.now()),
     'keep-alive preserved typing flag'
   );
   // leave event removes the presence doc
@@ -261,7 +266,7 @@ console.log(`4. Bob   -> delivered to listener in ${lat2}ms`);
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ event: 'leave', senderName: 'Alice', tz: 'UTC', deviceId: ALICE_DEV }),
   });
-  await waitPresence((ps) => !ps.some((p) => p.device_id === ALICE_DEV), 'Alice presence removed on leave');
+  await waitPresence((ps) => !ps.some((p) => p.device_id === devKey(ALICE_DEV)), 'Alice presence removed on leave');
   unsubP();
   console.log('4p. presence: online beat, typing set/clear, keep-alive preserves typing, leave removes doc');
 }

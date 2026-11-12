@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { X } from 'lucide-react';
@@ -13,27 +13,59 @@ interface QRModalProps {
   fileName: string;
 }
 
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export default function QRModal({ isOpen, onClose, url, fileName }: QRModalProps) {
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    },
-    [onClose]
-  );
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Parents often pass an inline onClose; keep the latest in a ref so the
+  // effect below doesn't re-run (and steal focus) on every parent render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     // Early return matters: without it the cleanup runs on every parent
     // re-render even while CLOSED, resetting body overflow set by others.
     if (!isOpen) return;
-    document.addEventListener('keydown', handleEscape);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
+
+    // Escape closes; Tab / Shift+Tab stay inside the dialog (focus trap).
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      const dialog = dialogRef.current;
+      if (e.key !== 'Tab' || !dialog) return;
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => !el.hasAttribute('disabled')
+      );
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !dialog.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
     };
-  }, [isOpen, handleEscape]);
+
+    // Remember what had focus so it gets it back when the dialog closes.
+    const returnTo = document.activeElement as HTMLElement | null;
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+      returnTo?.focus?.();
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -55,9 +87,13 @@ export default function QRModal({ isOpen, onClose, url, fileName }: QRModalProps
       />
 
       {/* Modal */}
-      <div className="relative bg-surface border border-edge rounded-3xl p-5 sm:p-6 md:p-8 max-w-sm w-full shadow-2xl animate-fade-in-scale">
+      <div
+        ref={dialogRef}
+        className="relative bg-surface border border-edge rounded-3xl p-5 sm:p-6 md:p-8 max-w-sm w-full shadow-2xl animate-fade-in-scale"
+      >
         {/* Close button */}
         <button
+          ref={closeRef}
           onClick={onClose}
           className="absolute top-3 right-3 p-2 text-fg-faint hover:text-fg rounded-lg hover:bg-surface-2 transition-colors cursor-pointer"
           aria-label="Close modal"

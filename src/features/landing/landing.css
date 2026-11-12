@@ -1,0 +1,309 @@
+/* ============================================================
+   Landing illustrations — hand-built SVG scenes.
+   Rules:
+   - Every animated property is transform, opacity or stroke-dashoffset.
+   - Animations exist only under html.js; without JS (or with reduced
+     motion) the base styles below ARE the finished, composed picture.
+   - <Scene> sets [data-play] while the scene is on screen and the tab is
+     visible; otherwise every animation is paused.
+   ============================================================ */
+
+.scene svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.scene .anim {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.js .scene .anim {
+  animation-play-state: paused;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.js .scene[data-play] .anim {
+  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene .anim,
+  .js .scene .anim,
+  .js .scene .w-line {
+    animation: none !important;
+  }
+}
+
+/* Shared paint */
+.scene .ink { fill: var(--scene-ink); }
+.scene .ink-soft { fill: var(--scene-ink); opacity: 0.32; }
+.scene .panel { fill: var(--scene-panel); stroke: var(--scene-line); stroke-width: 1.25; }
+.scene .panel-2 { fill: var(--scene-panel-2); }
+.scene .line { stroke: var(--scene-line); fill: none; stroke-width: 1.25; }
+.scene .accent { fill: var(--scene-accent); }
+.scene .accent-2 { fill: var(--scene-accent-2); }
+.scene .accent-stroke { stroke: var(--scene-accent); fill: none; }
+.scene .cipher { fill: var(--scene-cipher); }
+.scene .on-accent { fill: #fff; }
+.scene .glow { fill: var(--scene-glow); }
+
+/* ------------------------------------------------------------
+   1. Share files — file → lock → link (7s)
+   ------------------------------------------------------------ */
+.s-packet { transform: translateX(256px); }
+.s-doc { opacity: 0; }
+.s-cipher { opacity: 1; }
+.s-trail { stroke-dasharray: 1; stroke-dashoffset: 0; }
+
+.js .scene .s-packet { animation-name: s-packet; animation-duration: 7s; transform-box: view-box; }
+.js .scene .s-doc { animation-name: s-doc; animation-duration: 7s; }
+.js .scene .s-cipher { animation-name: s-cipher; animation-duration: 7s; }
+.js .scene .s-shackle { animation-name: s-shackle; animation-duration: 7s; }
+.js .scene .s-ring { animation-name: s-ring; animation-duration: 7s; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+.js .scene .s-trail { animation-name: s-trail; animation-duration: 7s; }
+.js .scene .s-link-glow { animation-name: s-link; animation-duration: 7s; }
+.js .scene .s-key { animation-name: s-key; animation-duration: 7s; }
+
+@keyframes s-packet {
+  0%, 6% { transform: translateX(0); opacity: 0; }
+  10% { transform: translateX(0); opacity: 1; }
+  30% { transform: translateX(184px); opacity: 1; }
+  38% { transform: translateX(184px); opacity: 1; }
+  56% { transform: translateX(330px); opacity: 1; }
+  62%, 100% { transform: translateX(330px); opacity: 0; }
+}
+
+@keyframes s-doc {
+  0%, 30% { opacity: 1; }
+  31%, 100% { opacity: 0; }
+}
+
+@keyframes s-cipher {
+  0%, 30% { opacity: 0; }
+  31%, 100% { opacity: 1; }
+}
+
+@keyframes s-shackle {
+  0%, 26% { transform: translateY(-5px); }
+  32%, 92% { transform: translateY(0); }
+  100% { transform: translateY(-5px); }
+}
+
+@keyframes s-ring {
+  0%, 30% { transform: scale(1); opacity: 0; }
+  32% { transform: scale(1); opacity: 0.7; }
+  50%, 100% { transform: scale(1.55); opacity: 0; }
+}
+
+@keyframes s-trail {
+  0%, 8% { stroke-dashoffset: 1; opacity: 1; }
+  56% { stroke-dashoffset: 0; opacity: 1; }
+  86% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes s-link {
+  0%, 56% { opacity: 0; }
+  64%, 90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes s-key {
+  0%, 62% { stroke-dashoffset: 1; }
+  72%, 92% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 1; }
+}
+
+.s-key { stroke-dasharray: 1; stroke-dashoffset: 0; }
+
+/* ------------------------------------------------------------
+   2. Phone → PC — scan the QR, files beam across (8s)
+   ------------------------------------------------------------ */
+.p-beam { opacity: 0.55; }
+.p-scan { opacity: 0; }
+.p-chip { opacity: 0; }
+
+.js .scene .p-beam { animation-name: p-beam; animation-duration: 8s; }
+.js .scene .p-scan { animation-name: p-scan; animation-duration: 8s; transform-box: view-box; }
+.js .scene .p-check { animation-name: p-check; animation-duration: 8s; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+.js .scene .p-chip {
+  animation-name: p-chip;
+  animation-duration: 8s;
+  animation-delay: calc(var(--i) * 0.45s);
+  transform-box: view-box;
+}
+.js .scene .p-row { animation-name: p-row; animation-duration: 8s; animation-delay: calc(var(--i) * 0.45s); }
+.js .scene .p-zip { animation-name: p-zip; animation-duration: 8s; }
+.js .scene .p-session {
+  animation-name: p-session;
+  animation-duration: 8s;
+  animation-timing-function: linear;
+  transform-origin: left center;
+}
+
+@keyframes p-beam {
+  0% { opacity: 0; }
+  5%, 20% { opacity: 1; }
+  28%, 100% { opacity: 0; }
+}
+
+@keyframes p-scan {
+  0%, 4% { transform: translateY(0); opacity: 0; }
+  6% { opacity: 1; }
+  20% { transform: translateY(86px); opacity: 1; }
+  22%, 100% { transform: translateY(86px); opacity: 0; }
+}
+
+@keyframes p-check {
+  0%, 20% { transform: scale(0); opacity: 0; }
+  25%, 92% { transform: scale(1); opacity: 1; }
+  98%, 100% { transform: scale(0); opacity: 0; }
+}
+
+@keyframes p-chip {
+  0%, 28% { transform: translate(0, 0); opacity: 0; }
+  31% { transform: translate(0, 0); opacity: 1; }
+  50% { transform: translate(var(--dx), var(--dy)); opacity: 1; }
+  54%, 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+}
+
+@keyframes p-row {
+  0%, 50% { opacity: 0; transform: translateX(-6px); }
+  54%, 88% { opacity: 1; transform: translateX(0); }
+  94%, 100% { opacity: 0; transform: translateX(0); }
+}
+
+@keyframes p-zip {
+  0%, 66% { opacity: 0; transform: translateY(4px); }
+  72%, 88% { opacity: 1; transform: translateY(0); }
+  94%, 100% { opacity: 0; transform: translateY(0); }
+}
+
+@keyframes p-session {
+  0% { transform: scaleX(1); }
+  94% { transform: scaleX(0.12); }
+  100% { transform: scaleX(1); }
+}
+
+/* ------------------------------------------------------------
+   3. Chat rooms — a conversation appears, then the room expires (9s)
+   ------------------------------------------------------------ */
+.scene .anim.c-left { transform-origin: left bottom; }
+.scene .anim.c-right { transform-origin: right bottom; }
+
+.js .scene .c-b1 { animation-name: c-b1; animation-duration: 9s; }
+.js .scene .c-b2 { animation-name: c-b2; animation-duration: 9s; }
+.js .scene .c-react { animation-name: c-react; animation-duration: 9s; }
+.js .scene .c-b3 { animation-name: c-b3; animation-duration: 9s; }
+.js .scene .c-typing { animation-name: c-typing; animation-duration: 9s; }
+.js .scene .c-ai { animation-name: c-ai; animation-duration: 9s; }
+.js .scene .c-ai-glow { animation-name: c-ai-glow; animation-duration: 9s; }
+.js .scene .c-clock {
+  animation-name: c-clock;
+  animation-duration: 9s;
+  animation-timing-function: linear;
+}
+/* Start the countdown at 12 o'clock. A CSS rotate (not the SVG attribute),
+   because transform-origin on .anim would re-centre an attribute rotation. */
+.scene .anim.c-clock { stroke-dasharray: 1; stroke-dashoffset: 0.35; transform: rotate(-90deg); }
+.c-ai-glow { opacity: 0; }
+
+/* Bubble entrance: scale up from its tail + fade; exit together at expiry. */
+@keyframes c-b1 {
+  0%, 4% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  10%, 84% { opacity: 1; transform: none; }
+  92%, 100% { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes c-b2 {
+  0%, 14% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  20%, 84% { opacity: 1; transform: none; }
+  92%, 100% { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes c-react {
+  0%, 24% { opacity: 0; transform: scale(0.4); }
+  29%, 84% { opacity: 1; transform: scale(1); }
+  92%, 100% { opacity: 0; transform: scale(0.8); }
+}
+
+@keyframes c-b3 {
+  0%, 32% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  38%, 84% { opacity: 1; transform: none; }
+  92%, 100% { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes c-typing {
+  0%, 42% { opacity: 0; transform: scale(0.9); }
+  46%, 58% { opacity: 1; transform: none; }
+  62%, 100% { opacity: 0; transform: scale(0.9); }
+}
+
+@keyframes c-ai {
+  0%, 54% { opacity: 0; transform: translateY(6px); }
+  60%, 84% { opacity: 1; transform: none; }
+  92%, 100% { opacity: 0; transform: none; }
+}
+
+@keyframes c-ai-glow {
+  0%, 62% { opacity: 0; transform: scale(1); }
+  66% { opacity: 0.9; transform: scale(1); }
+  78%, 100% { opacity: 0; transform: scale(1.18, 1.5); }
+}
+
+@keyframes c-clock {
+  0% { stroke-dashoffset: 0; }
+  92% { stroke-dashoffset: 1; }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* ------------------------------------------------------------
+   4. Closing wave — the logo's two waves, drawn once on arrival
+   ------------------------------------------------------------ */
+.w-line { stroke-dasharray: 1; stroke-dashoffset: 0; }
+
+.js .scene .w-line {
+  animation: w-draw 2.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-play-state: paused;
+}
+
+.js .scene .w-line-2 { animation-delay: 0.25s; }
+
+.js .scene[data-play] .w-line { animation-play-state: running; }
+
+@keyframes w-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* ------------------------------------------------------------
+   Stage frame + FAQ disclosure
+   ------------------------------------------------------------ */
+/* The illustration sits on a soft pool of brand light, nothing more. */
+.stage {
+  position: relative;
+  background:
+    radial-gradient(70% 60% at 50% 45%, var(--scene-glow), transparent 75%),
+    var(--surface);
+}
+
+
+.faq summary {
+  list-style: none;
+}
+
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq .faq-icon {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.faq[open] .faq-icon {
+  transform: rotate(45deg);
+}

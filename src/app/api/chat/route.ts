@@ -2,18 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { currentUser } from '@/shared/lib/firebase/session';
 import { ALLOWED_TTL_HOURS, createRoom, MAX_ROOM_NAME_LENGTH } from '@/shared/lib/firebase/chat';
 import { getRequestOrigin, sanitizeIanaTz } from '@/shared/lib/utils';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   const rl = rateLimit(`chat:create:${clientKey(request)}`, 10, 60_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many room creations, slow down.' },
-      { status: 429, headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() } }
-    );
-  }
+  if (!rl.allowed) return tooManyRequests('Too many room creations, slow down.', rl.retryAfterMs);
 
   let body: { name?: unknown; ttlHours?: unknown; tz?: unknown };
   try {

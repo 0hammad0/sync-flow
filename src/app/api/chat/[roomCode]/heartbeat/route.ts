@@ -1,14 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  deviceKey,
   getRoom,
   isRoomExpired,
   sanitizeSenderName,
+  sweepStalePresence,
   upsertPresence,
 } from '@/shared/lib/firebase/chat';
-import { isValidRoomCode, sanitizeDeviceId } from '@/shared/lib/utils';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { isValidRoomCode } from '@/shared/lib/utils';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
+
+// Stale-presence sweeps piggyback on heartbeats, at most once a minute per
+// room per instance — no cron needed, and an empty room costs nothing.
+const SWEEP_EVERY_MS = 60_000;
+const lastSweep = new Map<string, number>();
+
+function shouldSweep(code: string): boolean {
+  const now = Date.now();
+  if (now - (lastSweep.get(code) ?? 0) < SWEEP_EVERY_MS) return false;
+  lastSweep.set(code, now);
+  if (lastSweep.size > 2000) lastSweep.clear(); // crude bound
+  return true;
+}
 
 /**
  * POST {deviceId, senderName, typing?} — presence keep-alive.
@@ -29,15 +44,7 @@ export async function POST(
 
   // ~2 keep-alives/min + typing beats — 40/min per (IP+room) has headroom.
   const rl = rateLimit(`chat:beat:${code}:${clientKey(request)}`, 40, 60_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many heartbeats.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-      }
-    );
-  }
+  if (!rl.allowed) return tooManyRequests('Too many heartbeats.', rl.retryAfterMs);
 
   let body: { deviceId?: unknown; senderName?: unknown; typing?: unknown };
   try {
@@ -46,7 +53,8 @@ export async function POST(
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const deviceId = sanitizeDeviceId(body.deviceId);
+  // Stored hashed: presence docs are readable, so they must not hold the raw id.
+  const deviceId = deviceKey(body.deviceId);
   if (!deviceId) {
     return NextResponse.json({ success: false, error: 'deviceId required' }, { status: 400 });
   }
@@ -66,6 +74,10 @@ export async function POST(
     }
 
     await upsertPresence(code, { device_id: deviceId, name: senderName, typing });
+    // Heartbeat timeout → "X left" for anyone who stopped beating.
+    if (shouldSweep(code)) {
+      await sweepStalePresence(code).catch((err) => console.error('Presence sweep error:', err));
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Heartbeat error:', err);

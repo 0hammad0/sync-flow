@@ -85,7 +85,7 @@ export default function MyChatRooms() {
     <section className="mt-8 sm:mt-10">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-base sm:text-lg font-semibold text-fg">My Chat Rooms</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-fg">My chat rooms</h2>
           <p className="text-xs text-fg-muted mt-0.5">
             Live list of rooms you&apos;ve created. Auto-deletes when they expire.
           </p>

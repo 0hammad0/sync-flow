@@ -24,20 +24,25 @@
 ### File sharing
 - **Instant sharing** — Upload and get a shareable link in seconds
 - **Multiple files at once** — Upload a batch; each file gets its own share link
-- **End-to-end encryption** — AES-256-GCM, the key lives in the URL fragment and never reaches the server
-- **Expiring links** — 1 hour, 24 hours, 7 days, 30 days, or never (signed-in users)
+- **End-to-end encryption, on by default** — AES-256-GCM in the browser; the key lives in the URL fragment and never reaches the server (can be switched off per upload)
+- **Expiring links** — 1 hour, 24 hours or 7 days for everyone; signed-in users can also pick 30 days or never
 - **Download limits** — Self-destructing files after N downloads
 - **QR codes & email** — Share a link via QR code or send it by email
 - **Progress tracking** — Real-time upload progress with encryption status
 - **No account required** — Anonymous uploads supported; sign in (magic link) to manage them in a dashboard
+- **Limits** — 100 MB per file; up to 1,000 downloads per link; a signed-in account keeps up to 10 files
 
 ### Phone → PC transfer
 - **Scan and send** — Open the receive page, scan the QR with your phone, and files land on your PC automatically
-- **Multi-file sessions** — Keep sending files until the session expires
+- **Multi-file sessions** — Up to 25 files (100 MB each) per session; sessions last 10 minutes
+- **Late files still arrive** — A file that finishes uploading just after the session ends still shows up (15-minute grace)
+- **Guest files are temporary** — Without an account, received files are kept for 24 hours
+- **Not end-to-end encrypted** — Transfers are encrypted in transit (HTTPS) and kept in private storage
 - **Download all** — Grab every received file as a single ZIP
 
 ### Chat rooms
 - **Ephemeral by design** — Create a room, share the code/QR, and it self-destructs on expiry (1h / 24h / 7d)
+- **Not end-to-end encrypted** — Messages and attachments are encrypted in transit and stored privately until the room expires
 - **Real-time** — Live messages, typing indicators, online presence, emoji reactions, and WhatsApp-style replies
 - **Attachments & albums** — Share images, video, audio, and files; send several as one album and download them all as a ZIP
 - **Rich text** — URLs become clickable links with one-click copy, code is auto-detected and rendered as a syntax-highlighted snippet with a copy button, and long messages get a copy control
@@ -69,7 +74,7 @@ AI controls appear only when an `OPENROUTER_API_KEY` is configured, and each is 
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+ (firebase-admin 14 needs it)
 - A [Firebase](https://console.firebase.google.com/) project (free Spark plan works)
 - A [Cloudflare](https://dash.cloudflare.com/) account with R2 enabled
 - *(Optional)* An [OpenRouter](https://openrouter.ai/) account for the AI features
@@ -77,8 +82,8 @@ AI controls appear only when an `OPENROUTER_API_KEY` is configured, and each is 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourusername/syncflow.git
-cd syncflow
+git clone https://github.com/0hammad0/sync-flow.git
+cd sync-flow
 npm install
 ```
 
@@ -95,6 +100,20 @@ npm install
 2. Create a bucket (e.g. `syncflow-files`, Standard storage, Public Access disabled)
 3. Create an **Account API token** with **Object Read & Write** scoped to that bucket
 4. Note your **Account ID**, the bucket name, the **Access Key ID**, and the **Secret Access Key**
+5. Add a **CORS policy** to the bucket (bucket → Settings → CORS Policy). Browsers upload straight to R2 with presigned `PUT` URLs (this avoids the ~4.5 MB request-body cap of serverless hosts like Vercel), and encrypted downloads are fetched and decrypted in the browser with `GET`:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://your-app.vercel.app", "http://localhost:3000"],
+       "AllowedMethods": ["GET", "HEAD", "PUT"],
+       "AllowedHeaders": ["content-type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   List **every origin that uploads**: your production domain, any custom domain, and `http://localhost:3000`. Vercel preview URLs are not covered unless you add them, so uploads fail on previews.
 
 ### 4. Configure environment variables
 
@@ -132,18 +151,30 @@ SMTP_PASS=<gmail-app-password>
 # Optional: production URL used in share-link emails
 # NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 
+# Required in production: protects the daily cleanup cron (/api/cleanup)
+# CRON_SECRET=<16+ random letters and digits>
+
 # Optional: OpenRouter AI features (see below)
 # OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-### 5. Create Firestore composite indexes
+### 5. Deploy Firestore rules and indexes
 
-The app issues two multi-field queries that need composite indexes:
+The app issues three multi-field queries that need composite indexes:
 
 - `files: (owner_id ASC, expires_at ASC)` — used by the cleanup cron
 - `files: (owner_id ASC, created_at DESC)` — used by the dashboard listing
+- `rooms: (created_by ASC, created_at DESC)` — used by "My chat rooms"
 
-Easiest: hit each query once in development and click the "Create index" URL Firestore prints in the error. Or deploy `firestore.indexes.json` via the Firebase CLI: `firebase deploy --only firestore:indexes`.
+Deploy `firestore.indexes.json` with the Firebase CLI: `firebase deploy --only firestore:indexes`. Or hit each query once in development and click the "Create index" URL Firestore prints in the error.
+
+Deploy the security rules in `firestore.rules` too. Hosting (Vercel) does **not** deploy them:
+
+```bash
+firebase deploy --only firestore:rules
+# or, without the Firebase CLI (uses the service account in .env.local):
+node scripts/deploy-firestore-rules.mjs --deploy
+```
 
 ### 6. Start the development server
 
@@ -172,6 +203,7 @@ Everything is driven by [`src/features/ai/lib/ai-config.ts`](src/features/ai/lib
 | `OPENROUTER_MODEL` | `google/gemma-4-31b-it:free` | Primary model; falls back through other free models automatically |
 | `AI_TASKS_DISABLED` | — | Comma list to turn tasks off, e.g. `replies,translate` |
 | `AI_RATE_LIMIT` | `15` | AI requests per minute per IP |
+| `AI_DAILY_LIMIT` | `500` | Total AI requests per day, per server instance |
 
 **Notes:** the API key is only ever used server-side (via `/api/ai`); free models are rate-limited upstream, so the route retries on congestion and only touches unencrypted content — end-to-end encrypted file bodies are never sent to any AI provider.
 
@@ -212,15 +244,16 @@ and infrastructure in `shared/*`. Every import uses the `@/` path alias
 src/
 ├── app/                          # Next.js App Router — routes only (thin)
 │   ├── api/
-│   │   ├── upload/               # File upload endpoint (R2 + Firestore)
-│   │   ├── send/                 # Phone upload endpoint
+│   │   ├── upload/               # Share uploads: presign → browser PUT to R2 → complete
+│   │   ├── send/                 # Phone → PC uploads: code, presign, complete
 │   │   ├── receive/              # Receive session endpoints
 │   │   ├── chat/[roomCode]/      # Chat: messages, attachments, reactions, presence, heartbeat
 │   │   ├── ai/                   # OpenRouter proxy (streamed) + feature discovery
 │   │   ├── session/              # Mint/clear Firebase session cookie
 │   │   ├── send-email/           # Email a share link via nodemailer
-│   │   └── cleanup/              # Cron: delete expired anonymous files
-│   ├── chat/[roomCode]/          # Chat room page       ├── dashboard/   # User's files
+│   │   └── cleanup/              # Daily cron: expired guest files, sessions, rooms
+│   ├── chat/[roomCode]/          # Chat room page
+│   ├── dashboard/                # User's files
 │   ├── login/  receive/  send/[sessionToken]/  share/[token]/  auth/callback/
 │   └── layout.tsx  page.tsx  globals.css
 │
@@ -228,10 +261,12 @@ src/
 │   ├── ai/lib/                   # ai-client (browser), ai-config (server prompts/models)
 │   ├── chat/
 │   │   ├── components/           # ChatRoom, MessageBubble, MediaViewer, MessageContent, ChatLobby, MyChatRooms
-│   │   └── lib/chat-helpers.ts   # Shared chat constants + pure helpers
-│   └── files/
-│       ├── components/           # UploadForm, FileList, DownloadCard, ProgressBar, QRModal
-│       └── server/files.ts       # Server action: getFileByToken
+│   │   ├── lib/chat-helpers.ts   # Shared chat constants + pure helpers
+│   │   └── server/               # Chat attachment upload rules
+│   ├── files/
+│   │   ├── components/           # UploadForm, FileList, DownloadCard, ProgressBar, QRModal
+│   │   └── server/               # files.ts (server actions), share-upload.ts, send-upload.ts
+│   └── landing/                  # Home page: hero scenes, tool tabs, HomeUpload
 │
 ├── shared/                       # Cross-cutting, feature-agnostic
 │   ├── components/               # Header, Logo, ThemeToggle, CopyButton, LoadingSpinner, Reveal, AuthCTA
@@ -240,7 +275,12 @@ src/
 │       ├── crypto.ts             # AES-256-GCM (Web Crypto API)
 │       ├── clipboard.ts          # copyText + useCopy hook
 │       ├── zip.ts                # Dependency-free ZIP writer for "Download all"
-│       ├── rate-limit.ts         # In-memory sliding-window rate limiter
+│       ├── rate-limit.ts         # In-memory rate limiter + shared 429 reply
+│       ├── limits.ts             # Upload size, expiry choices, caps (client + server)
+│       ├── upload-ticket.ts      # Signed tickets: presign → complete
+│       ├── direct-upload.ts      # Browser PUT to R2 with progress and cancel
+│       ├── safe-next.ts          # Safe "return to" path after sign-in
+│       ├── auth-state.ts  site.ts
 │       ├── r2.ts  time.ts  utils.ts
 │       └── firebase/             # admin, client, session, files, chat, proxy
 │
@@ -256,8 +296,14 @@ src/
 | Signed URLs | Download links expire after 1 hour |
 | E2E encryption | Keys stored in the URL fragment, never sent to the server |
 | Firebase session cookies | `httpOnly`, validated server-side via Admin SDK |
-| Firestore security rules | Writes are server-only via Admin SDK |
-| CSRF protection | Built into Next.js Server Actions |
+| Firestore security rules | Writes are server-only via Admin SDK; chat is readable only by room code, only while the room is live |
+| CSRF protection | Built into Next.js Server Actions; the session route only accepts JSON from the site's own origin |
+| Signed upload tickets | Presign issues an HMAC-signed ticket; complete checks it and the stored size before saving |
+| Limits enforced on the server | File size, expiry and download limit are checked by the server, not only the form; per-account file caps are re-checked at save time, in a transaction |
+| Rate limits | Per-IP limits on uploads, codes, email, chat and AI |
+| Cron secret | `/api/cleanup` refuses every call without `CRON_SECRET` |
+| Chat identity | Each browser keeps a secret device id; rooms store only its SHA-256 hash, so a hash read from a room can't be used to act as that device |
+| Chat attachments | Each uploaded file gets a signed proof; a message can only attach files with a valid proof, and each file only once |
 | AI privacy | The OpenRouter key stays server-side; only unencrypted content is ever sent, and only on explicit user action |
 
 ## Scripts
@@ -278,10 +324,13 @@ The `scripts/` folder also contains Puppeteer-based end-to-end checks (`e2e-chat
 
 1. Push to GitHub
 2. Import project in [Vercel](https://vercel.com)
-3. Add all environment variables from `.env.local` (note: `FIREBASE_PRIVATE_KEY` newline handling — paste as-is including the literal `\n` sequences inside double quotes). Add `OPENROUTER_API_KEY` too if you want the AI features.
-4. Deploy
+3. Add all environment variables from `.env.local` (note: `FIREBASE_PRIVATE_KEY` newline handling — paste as-is including the literal `\n` sequences inside double quotes). Add `OPENROUTER_API_KEY` too if you want the AI features. Add `CRON_SECRET` (see below).
+4. Set the project's Node.js version to 22.x or newer (Settings → Build and Deployment)
+5. Deploy
+6. Deploy the Firestore rules and indexes (step 5 of Quick Start) — Vercel does not do this
+7. Add your production domain to the R2 CORS policy (step 3 of Quick Start)
 
-The included `vercel.json` schedules `/api/cleanup` daily at 03:00 UTC to purge expired anonymous files.
+The included `vercel.json` schedules `/api/cleanup` daily at 03:00 UTC. It removes expired guest files, old Phone → PC sessions and expired chat rooms. **Set `CRON_SECRET`** in Vercel (16+ random letters and digits). Vercel sends it with each cron call, and the route refuses every call without it.
 
 ## Contributing
 

@@ -1,7 +1,9 @@
 'use client';
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
+  Copy,
   Download,
   File as FileIcon,
   FileText,
@@ -11,6 +13,7 @@ import {
   Music,
   Reply,
   SmilePlus,
+  Square,
 } from 'lucide-react';
 import { formatChatTime } from '@/shared/lib/time';
 import { downloadAllAsZip } from '@/shared/lib/zip';
@@ -25,6 +28,7 @@ import {
   browserLanguageName,
   cleanAiOutput,
   getAiAvailability,
+  isAbortError,
   streamAi,
 } from '@/features/ai/lib/ai-client';
 import {
@@ -36,6 +40,11 @@ import {
   previewKind,
 } from '@/features/chat/lib/chat-helpers';
 import type { ChatAttachment, ChatMessage } from '@/types';
+
+// Touch: hold this long on a bubble to open the action sheet.
+const LONG_PRESS_MS = 450;
+// Finger drift beyond this cancels the long-press (it's a scroll).
+const LONG_PRESS_SLOP_PX = 10;
 
 // Centered gray pill for join/leave announcements, WhatsApp-style.
 export const SystemNotice = memo(function SystemNotice({ message }: { message: ChatMessage }) {
@@ -138,6 +147,8 @@ export const MessageBubble = memo(function MessageBubble({
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [canTranslate, setCanTranslate] = useState(false);
+  const translateAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => translateAbort.current?.abort(), []);
   useEffect(() => {
     let cancelled = false;
     getAiAvailability().then((a) => {
@@ -148,23 +159,80 @@ export const MessageBubble = memo(function MessageBubble({
     };
   }, []);
   const translateMessage = async () => {
-    if (translating) return;
+    if (translating) {
+      translateAbort.current?.abort(); // second tap = Stop
+      return;
+    }
     if (translation !== null) {
       setTranslation(null); // toggle off
       return;
     }
     setTranslating(true);
     setTranslation('');
+    const ctrl = new AbortController();
+    translateAbort.current = ctrl;
     try {
       const result = await streamAi(
         { task: 'translate', text: message.content, target: browserLanguageName() },
-        (t) => setTranslation(t)
+        (t) => setTranslation(t),
+        ctrl.signal
       );
       setTranslation(cleanAiOutput(result) || null);
     } catch (err) {
-      setTranslation(`⚠ ${err instanceof Error ? err.message : 'Translation failed'}`);
+      if (isAbortError(err)) {
+        // Keep what streamed so far; nothing yet → close the panel.
+        setTranslation((cur) => (cur ? cur : null));
+      } else {
+        setTranslation(`⚠ ${err instanceof Error ? err.message : 'Translation failed'}`);
+      }
     }
+    translateAbort.current = null;
     setTranslating(false);
+  };
+  const canTranslateThis = canTranslate && !!message.content && !bigEmoji && !codeInfo && !isLongText;
+
+  // Touch long-press → action sheet (react / reply / copy / translate). The
+  // click that follows the press is swallowed so it doesn't also open an
+  // image or follow a link.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const pressTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const pressFired = useRef(false);
+  const cancelPress = () => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    pressStart.current = null;
+  };
+  useEffect(() => cancelPress, []);
+  // The sheet is portaled to <body>, but React still bubbles its events
+  // through this component — only react to events from the bubble itself.
+  const fromBubble = (e: React.SyntheticEvent) =>
+    e.currentTarget.contains(e.target as Node);
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' || !fromBubble(e)) return;
+    pressFired.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      pressFired.current = true;
+      navigator.vibrate?.(10);
+      setSheetOpen(true);
+    }, LONG_PRESS_MS);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const start = pressStart.current;
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > LONG_PRESS_SLOP_PX) cancelPress();
+  };
+  const [copied, setCopied] = useState(false);
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
   };
   const downloadAll = async () => {
     if (zipping) return;
@@ -192,7 +260,8 @@ export const MessageBubble = memo(function MessageBubble({
   const actions = (
     <div
       ref={actionsRef}
-      className={`relative self-center shrink-0 flex items-center gap-0.5 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${
+      // Touch devices use long-press instead of these always-faint icons.
+      className={`relative self-center shrink-0 flex items-center gap-0.5 pointer-coarse:hidden opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${
         mine ? 'order-first mr-0.5 sm:mr-1' : 'ml-0.5 sm:ml-1'
       }`}
     >
@@ -214,7 +283,7 @@ export const MessageBubble = memo(function MessageBubble({
       >
         <Reply className="w-4 h-4" />
       </button>
-      {canTranslate && message.content && !bigEmoji && !codeInfo && !isLongText && (
+      {canTranslateThis && (
         <button
           type="button"
           onClick={translateMessage}
@@ -223,8 +292,14 @@ export const MessageBubble = memo(function MessageBubble({
               ? 'text-brand-text'
               : 'text-fg-faint hover:text-fg'
           }`}
-          title={translation !== null ? 'Hide translation' : 'Translate (AI)'}
-          aria-label={translation !== null ? 'Hide translation' : 'Translate message with AI'}
+          title={translating ? 'Stop translating' : translation !== null ? 'Hide translation' : 'Translate (AI)'}
+          aria-label={
+            translating
+              ? 'Stop translating'
+              : translation !== null
+                ? 'Hide translation'
+                : 'Translate message with AI'
+          }
         >
           <Languages className={`w-4 h-4 ${translating ? 'animate-pulse' : ''}`} />
         </button>
@@ -266,7 +341,23 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div
       id={`msg-${message.id}`}
-      className={`group flex ${mine ? 'justify-end' : 'justify-start'} rounded-xl transition-shadow duration-300 ${
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onPointerLeave={cancelPress}
+      onClickCapture={(e) => {
+        if (pressFired.current && fromBubble(e)) {
+          pressFired.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onContextMenu={(e) => {
+        // Android fires contextmenu on long-press; our sheet replaces it.
+        if (fromBubble(e) && (pressFired.current || pressTimer.current !== null)) e.preventDefault();
+      }}
+      className={`group flex ${mine ? 'justify-end' : 'justify-start'} rounded-xl transition-shadow duration-300 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] ${
         highlighted ? 'ring-2 ring-brand ring-offset-2 ring-offset-canvas' : ''
       }`}
     >
@@ -422,6 +513,16 @@ export const MessageBubble = memo(function MessageBubble({
             >
               <Languages className="w-3 h-3" />
               {translating ? 'Translating…' : `Translated to ${browserLanguageName()}`}
+              {translating && (
+                <button
+                  type="button"
+                  onClick={() => translateAbort.current?.abort()}
+                  className="ml-1 flex items-center gap-0.5 underline underline-offset-2 cursor-pointer"
+                >
+                  <Square className="w-2.5 h-2.5" />
+                  Stop
+                </button>
+              )}
             </p>
             {translation || '…'}
           </div>
@@ -483,9 +584,93 @@ export const MessageBubble = memo(function MessageBubble({
         )}
       </div>
       {actions}
+      {sheetOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-label="Message actions">
+            <div
+              className="absolute inset-0 bg-black/40 animate-fade-in"
+              onClick={() => setSheetOpen(false)}
+              aria-hidden="true"
+            />
+            <div className="relative w-full max-w-md mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] p-2 bg-surface border border-edge rounded-2xl shadow-lg animate-menu-up">
+              <div className="flex justify-between gap-1 px-1 pb-2 mb-1 border-b border-edge">
+                {CHAT_REACTIONS.map((emoji) => {
+                  const active = emoji === myReaction;
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        onToggleReaction(message.id, emoji);
+                        setSheetOpen(false);
+                      }}
+                      className={`text-2xl p-1.5 rounded-full cursor-pointer ${
+                        active ? 'bg-brand/15 ring-1 ring-brand' : 'active:bg-surface-2'
+                      }`}
+                      aria-label={active ? `Remove ${emoji} reaction` : `React with ${emoji}`}
+                      aria-pressed={active}
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+              </div>
+              <SheetButton
+                icon={<Reply className="w-4 h-4" />}
+                label="Reply"
+                onClick={() => {
+                  setSheetOpen(false);
+                  onReply(message);
+                }}
+              />
+              {message.content && !isLongText && (
+                <SheetButton
+                  icon={<Copy className="w-4 h-4" />}
+                  label={copied ? 'Copied' : 'Copy text'}
+                  onClick={() => {
+                    void copyText();
+                    window.setTimeout(() => setSheetOpen(false), 400);
+                  }}
+                />
+              )}
+              {canTranslateThis && (
+                <SheetButton
+                  icon={<Languages className="w-4 h-4" />}
+                  label={translating ? 'Stop translating' : translation !== null ? 'Hide translation' : 'Translate'}
+                  onClick={() => {
+                    setSheetOpen(false);
+                    void translateMessage();
+                  }}
+                />
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 });
+
+function SheetButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-3 py-3 text-sm text-fg rounded-xl active:bg-surface-2 hover:bg-surface-2 cursor-pointer text-left"
+    >
+      <span className="text-fg-muted">{icon}</span>
+      {label}
+    </button>
+  );
+}
 
 // Body of an oversized text message (stored in R2). Shows the inline preview
 // with formatting preserved; "Show full message" pulls the complete text on

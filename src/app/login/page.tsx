@@ -1,62 +1,139 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { onAuthStateChanged, sendSignInLinkToEmail } from 'firebase/auth';
-import { clientAuth } from '@/shared/lib/firebase/client';
-import { getBaseUrl } from '@/shared/lib/utils';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import {
+  authErrorMessage,
+  clientAuth,
+  safeNextPath,
+  sendMagicLink,
+  STORED_EMAIL_KEY,
+} from '@/shared/lib/firebase/client';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import Button from '@/shared/components/ui/Button';
 import Link from 'next/link';
-import { Check } from 'lucide-react';
+import { Check, MailCheck } from 'lucide-react';
 
-const STORED_EMAIL_KEY = 'syncflow.emailForSignIn';
+const RESEND_COOLDOWN_S = 30;
+
+function readNext(): string | null {
+  return safeNextPath(new URLSearchParams(window.location.search).get('next'));
+}
+
+/*
+ * The client remembers a Firebase user indefinitely, but the server cookie
+ * lasts 14 days. The proxy sends visitors with a valid cookie straight on, so
+ * reaching /login while the client is signed in means the cookie is gone. A
+ * new cookie needs a sign-in from the last 5 minutes (Firebase rule), so sign
+ * the client out instead of bouncing to /dashboard (which would loop).
+ */
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Address the link was sent to; switches the page to "check your email".
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(clientAuth(), (user) => {
+    let handled = false;
+    const unsub = onAuthStateChanged(clientAuth(), async (user) => {
+      if (handled) return;
+      handled = true;
       if (user) {
-        router.replace('/dashboard');
-      } else {
-        setCheckingAuth(false);
+        await signOut(clientAuth()).catch(() => {});
+        setNotice('Your session ended. Sign in again to continue.');
       }
+      const stored = window.localStorage.getItem(STORED_EMAIL_KEY);
+      if (stored) setEmail(stored);
+      setCheckingAuth(false);
     });
     return () => unsub();
-  }, [router]);
+  }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  const send = async (address: string) => {
     setLoading(true);
-    setMessage(null);
-
+    setError(null);
     try {
-      await sendSignInLinkToEmail(clientAuth(), email, {
-        url: `${getBaseUrl()}/auth/callback`,
-        handleCodeInApp: true,
-      });
-      window.localStorage.setItem(STORED_EMAIL_KEY, email);
-      setMessage({
-        type: 'success',
-        text: 'Check your email for the sign-in link!',
-      });
+      await sendMagicLink(address, readNext());
+      setSentTo(address);
+      setCooldown(RESEND_COOLDOWN_S);
     } catch (err) {
-      const text = err instanceof Error ? err.message : 'Failed to send sign-in link';
-      setMessage({ type: 'error', text });
+      console.error('Send sign-in link error:', err);
+      setError(authErrorMessage(err));
     }
-
     setLoading(false);
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const address = email.trim();
+    if (address) void send(address);
   };
 
   if (checkingAuth) {
     return (
       <div className="flex items-center justify-center py-12">
         <LoadingSpinner size="lg" className="text-brand-text" />
+      </div>
+    );
+  }
+
+  if (sentTo) {
+    return (
+      <div className="max-w-sm mx-auto py-8 sm:py-12 text-center animate-fade-in">
+        <span className="inline-flex w-16 h-16 mb-4 rounded-3xl bg-success/10 text-success-text items-center justify-center">
+          <MailCheck className="w-8 h-8" />
+        </span>
+        <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-fg mb-2">Check your email</h1>
+        <p className="text-sm text-fg-muted">
+          We sent a sign-in link to <span className="font-medium text-fg break-all">{sentTo}</span>
+        </p>
+        <p className="mt-3 text-xs text-fg-faint">
+          The device that opens the link is the one that gets signed in — open it here to sign in on this device.
+          Check your spam folder if you don&apos;t see it.
+        </p>
+
+        {error && (
+          <p role="alert" className="mt-4 p-3 rounded-2xl text-xs bg-danger/10 border border-danger/20 text-danger-text">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-6 space-y-2">
+          <Button
+            variant="secondary"
+            size="md"
+            fullWidth
+            onClick={() => send(sentTo)}
+            disabled={cooldown > 0}
+            loading={loading}
+            loadingText="Sending..."
+          >
+            {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend link'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            fullWidth
+            onClick={() => {
+              setSentTo(null);
+              setError(null);
+              setEmail('');
+            }}
+          >
+            Use a different email
+          </Button>
+        </div>
       </div>
     );
   }
@@ -73,6 +150,10 @@ export default function LoginPage() {
           No password needed — we&apos;ll email you a secure link
         </p>
       </div>
+
+      {notice && (
+        <p className="mb-4 p-3 rounded-2xl text-xs sm:text-sm bg-surface-2 border border-edge text-fg-muted">{notice}</p>
+      )}
 
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
@@ -100,7 +181,7 @@ export default function LoginPage() {
           variant="primary"
           size="lg"
           fullWidth
-          disabled={loading || !email}
+          disabled={loading || !email.trim()}
           loading={loading}
           loadingText="Sending..."
         >
@@ -120,26 +201,13 @@ export default function LoginPage() {
         </p>
       </form>
 
-      {message && (
-        <div
-          className={`mt-4 p-3 sm:p-4 rounded-2xl animate-fade-in text-xs sm:text-sm border ${
-            message.type === 'success'
-              ? 'bg-success/10 border-success/20 text-success-text'
-              : 'bg-danger/10 border-danger/20 text-danger-text'
-          }`}
+      {error && (
+        <p
+          role="alert"
+          className="mt-4 p-3 sm:p-4 rounded-2xl animate-fade-in text-xs sm:text-sm border bg-danger/10 border-danger/20 text-danger-text font-medium"
         >
-          <p className="font-medium">{message.text}</p>
-          {message.type === 'success' && (
-            <p className="mt-1 text-fg-muted">
-              Click the link in your email to sign in. Check your spam folder if you don&apos;t see it.
-            </p>
-          )}
-          {message.type === 'error' && (
-            <p className="mt-1 text-fg-muted">
-              Please check your email address and try again.
-            </p>
-          )}
-        </div>
+          {error}
+        </p>
       )}
 
       <div className="mt-8 pt-6 border-t border-edge">

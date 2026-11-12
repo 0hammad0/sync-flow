@@ -8,6 +8,8 @@
  * client can't burn through the Firestore free tier.
  */
 
+import { NextResponse } from 'next/server';
+
 const buckets = new Map<string, number[]>();
 
 const MAX_KEYS = 5000;
@@ -47,4 +49,16 @@ export function clientKey(request: Request): string {
     request.headers.get('x-real-ip') ||
     'unknown';
   return ip;
+}
+
+/**
+ * The standard "slow down" reply: HTTP 429 with a Retry-After header (seconds),
+ * in the same `{ success: false, error }` shape every API route uses.
+ * Pass `retryAfterMs` from `rateLimit()`; omit it when there is no useful wait
+ * (for example a daily limit).
+ */
+export function tooManyRequests(error: string, retryAfterMs?: number): NextResponse {
+  const headers: Record<string, string> = {};
+  if (retryAfterMs !== undefined) headers['Retry-After'] = Math.ceil(retryAfterMs / 1000).toString();
+  return NextResponse.json({ success: false, error }, { status: 429, headers });
 }

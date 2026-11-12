@@ -1,16 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Clock, X } from 'lucide-react';
 import Button from '@/shared/components/ui/Button';
-import { clientTimezone } from '@/shared/lib/time';
+import { clientTimezone, formatTimeUntil } from '@/shared/lib/time';
 import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/shared/lib/utils';
+import {
+  RECENT_ROOMS_KEY,
+  forgetRoom,
+  friendlyError,
+  parseRecent,
+  readStorage,
+} from '@/features/chat/lib/chat-helpers';
 
 const TTL_OPTIONS: ReadonlyArray<{ value: 1 | 24 | 168; label: string }> = [
   { value: 1, label: '1 hour' },
   { value: 24, label: '24 hours' },
   { value: 168, label: '7 days' },
 ];
+
+// Recent rooms live in localStorage; this keeps other tabs' visits in sync
+// and renders nothing on the server (no hydration mismatch).
+function subscribeStorage(onChange: () => void) {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+}
+const readRecentRaw = () => readStorage(RECENT_ROOMS_KEY) ?? '';
+const noRecentOnServer = () => '';
 
 export default function ChatLobby() {
   const router = useRouter();
@@ -20,7 +38,17 @@ export default function ChatLobby() {
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [now] = useState(() => Date.now());
+  // Bumped after "forget" — same-tab writes don't fire the storage event.
+  const [, setRecentVersion] = useState(0);
 
+  const recentRaw = useSyncExternalStore(subscribeStorage, readRecentRaw, noRecentOnServer);
+  const recentRooms = useMemo(
+    () => parseRecent(recentRaw).filter((r) => new Date(r.expires_at).getTime() > now),
+    [recentRaw, now]
+  );
+
+  // Name is optional; expiry defaults to 24h.
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
@@ -35,18 +63,20 @@ export default function ChatLobby() {
           tz: clientTimezone(),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to create room');
+        throw new Error(friendlyError(data.error || 'Couldn\'t create the room. Please try again.', res.status));
       }
       router.push(`/chat/${data.code}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create room');
+      setError(friendlyError(err));
       setCreating(false);
     }
   };
 
-  const handleJoin = async (e: React.FormEvent) => {
+  // Straight to the room page — it already shows "not found" / "expired",
+  // so checking here first would just read the room twice.
+  const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     const code = joinCode.trim().toUpperCase();
     if (!isValidRoomCode(code)) {
@@ -55,26 +85,16 @@ export default function ChatLobby() {
     }
     setJoining(true);
     setError(null);
-    try {
-      const res = await fetch(`/api/chat/${code}`);
-      const data = await res.json();
-      if (res.status === 404) throw new Error('No room with that code.');
-      if (res.status === 410) throw new Error('That room has expired.');
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to join');
-      router.push(`/chat/${code}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join room');
-      setJoining(false);
-    }
+    router.push(`/chat/${code}`);
   };
 
   return (
     <div className="max-w-xl mx-auto py-8 sm:py-12 animate-fade-in">
       <div className="text-center mb-8">
         <p className="label-mono mb-3">Ephemeral by design</p>
-        <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-fg mb-2">Chat Rooms</h1>
+        <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-fg mb-2">Chat rooms</h1>
         <p className="text-sm text-fg-muted">
-          Create a temporary room and share the code with anyone to start chatting.
+          Start a temporary room and share the link with anyone to start chatting.
         </p>
       </div>
 
@@ -90,27 +110,29 @@ export default function ChatLobby() {
           onSubmit={handleCreate}
           className="bg-surface border border-edge rounded-3xl p-5 sm:p-6 card-hover"
         >
-          <h2 className="font-display text-base sm:text-lg font-semibold tracking-tight text-fg mb-1">Create a room</h2>
+          <h2 className="font-display text-base sm:text-lg font-semibold tracking-tight text-fg mb-1">Start a room</h2>
           <p className="text-xs text-fg-muted mb-4">
-            You&apos;ll get a short code to share with participants.
+            You&apos;ll get a link to share. Lasts {TTL_OPTIONS.find((o) => o.value === ttl)?.label}.
           </p>
 
-          <label className="block text-xs font-medium text-fg mb-1.5">
+          <label htmlFor="room-name" className="block text-xs font-medium text-fg mb-1.5">
             Room name <span className="text-fg-faint font-normal">(optional)</span>
           </label>
           <input
+            id="room-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={80}
             placeholder="e.g. project standup"
-            className="input-base w-full mb-4 px-3 py-2 text-base sm:text-sm"
+            className="input-base w-full mb-3 px-3 py-2 text-base sm:text-sm"
           />
 
-          <label className="block text-xs font-medium text-fg mb-1.5">
+          <label htmlFor="room-ttl" className="block text-xs font-medium text-fg mb-1.5">
             Room expires after
           </label>
           <select
+            id="room-ttl"
             value={ttl}
             onChange={(e) => setTtl(Number(e.target.value) as 1 | 24 | 168)}
             className="input-base w-full mb-4 px-3 py-2 text-sm cursor-pointer"
@@ -129,9 +151,9 @@ export default function ChatLobby() {
             fullWidth
             disabled={creating}
             loading={creating}
-            loadingText="Creating…"
+            loadingText="Starting…"
           >
-            Create Room
+            Start a room
           </Button>
         </form>
 
@@ -168,13 +190,52 @@ export default function ChatLobby() {
             loading={joining}
             loadingText="Joining…"
           >
-            Join Room
+            Join room
           </Button>
         </form>
       </div>
 
+      {/* Rooms visited on this device — guests and joiners have no dashboard list. */}
+      {recentRooms.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-fg mb-2">Recent rooms</h2>
+          <ul className="space-y-2">
+            {recentRooms.map((r) => (
+              <li
+                key={r.code}
+                className="flex items-center gap-2 p-1 pl-3 bg-surface border border-edge rounded-2xl card-hover animate-fade-in"
+              >
+                <Link href={`/chat/${r.code}`} className="min-w-0 flex-1 py-2 cursor-pointer">
+                  <p className="text-sm font-medium text-fg truncate">{r.name || 'Untitled room'}</p>
+                  <p className="text-xs text-fg-muted mt-0.5 flex items-center gap-1.5">
+                    <span className="font-mono tracking-widest text-brand-text">{r.code}</span>
+                    <span>&middot;</span>
+                    <Clock className="w-3 h-3" />
+                    <span title={new Date(r.expires_at).toLocaleString()}>
+                      {formatTimeUntil(r.expires_at)} left
+                    </span>
+                  </p>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    forgetRoom(r.code);
+                    setRecentVersion((v) => v + 1);
+                  }}
+                  className="shrink-0 p-2 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
+                  title="Remove from this list"
+                  aria-label={`Remove ${r.name || r.code} from recent rooms`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <p className="mt-8 text-xs text-fg-faint text-center">
-        Rooms auto-delete when they expire. Logged-in users can see their created rooms on the dashboard.
+        Rooms auto-delete when they expire. Signed-in users see rooms they created on the dashboard.
       </p>
     </div>
   );

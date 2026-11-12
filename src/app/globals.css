@@ -5,7 +5,9 @@
 
 /* ============================================================
    Design tokens — single source of truth for the entire UI.
-   Semantic tokens flip between light/dark; brand stays vivid.
+   Semantic tokens flip between light/dark; every colour used by
+   the landing illustrations is a token too, so both themes hold.
+   Contrast notes (WCAG 2.x) are against --canvas unless stated.
    ============================================================ */
 :root {
   /* Surfaces — warm paper, not clinical white */
@@ -17,19 +19,26 @@
 
   /* Text — warm ink */
   --fg: #141614;
-  --fg-muted: #50564f;
-  --fg-faint: #757c76;
+  --fg-muted: #50564f; /* 6.9:1 */
+  --fg-faint: #636a64; /* 5.0:1 (4.7:1 on surface-2) */
 
   /* Borders */
   --edge: rgba(20, 22, 20, 0.09);
   --edge-strong: rgba(20, 22, 20, 0.18);
 
-  /* Brand — deep teal → electric cyan ("flow"), no indigo in sight */
+  /* Brand — deep teal → cyan ("flow") */
   --brand: #0c7d6f;
   --brand-hover: #0a6a5e;
-  --brand-2: #00c2cb;
+  --brand-2: #00c2cb; /* decorative only — never behind or as text */
   --brand-3: #ffb454;
-  --brand-text: #0a6a5e;
+  --brand-text: #0a6a5e; /* 5.9:1 */
+
+  /* Filled brand surfaces that carry white text: both stops ≥4.7:1 */
+  --flow-from: #0d8274;
+  --flow-to: #0b7590;
+
+  /* Keyboard focus ring — ≥3:1 against every surface */
+  --focus: #0c7d6f;
 
   /* Semantic */
   --success: #059669;
@@ -39,14 +48,31 @@
   --danger: #dc2626;
   --danger-text: #b91c1c;
 
+  /* Illustration palette (landing scenes) */
+  --scene-ink: #2b302c;
+  --scene-line: rgba(20, 22, 20, 0.22);
+  --scene-panel: #fdfcf9;
+  --scene-panel-2: #eeece5;
+  --scene-accent: #0c7d6f;
+  --scene-accent-2: #0891a0;
+  --scene-glow: rgba(12, 125, 111, 0.16);
+  --scene-cipher: #0b6a72;
+
+  /* Page backdrop */
+  --backdrop-wash: rgba(12, 125, 111, 0.09);
+  --backdrop-wash-2: rgba(0, 194, 203, 0.06);
+  --backdrop-dot: rgba(20, 22, 20, 0.07);
+
   /* Effects */
   --glow: 0 8px 32px -8px rgba(12, 125, 111, 0.45);
   --glow-strong: 0 12px 48px -8px rgba(0, 194, 203, 0.4);
   --shadow-card: 0 1px 2px rgba(20, 22, 20, 0.04), 0 8px 24px -12px rgba(20, 22, 20, 0.12);
   --shadow-card-hover: 0 2px 4px rgba(20, 22, 20, 0.04), 0 16px 40px -12px rgba(20, 22, 20, 0.18);
-  --aurora-opacity: 0.35;
+  --shadow-float: 0 1px 1px rgba(20, 22, 20, 0.04), 0 24px 60px -24px rgba(20, 22, 20, 0.22);
   --skeleton-a: #eceae3;
   --skeleton-b: #dfddd4;
+
+  color-scheme: light;
 }
 
 .dark {
@@ -58,8 +84,8 @@
   --overlay: rgba(17, 21, 19, 0.86);
 
   --fg: #f1f3f0;
-  --fg-muted: #aab2ac;
-  --fg-faint: #7e8883;
+  --fg-muted: #aab2ac; /* 8.5:1 */
+  --fg-faint: #8a948f; /* 6.1:1 (5.5:1 on surface-2) */
 
   --edge: rgba(255, 255, 255, 0.08);
   --edge-strong: rgba(255, 255, 255, 0.17);
@@ -68,7 +94,12 @@
   --brand-hover: #0fa392;
   --brand-2: #22e1eb;
   --brand-3: #ffc066;
-  --brand-text: #3ddbc9;
+  --brand-text: #3ddbc9; /* 11.3:1 */
+
+  --flow-from: #0d8274;
+  --flow-to: #0b7590;
+
+  --focus: #3ddbc9;
 
   --success: #10b981;
   --success-text: #34d399;
@@ -77,13 +108,28 @@
   --danger: #ef4444;
   --danger-text: #f87171;
 
+  --scene-ink: #dfe5e1;
+  --scene-line: rgba(255, 255, 255, 0.2);
+  --scene-panel: #141917;
+  --scene-panel-2: #1c2220;
+  --scene-accent: #2ccbb8;
+  --scene-accent-2: #22c7d6;
+  --scene-glow: rgba(44, 203, 184, 0.18);
+  --scene-cipher: #5fd6dd;
+
+  --backdrop-wash: rgba(20, 184, 166, 0.1);
+  --backdrop-wash-2: rgba(34, 225, 235, 0.05);
+  --backdrop-dot: rgba(255, 255, 255, 0.06);
+
   --glow: 0 8px 32px -8px rgba(20, 184, 166, 0.45);
   --glow-strong: 0 12px 48px -8px rgba(34, 225, 235, 0.45);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
   --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.3), 0 16px 40px -12px rgba(0, 0, 0, 0.6);
-  --aurora-opacity: 0.26;
+  --shadow-float: 0 1px 1px rgba(0, 0, 0, 0.3), 0 24px 60px -24px rgba(0, 0, 0, 0.7);
   --skeleton-a: #181d1b;
   --skeleton-b: #212725;
+
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -101,6 +147,7 @@
   --color-brand-2: var(--brand-2);
   --color-brand-3: var(--brand-3);
   --color-brand-text: var(--brand-text);
+  --color-focus: var(--focus);
   --color-success: var(--success);
   --color-success-text: var(--success-text);
   --color-warning: var(--warning);
@@ -112,13 +159,13 @@
   --font-display: var(--font-space-grotesk);
 }
 
-/* Editorial display headlines */
+/* Display headlines */
 .font-display {
   font-family: var(--font-space-grotesk), var(--font-geist-sans), sans-serif;
   letter-spacing: -0.03em;
 }
 
-/* Mono uppercase kicker labels — [01] HOW IT WORKS */
+/* Mono uppercase labels (still used by app screens) */
 .label-mono {
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.6875rem;
@@ -129,6 +176,8 @@
 
 html {
   scroll-behavior: smooth;
+  /* Anchor jumps (#upload, #faq) clear the sticky header */
+  scroll-padding-top: 5rem;
 }
 
 body {
@@ -142,38 +191,140 @@ body {
   background: color-mix(in srgb, var(--brand) 25%, transparent);
 }
 
+/* Native controls follow the theme accent */
+:root {
+  accent-color: var(--brand);
+  caret-color: var(--brand);
+}
+
 /* ============================================================
-   Gradient & glass utilities
+   Accessibility primitives
    ============================================================ */
 
-/* The brand gradient — used on buttons, accents, progress */
+/* One focus ring for the whole app — keyboard only. Unlayered on purpose
+   so it beats Tailwind's layered `outline-none` utilities. Components with
+   their own ring (.input-base, .focus-ring) keep it via higher specificity. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Skip link — visually hidden until focused */
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--fg);
+  color: var(--canvas);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transform: translateY(-200%);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* <main> receives focus from the skip link — no ring on the whole page */
+#main:focus {
+  outline: none;
+}
+
+/* Signed-in / signed-out UI is chosen before first paint from a hint the
+   inline script copies onto <html data-auth>. Both variants are rendered;
+   CSS shows one — so the header never flashes a spinner or shifts. */
+html[data-auth="in"] .when-signed-out {
+  display: none !important;
+}
+
+html:not([data-auth="in"]) .when-signed-in {
+  display: none !important;
+}
+
+/* Tab panels stay readable without JavaScript */
+html:not(.js) [data-tabpanel][hidden] {
+  display: block !important;
+}
+
+html:not(.js) [data-tablist] {
+  display: none;
+}
+
+/* ============================================================
+   Page shell
+   ============================================================ */
+
+/* Default content column for app screens. Full-bleed pages (the landing,
+   error pages) opt out by rendering a [data-fullbleed] root. */
+.site-main {
+  width: 100%;
+  max-width: 56rem;
+  margin-inline: auto;
+  padding: 1rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .site-main {
+    padding: 1.5rem 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .site-main {
+    padding: 2rem 2rem;
+  }
+}
+
+.site-main:has(> [data-fullbleed]) {
+  max-width: none;
+  padding: 0;
+}
+
+/* Static ambient backdrop — replaces the old always-animating blurred
+   aurora. Two soft radial washes plus a dot grid that fades out downward.
+   No filters, no animation, nothing to repaint on scroll. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 32rem at 12% -8%, var(--backdrop-wash), transparent 70%),
+    radial-gradient(48rem 28rem at 95% 10%, var(--backdrop-wash-2), transparent 70%);
+}
+
+.backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--backdrop-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 38rem);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 38rem);
+}
+
+/* ============================================================
+   Gradient utilities
+   ============================================================ */
+
+/* The brand fill — buttons, progress, badges. Darker stops than the
+   decorative cyan so white text on it passes AA in both themes. */
 .bg-flow {
-  background-image: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+  background-image: linear-gradient(135deg, var(--flow-from) 0%, var(--flow-to) 100%);
 }
 
 .bg-flow-tri {
   background-image: linear-gradient(120deg, var(--brand) 0%, var(--brand-3) 50%, var(--brand-2) 100%);
 }
 
-/* Animated gradient text for headlines */
+/* Solid accent text — the old animated gradient text failed contrast */
 .text-flow {
-  background-image: linear-gradient(
-    110deg,
-    var(--brand) 0%,
-    var(--brand-2) 40%,
-    var(--brand) 80%
-  );
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: gradientPan 8s linear infinite;
-}
-
-@keyframes gradientPan {
-  to {
-    background-position: -250% 0;
-  }
+  color: var(--brand-text);
 }
 
 /* Frosted glass panel (header, modals, floating cards) */
@@ -221,97 +372,20 @@ body {
 }
 
 /* ============================================================
-   Aurora — drifting gradient blobs behind the hero
-   ============================================================ */
-.aurora {
-  /* Fixed (not absolute): unlayered CSS outranks Tailwind's layered
-     utilities, so this must pin to the viewport itself — otherwise the
-     backdrop is only one viewport tall and ends in a hard line on scroll. */
-  position: fixed;
-  inset: 0;
-  z-index: -10;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: var(--aurora-opacity);
-  /* Full-height base wash so the glow stretches the whole viewport with
-     no hard edge where a blob's falloff ends. */
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--brand) 10%, transparent) 0%,
-      color-mix(in srgb, var(--brand-2) 4%, transparent) 45%,
-      color-mix(in srgb, var(--brand) 8%, transparent) 100%
-    );
-}
-
-.aurora::before,
-.aurora::after {
-  content: "";
-  position: absolute;
-  width: 70vmax;
-  height: 70vmax;
-  border-radius: 50%;
-  filter: blur(100px);
-  will-change: transform;
-}
-
-.aurora::before {
-  background: radial-gradient(circle at center, var(--brand) 0%, transparent 72%);
-  top: -32vmax;
-  left: -18vmax;
-  animation: auroraDrift1 18s ease-in-out infinite alternate;
-}
-
-.aurora::after {
-  background: radial-gradient(circle at center, var(--brand-2) 0%, transparent 72%);
-  bottom: -30vmax;
-  right: -22vmax;
-  animation: auroraDrift2 22s ease-in-out infinite alternate;
-}
-
-.aurora-spot {
-  position: absolute;
-  width: 50vmax;
-  height: 50vmax;
-  border-radius: 50%;
-  filter: blur(90px);
-  background: radial-gradient(circle at center, var(--brand-3) 0%, transparent 70%);
-  top: 35%;
-  left: 55%;
-  opacity: 0.4;
-  animation: auroraDrift3 26s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-@keyframes auroraDrift1 {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(12vmax, 10vmax, 0) scale(1.15); }
-}
-
-@keyframes auroraDrift2 {
-  from { transform: translate3d(0, 0, 0) scale(1.1); }
-  to { transform: translate3d(-12vmax, -10vmax, 0) scale(0.95); }
-}
-
-@keyframes auroraDrift3 {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(-16vmax, -8vmax, 0) scale(1.2); }
-}
-
-/* ============================================================
    Scroll reveal (driven by the <Reveal> component)
+   Only hides content once JS is known to run (html.js), so the page
+   is fully readable with scripts off.
    ============================================================ */
-.reveal {
+.js .reveal {
   opacity: 0;
-  transform: translateY(24px);
+  transform: translateY(16px);
   transition:
-    opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
   transition-delay: var(--reveal-delay, 0ms);
-  will-change: opacity, transform;
 }
 
-.reveal.is-visible {
+.js .reveal.is-visible {
   opacity: 1;
   transform: none;
 }
@@ -500,7 +574,6 @@ body {
 .input-base::placeholder {
   color: var(--fg-faint);
   font-style: italic;
-  opacity: 0.8;
 }
 
 .input-base:focus {
@@ -581,7 +654,7 @@ body {
     scroll-behavior: auto;
   }
 
-  .reveal {
+  .js .reveal {
     opacity: 1;
     transform: none;
   }

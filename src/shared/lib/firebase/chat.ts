@@ -1,6 +1,9 @@
+import { createHash } from 'crypto';
+import { Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './admin';
-import { generateRoomCode, normalizeReactors } from '@/shared/lib/utils';
+import { generateRoomCode, normalizeReactors, sanitizeDeviceId } from '@/shared/lib/utils';
 import { deletePrefix } from '@/shared/lib/r2';
+import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
 import type {
   ChatAttachment,
   ChatMessage,
@@ -16,8 +19,26 @@ export const MESSAGES_SUBCOLLECTION = 'messages';
 export const MAX_MESSAGE_BYTES = 900_000;     // headroom under Firestore's 1MB doc cap
 export const MAX_NAME_LENGTH = 64;
 export const MAX_ROOM_NAME_LENGTH = 80;
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024; // same cap as file sharing
+export const MAX_ATTACHMENT_BYTES = MAX_UPLOAD_BYTES; // same cap as file sharing
 export const ALLOWED_TTL_HOURS: ReadonlyArray<1 | 24 | 168> = [1, 24, 168];
+// A room never lives longer than this from its creation, extensions included.
+export const MAX_ROOM_LIFETIME_HOURS = 168;
+// One "Extend" adds this much time (capped by MAX_ROOM_LIFETIME_HOURS).
+export const EXTEND_HOURS = 24;
+
+/**
+ * Stored room doc = the public ChatRoom shape plus `expires_at_ts`, a real
+ * Firestore Timestamp mirror of `expires_at`. Security rules can't parse ISO
+ * strings, so firestore.rules checks expiry against this field. It is never
+ * returned to callers (Timestamps can't cross the server → client boundary).
+ */
+type StoredRoom = ChatRoom & { expires_at_ts?: Timestamp };
+
+function toPublicRoom(data: StoredRoom): ChatRoom {
+  const { expires_at_ts: _ts, ...room } = data;
+  void _ts;
+  return room;
+}
 
 /** R2 prefix holding every attachment of a room — deleted when the room expires. */
 export function roomStoragePrefix(code: string): string {
@@ -30,6 +51,30 @@ function roomRef(code: string) {
 
 function messagesRef(code: string) {
   return roomRef(code).collection(MESSAGES_SUBCOLLECTION);
+}
+
+/**
+ * The public form of a device id. The browser keeps its raw id secret and
+ * sends it on every write; only sha256(raw) is stored (messages, presence,
+ * reactions), so a value read from Firestore can't be replayed to act as
+ * that device. Must match deviceIdHash() in features/chat/lib/chat-helpers.ts.
+ */
+export function deviceKey(raw: unknown): string | null {
+  const id = sanitizeDeviceId(raw);
+  return id ? createHash('sha256').update(id).digest('hex').slice(0, 32) : null;
+}
+
+// One doc per attachment key that is already part of a message. Created in
+// the same batch as the message, so a key can only ever be posted once.
+// Clients can't read it (default-deny rules); room cleanup deletes it.
+function attachmentClaimRef(code: string, key: string) {
+  const id = createHash('sha256').update(key).digest('hex').slice(0, 32);
+  return roomRef(code).collection('attachment_claims').doc(id);
+}
+
+/** True when this attachment key is already part of a message. */
+export async function isAttachmentClaimed(code: string, key: string): Promise<boolean> {
+  return (await attachmentClaimRef(code, key).get()).exists;
 }
 
 /**
@@ -62,24 +107,66 @@ export async function createRoom(input: {
       creator_tz: input.creator_tz,
     };
     try {
-      await roomRef(code).create(doc);
+      const stored: StoredRoom = { ...doc, expires_at_ts: Timestamp.fromDate(new Date(expires_at)) };
+      await roomRef(code).create(stored);
       return doc;
     } catch (err: unknown) {
       // Firestore "ALREADY_EXISTS" → retry with a fresh code.
-      const code9 = (err as { code?: number })?.code === 6;
-      const msgHasExists = /already exists/i.test(
-        (err as { message?: string })?.message || ''
-      );
-      if (!code9 && !msgHasExists) throw err;
+      if (!isAlreadyExistsError(err)) throw err;
     }
   }
   throw new Error('Failed to generate a unique room code after 5 attempts');
 }
 
+/** True for Firestore's ALREADY_EXISTS (gRPC code 6), thrown by `.create()` on an existing doc. */
+export function isAlreadyExistsError(err: unknown): boolean {
+  if ((err as { code?: number })?.code === 6) return true;
+  return /already exists/i.test((err as { message?: string })?.message || '');
+}
+
 export async function getRoom(code: string): Promise<ChatRoom | null> {
   const snap = await roomRef(code).get();
   if (!snap.exists) return null;
-  return snap.data() as ChatRoom;
+  const data = snap.data() as StoredRoom;
+  // Rooms created before `expires_at_ts` existed: backfill it on first touch
+  // so the security rules (which require it) let clients read the room.
+  if (!(data.expires_at_ts instanceof Timestamp) && data.expires_at) {
+    await snap.ref
+      .update({ expires_at_ts: Timestamp.fromDate(new Date(data.expires_at)) })
+      .catch((err) => console.error(`expires_at_ts backfill failed for ${code}:`, err));
+  }
+  return toPublicRoom(data);
+}
+
+export type ExtendResult =
+  | { ok: true; expires_at: string }
+  | { ok: false; reason: 'not_found' | 'expired' | 'anonymous_room' | 'not_owner' | 'at_max' };
+
+/**
+ * Owner-only "Extend": push expiry out by EXTEND_HOURS, never past
+ * created_at + MAX_ROOM_LIFETIME_HOURS. Transactional so two clicks can't
+ * race. Rooms made by guests (created_by null) have no owner to check.
+ */
+export async function extendRoom(code: string, uid: string): Promise<ExtendResult> {
+  const ref = roomRef(code);
+  return adminDb().runTransaction(async (txn): Promise<ExtendResult> => {
+    const snap = await txn.get(ref);
+    if (!snap.exists) return { ok: false, reason: 'not_found' };
+    const room = snap.data() as StoredRoom;
+    if (isRoomExpired(room)) return { ok: false, reason: 'expired' };
+    if (!room.created_by) return { ok: false, reason: 'anonymous_room' };
+    if (room.created_by !== uid) return { ok: false, reason: 'not_owner' };
+
+    const current = new Date(room.expires_at).getTime();
+    const cap = new Date(room.created_at).getTime() + MAX_ROOM_LIFETIME_HOURS * 3600 * 1000;
+    const next = Math.min(current + EXTEND_HOURS * 3600 * 1000, cap);
+    // Less than a minute of headroom left — treat as already at the cap.
+    if (next - current < 60_000) return { ok: false, reason: 'at_max' };
+
+    const expires_at = new Date(next).toISOString();
+    txn.update(ref, { expires_at, expires_at_ts: Timestamp.fromDate(new Date(next)) });
+    return { ok: true, expires_at };
+  });
 }
 
 export function isRoomExpired(room: Pick<ChatRoom, 'expires_at'>): boolean {
@@ -103,6 +190,13 @@ export function sanitizeSenderName(raw: unknown): string {
 /**
  * Append a message to the room. Server-stamps `created_at` — never trust the
  * client clock. Caller is expected to have already validated the room exists.
+ *
+ * With `id`, the doc is written with `.create()` under that id, so a second
+ * call with the same id throws ALREADY_EXISTS (see isAlreadyExistsError).
+ * The attachment route uses this to make each upload ticket single-use.
+ *
+ * With `claimKeys`, each key is claimed in the same atomic batch; if any key
+ * was already claimed, nothing is written and ALREADY_EXISTS is thrown.
  */
 export async function addMessage(
   code: string,
@@ -116,12 +210,13 @@ export async function addMessage(
     attachment?: ChatAttachment;
     attachments?: ChatAttachment[];
     reply_to?: ChatReplyRef;
-  }
+  },
+  opts: { id?: string; claimKeys?: string[] } = {}
 ): Promise<ChatMessage> {
   if (Buffer.byteLength(input.content, 'utf8') > MAX_MESSAGE_BYTES) {
     throw new Error(`Message exceeds ${MAX_MESSAGE_BYTES} bytes`);
   }
-  const docRef = messagesRef(code).doc();
+  const docRef = opts.id ? messagesRef(code).doc(opts.id) : messagesRef(code).doc();
   const message: ChatMessage = {
     id: docRef.id,
     sender_name: input.sender_name,
@@ -135,7 +230,15 @@ export async function addMessage(
     attachments: input.attachments ?? null,
     reply_to: input.reply_to ?? null,
   };
-  await docRef.set(message);
+  if (opts.claimKeys?.length) {
+    const batch = adminDb().batch();
+    for (const key of opts.claimKeys) {
+      batch.create(attachmentClaimRef(code, key), { message_id: docRef.id });
+    }
+    batch.create(docRef, message);
+    await batch.commit();
+  } else if (opts.id) await docRef.create(message);
+  else await docRef.set(message);
   return message;
 }
 
@@ -247,9 +350,63 @@ export async function upsertPresence(
   await presenceRef(code, input.device_id).set(patch, { merge: true });
 }
 
-/** Remove a presence doc (sent via beacon when the tab closes). */
+/** Remove a presence doc (explicit "Leave room"). */
 export async function clearPresence(code: string, deviceId: string): Promise<void> {
   await presenceRef(code, deviceId).delete();
+}
+
+/** True when this device has a presence doc beaten within `withinMs`. */
+export async function hasFreshPresence(
+  code: string,
+  deviceId: string,
+  withinMs: number
+): Promise<boolean> {
+  const snap = await presenceRef(code, deviceId).get();
+  if (!snap.exists) return false;
+  const lastSeen = new Date((snap.data() as ChatPresence).last_seen).getTime();
+  return Date.now() - lastSeen < withinMs;
+}
+
+// No heartbeat for this long → the participant is announced as "left".
+// Clients beat every 25s; background tabs can be throttled to ~1/min, so
+// this leaves room for a couple of missed beats. The client's "online" dot
+// (ONLINE_WINDOW_MS in features/chat/lib/chat-helpers.ts, 2 min) must stay
+// above that ~1/min background beat and at or below this value.
+export const PRESENCE_STALE_MS = 3 * 60_000;
+
+/**
+ * Heartbeat timeout: delete presence docs that stopped beating and post a
+ * "left" notice for each. The delete carries a lastUpdateTime precondition,
+ * so a beat that lands mid-sweep (or a second instance sweeping the same
+ * room) makes it fail and no duplicate "left" is written.
+ */
+export async function sweepStalePresence(code: string): Promise<number> {
+  const cutoff = new Date(Date.now() - PRESENCE_STALE_MS).toISOString();
+  const snap = await roomRef(code)
+    .collection('presence')
+    .where('last_seen', '<', cutoff)
+    .limit(20)
+    .get();
+  let swept = 0;
+  for (const doc of snap.docs) {
+    try {
+      await doc.ref.delete({ lastUpdateTime: doc.updateTime });
+    } catch {
+      continue; // beaten or swept by someone else meanwhile
+    }
+    const p = doc.data() as ChatPresence;
+    if (!p.name) continue;
+    await addMessage(code, {
+      sender_name: p.name,
+      sender_id: null,
+      sender_device_id: p.device_id,
+      content: 'left',
+      sender_tz: 'UTC',
+      kind: 'system',
+    }).catch((err) => console.error(`left notice failed for ${code}:`, err));
+    swept++;
+  }
+  return swept;
 }
 
 export async function listRoomsByOwner(uid: string): Promise<ChatRoom[]> {
@@ -259,7 +416,7 @@ export async function listRoomsByOwner(uid: string): Promise<ChatRoom[]> {
     .orderBy('created_at', 'desc')
     .limit(50)
     .get();
-  return snap.docs.map((d) => d.data() as ChatRoom);
+  return snap.docs.map((d) => toPublicRoom(d.data() as StoredRoom));
 }
 
 /**

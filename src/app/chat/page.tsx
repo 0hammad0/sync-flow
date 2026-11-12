@@ -1,7 +1,7 @@
 import ChatLobby from '@/features/chat/components/ChatLobby';
 
 export const metadata = {
-  title: 'Chat Rooms',
+  title: 'Chat rooms',
   description: 'Create or join a temporary chat room with a secure code.',
 };
 

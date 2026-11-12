@@ -3,6 +3,8 @@
 // Thin client for /api/ai. The route streams plain text (already unwrapped
 // from the provider's SSE), so consuming it is just reading body chunks.
 
+import type { RewritePresetId } from './rewrite-presets';
+
 export class AiError extends Error {}
 
 export interface AiPayload {
@@ -10,29 +12,45 @@ export interface AiPayload {
   transcript?: string;
   me?: string;
   text?: string;
-  instruction?: string;
+  preset?: RewritePresetId;
   target?: string;
   code?: string;
   lang?: string;
 }
 
+// /api/ai only serves requests from a live chat room. The open room sets its
+// code here once, so deep components (code snippets, bubbles) don't need it
+// threaded through props.
+let currentRoom: string | null = null;
+export function setAiRoom(code: string | null): void {
+  currentRoom = code;
+}
+
+/** True when the error is the user pressing Stop (AbortController.abort()). */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
 /**
  * POST the task and stream the response. `onUpdate` receives the full
  * accumulated text after every chunk (convenient for setState). Returns
- * the final trimmed text.
+ * the final trimmed text. Pass `signal` to support a Stop button; an abort
+ * rejects with an AbortError (check with isAbortError).
  */
 export async function streamAi(
   payload: AiPayload,
-  onUpdate?: (fullText: string) => void
+  onUpdate?: (fullText: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const res = await fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, room: currentRoom }),
+    signal,
   });
 
   if (!res.ok) {
-    let message = `AI request failed (HTTP ${res.status})`;
+    let message = 'AI is unavailable right now. Try again later.';
     try {
       const data = await res.json();
       if (data?.error) message = data.error;

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { getRequestOrigin } from '@/shared/lib/utils';
+import { getFile } from '@/shared/lib/firebase/files';
+import type { FileRecord } from '@/types';
 
 // Escape user-supplied text before templating it into the HTML email, so a
 // crafted filename or link can't inject markup or attributes.
@@ -13,34 +16,93 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Most links one email may carry (a multi-file upload sends them together).
+const MAX_FILES_PER_EMAIL = 25;
+
+/** Single line, no control characters, capped — safe for the subject header. */
+function oneLine(s: string, max: number): string {
+  return s.replace(/\p{Cc}+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+// Share tokens are generateToken(): 16 random bytes as hex.
+const SHARE_PATH_RE = /^\/share\/([a-f0-9]{32})$/;
+// Encrypted links carry the AES key (URL-safe base64) after the #.
+const KEY_FRAGMENT_RE = /^(#[A-Za-z0-9_-]*)?$/;
+
+/**
+ * Token and #key of `link` if it is a share page of THIS app:
+ * `<our origin>/share/<token>`, no query, optional #key. Anything else is
+ * refused, so the endpoint can't mail arbitrary links (phishing relay).
+ */
+function parseShareLink(link: string, appOrigin: string): { token: string; hash: string } | null {
+  let u: URL;
+  try {
+    u = new URL(link);
+  } catch {
+    return null;
+  }
+  if (u.origin !== appOrigin || u.username || u.password || u.search) return null;
+  if (!KEY_FRAGMENT_RE.test(u.hash)) return null;
+  const token = SHARE_PATH_RE.exec(u.pathname)?.[1];
+  return token ? { token, hash: u.hash } : null;
+}
+
+/** Still downloadable: exists, not expired, downloads not used up. */
+function isAvailable(file: FileRecord | null): file is FileRecord {
+  if (!file) return false;
+  if (file.expires_at && new Date(file.expires_at).getTime() <= Date.now()) return false;
+  if (file.max_downloads !== null && file.download_count >= file.max_downloads) return false;
+  return true;
+}
+
+/** File name + download button + plain link, all escaped. */
+function fileBlockHtml(name: string, link: string): string {
+  const nameHtml = escapeHtml(name);
+  const linkHtml = escapeHtml(link);
+  return `
+            <div style="background: #f9fafb; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
+              <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">File</p>
+              <p style="margin: 0 0 12px 0; font-size: 15px; font-weight: 600; color: #111827; word-break: break-word;">${nameHtml}</p>
+              <a href="${linkHtml}" style="display: block; background: #111827; color: white; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; text-align: center; margin-bottom: 10px;">
+                Download File
+              </a>
+              <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
+                <a href="${linkHtml}" style="color: #6b7280;">${linkHtml}</a>
+              </p>
+            </div>`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Uses our SMTP account to send mail, so throttle hard: 5 per 10 min per
     // IP. Without this the endpoint is an open relay for spam.
     const rl = rateLimit(`send-email:${clientKey(request)}`, 5, 10 * 60_000);
     if (!rl.allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Too many emails sent — try again later.' },
-        {
-          status: 429,
-          headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-        }
-      );
+      return tooManyRequests('Too many emails sent — try again later.', rl.retryAfterMs);
     }
 
-    const { to, fileName, downloadLink, isEncrypted } = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ success: false, error: 'Invalid request' }, { status: 400 });
+    }
+    const { to } = body;
 
-    // Validate input
-    if (
-      typeof to !== 'string' ||
-      typeof fileName !== 'string' ||
-      typeof downloadLink !== 'string' ||
-      !to ||
-      !fileName ||
-      !downloadLink
-    ) {
+    // One email can carry every link of a multi-file upload: `files` is
+    // [{ name, link }]. The single-file shape { fileName, downloadLink } still works.
+    // `name` is ignored — the email shows the name stored with the file.
+    const rawFiles: unknown[] = Array.isArray(body.files)
+      ? body.files
+      : [{ name: body.fileName, link: body.downloadLink }];
+
+    if (typeof to !== 'string' || !to || rawFiles.length === 0) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+    if (rawFiles.length > MAX_FILES_PER_EMAIL) {
+      return NextResponse.json(
+        { success: false, error: `You can send up to ${MAX_FILES_PER_EMAIL} links in one email` },
         { status: 400 }
       );
     }
@@ -54,25 +116,62 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The download link must be a real http(s) URL — reject anything else
-    // (javascript:, data:, etc.) before it lands in an email.
-    let safeLink: string;
-    try {
-      const u = new URL(downloadLink);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
-      safeLink = u.toString();
-    } catch {
+    // Only links to live share pages of this app, so the email can't point
+    // anywhere else. The link is rebuilt from our origin + token + #key.
+    const appOrigin = new URL(getRequestOrigin(request.headers)).origin;
+    const parsed: { token: string; link: string }[] = [];
+    for (const raw of rawFiles) {
+      const item = raw as { link?: unknown } | null;
+      if (!item || typeof item.link !== 'string' || !item.link) {
+        return NextResponse.json(
+          { success: false, error: 'Missing required fields' },
+          { status: 400 }
+        );
+      }
+      const share = parseShareLink(item.link, appOrigin);
+      if (!share) {
+        return NextResponse.json(
+          { success: false, error: 'Only SyncFlow share links from this site can be emailed' },
+          { status: 400 }
+        );
+      }
+      parsed.push({ token: share.token, link: `${appOrigin}/share/${share.token}${share.hash}` });
+    }
+
+    const records = await Promise.all(parsed.map((p) => getFile(p.token)));
+    if (!records.every(isAvailable)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid download link' },
+        { success: false, error: 'One of these files no longer exists or has expired' },
         { status: 400 }
       );
     }
+    // Name from Firestore, not the request: capped and stripped of control
+    // characters (also keeps the subject header clean).
+    const files = parsed.map((p, i) => ({ name: oneLine(records[i].original_name, 200), link: p.link }));
+    const isEncrypted = records.some((r) => r.is_encrypted);
 
-    // Cap and strip control characters from the filename (also prevents
-    // subject-header oddities).
-    const safeName = fileName.replace(/[\r\n\t]/g, ' ').slice(0, 200);
-    const nameHtml = escapeHtml(safeName);
-    const linkHtml = escapeHtml(safeLink);
+    // Optional sender name and note, so the email doesn't read like phishing.
+    const senderName = typeof body.senderName === 'string' ? oneLine(body.senderName, 80) : '';
+    const message =
+      typeof body.message === 'string'
+        ? body.message.replace(/\r\n?/g, '\n').replace(/[^\S\n]+/g, ' ').replace(/[^\P{Cc}\n]/gu, '').trim().slice(0, 1000)
+        : '';
+
+    const single = files.length === 1;
+    const subject = senderName
+      ? single
+        ? `${senderName} sent you a file: ${files[0].name}`
+        : `${senderName} sent you ${files.length} files`
+      : single
+      ? `File shared with you: ${files[0].name}`
+      : `${files.length} files shared with you`;
+    const intro = senderName
+      ? `${senderName} sent you ${single ? 'a file' : `${files.length} files`} with SyncFlow.`
+      : `You've received ${single ? 'a file' : `${files.length} files`} via SyncFlow.`;
+    const senderHtml = escapeHtml(senderName);
+    const introHtml = senderName
+      ? `<strong>${senderHtml}</strong> sent you ${single ? 'a file' : `${files.length} files`} with SyncFlow.`
+      : escapeHtml(intro);
 
     // Check if SMTP is configured
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -110,36 +209,27 @@ export async function POST(request: NextRequest) {
 
             <!-- Main content -->
             <p style="margin: 0 0 24px 0; font-size: 16px; color: #374151;">
-              You've received a file. Click the button below to download it.
+              ${introHtml}
             </p>
 
-            <!-- File info card -->
-            <div style="background: #f9fafb; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px;">
-              <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">File</p>
-              <p style="margin: 0; font-size: 15px; font-weight: 600; color: #111827; word-break: break-word;">${nameHtml}</p>
+            ${message ? `
+            <!-- Sender's note -->
+            <div style="border-left: 3px solid #d1d5db; padding: 4px 0 4px 14px; margin-bottom: 24px;">
+              <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Message${senderName ? ` from ${senderHtml}` : ''}</p>
+              <p style="margin: 0; font-size: 15px; color: #111827; white-space: pre-wrap; word-break: break-word;">${escapeHtml(message)}</p>
             </div>
+            ` : ''}
 
             ${isEncrypted ? `
             <!-- Encryption notice -->
             <div style="background: #f0fdf4; border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; border-left: 3px solid #22c55e;">
               <p style="margin: 0; font-size: 13px; color: #166534;">
-                <strong>Encrypted</strong> — This file is end-to-end encrypted. The decryption key is included in the download link.
+                <strong>Encrypted</strong> — ${single ? 'This file is' : 'These files are'} end-to-end encrypted. The decryption key is included in the download link.
               </p>
             </div>
             ` : ''}
 
-            <!-- Download button -->
-            <a href="${linkHtml}" style="display: block; background: #111827; color: white; text-decoration: none; padding: 14px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; margin-bottom: 24px;">
-              Download File
-            </a>
-
-            <!-- Link fallback -->
-            <p style="margin: 0 0 8px 0; font-size: 12px; color: #9ca3af; text-align: center;">
-              Or copy this link:
-            </p>
-            <p style="margin: 0; font-size: 12px; text-align: center; word-break: break-all;">
-              <a href="${linkHtml}" style="color: #6b7280;">${linkHtml}</a>
-            </p>
+            ${files.map((f) => fileBlockHtml(f.name, f.link)).join('')}
 
           </div>
 
@@ -153,6 +243,7 @@ export async function POST(request: NextRequest) {
               <p style="margin: 0;">• The link may expire after some time</p>
               <p style="margin: 0;">• If the file is encrypted, decryption happens automatically</p>
               <p style="margin: 0;">• Contact the sender if you have any issues</p>
+              ${senderName ? '<p style="margin: 0;">• SyncFlow does not verify the sender name. Only open files from people you know.</p>' : ''}
             </div>
           </div>
 
@@ -169,16 +260,15 @@ export async function POST(request: NextRequest) {
 SyncFlow
 ========
 
-You've received a file. Use the link below to download it.
+${intro}
 
-FILE
-${safeName}
+${message ? `MESSAGE${senderName ? ` FROM ${senderName.toUpperCase()}` : ''}
+${message}
 
-${isEncrypted ? `ENCRYPTED
-This file is end-to-end encrypted. The decryption key is included in the download link.
+` : ''}${isEncrypted ? `ENCRYPTED
+${single ? 'This file is' : 'These files are'} end-to-end encrypted. The decryption key is included in the download link.
 
-` : ''}DOWNLOAD LINK
-${safeLink}
+` : ''}${files.map((f) => `FILE: ${f.name}\n${f.link}`).join('\n\n')}
 
 ---
 
@@ -187,7 +277,7 @@ NEED HELP?
 • The link may expire after some time
 • If the file is encrypted, decryption happens automatically
 • Contact the sender if you have any issues
-
+${senderName ? '• SyncFlow does not verify the sender name. Only open files from people you know.\n' : ''}
 ---
 Sent via SyncFlow — Fast & Secure File Sharing
     `.trim();
@@ -196,7 +286,7 @@ Sent via SyncFlow — Fast & Secure File Sharing
     await transporter.sendMail({
       from: `"SyncFlow" <${process.env.SMTP_USER}>`,
       to,
-      subject: `File shared with you: ${safeName}`,
+      subject,
       text: textContent,
       html: htmlContent,
     });

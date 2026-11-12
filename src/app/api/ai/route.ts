@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { clientKey, rateLimit } from '@/shared/lib/rate-limit';
+import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { getRoom, isRoomExpired } from '@/shared/lib/firebase/chat';
+import { isValidRoomCode } from '@/shared/lib/utils';
 import {
+  aiDailyLimit,
   aiRateLimitPerMinute,
   buildPrompt,
   enabledTasks,
@@ -11,6 +14,24 @@ import {
 
 export const runtime = 'nodejs';
 
+const UNAVAILABLE = 'AI is unavailable right now. Try again later.';
+
+// Global daily budget for the operator's OpenRouter key. In-memory, so it is
+// per server instance (each warm instance gets its own allowance) — good
+// enough to stop a runaway client from spending the key overnight.
+let dayKey = '';
+let dayCount = 0;
+function takeDailySlot(): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== dayKey) {
+    dayKey = today;
+    dayCount = 0;
+  }
+  if (dayCount >= aiDailyLimit()) return false;
+  dayCount++;
+  return true;
+}
+
 /**
  * GET — feature discovery. The UI calls this once and only renders AI
  * controls for the tasks that are actually available, so features can be
@@ -20,27 +41,24 @@ export async function GET() {
   return NextResponse.json({ enabled: isAiConfigured(), tasks: enabledTasks() });
 }
 
-/** POST — run an AI task; the response is a plain text stream. */
+/**
+ * POST — run an AI task; the response is a plain text stream. Only usable
+ * from inside a live chat room: the body must carry the code of an existing,
+ * unexpired room, so the operator's key is not an open proxy.
+ */
 export async function POST(request: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      { success: false, error: 'AI is not configured — add OPENROUTER_API_KEY to the environment.' },
-      { status: 503 }
-    );
+    // Operator-facing detail stays in the logs, not in the user's face.
+    console.warn('AI request rejected: OPENROUTER_API_KEY is not set');
+    return NextResponse.json({ success: false, error: UNAVAILABLE }, { status: 503 });
   }
 
   // Free-tier models are heavily rate-limited upstream anyway; keep one
   // client from burning the whole allowance.
   const rl = rateLimit(`ai:${clientKey(request)}`, aiRateLimitPerMinute(), 60_000);
   if (!rl.allowed) {
-    return NextResponse.json(
-      { success: false, error: 'Too many AI requests — try again in a moment.' },
-      {
-        status: 429,
-        headers: { 'Retry-After': Math.ceil(rl.retryAfterMs / 1000).toString() },
-      }
-    );
+    return tooManyRequests('Too many AI requests — try again in a moment.', rl.retryAfterMs);
   }
 
   let body: AiRequestBody;
@@ -48,6 +66,14 @@ export async function POST(request: NextRequest) {
     body = await request.json();
   } catch {
     return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const code = typeof body.room === 'string' ? body.room.toUpperCase() : '';
+  if (!isValidRoomCode(code)) {
+    return NextResponse.json(
+      { success: false, error: 'AI only works inside a chat room.' },
+      { status: 403 }
+    );
   }
 
   const prompt = buildPrompt(body);
@@ -58,10 +84,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  try {
+    const room = await getRoom(code);
+    if (!room || isRoomExpired(room)) {
+      return NextResponse.json(
+        { success: false, error: 'AI only works inside an active chat room.' },
+        { status: 403 }
+      );
+    }
+  } catch (err) {
+    console.error('AI room check failed:', err);
+    return NextResponse.json({ success: false, error: UNAVAILABLE }, { status: 503 });
+  }
+
+  if (!takeDailySlot()) {
+    return tooManyRequests('AI has reached its daily limit. Try again tomorrow.');
+  }
+
   const models = modelList();
+  // Client hit Stop (or closed the tab) → stop paying for upstream tokens.
   const callUpstream = () =>
     fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
+      signal: request.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -85,7 +130,14 @@ export async function POST(request: NextRequest) {
   // Free models get congested; when every fallback is momentarily 429'd,
   // honor the upstream Retry-After hint (up to two retries) before giving up.
   const MAX_RETRIES = 2;
-  let upstream = await callUpstream();
+  let upstream: Response;
+  try {
+    upstream = await callUpstream();
+  } catch (err) {
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    console.error('AI upstream fetch failed:', err);
+    return NextResponse.json({ success: false, error: UNAVAILABLE }, { status: 502 });
+  }
   let detail = '';
   let congested = false;
   for (let attempt = 0; (!upstream.ok || !upstream.body) && attempt <= MAX_RETRIES; attempt++) {
@@ -103,19 +155,19 @@ export async function POST(request: NextRequest) {
     }
     if (retryAfter === 0 || attempt === MAX_RETRIES) break;
     await new Promise((r) => setTimeout(r, Math.min(retryAfter, 10) * 1000));
-    upstream = await callUpstream();
+    if (request.signal.aborted) return new Response(null, { status: 499 });
+    try {
+      upstream = await callUpstream();
+    } catch {
+      if (request.signal.aborted) return new Response(null, { status: 499 });
+      return NextResponse.json({ success: false, error: UNAVAILABLE }, { status: 502 });
+    }
   }
 
   if (!upstream.ok || !upstream.body) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: congested
-          ? 'AI agent is busy right now — try again later.'
-          : `AI agent is unavailable right now — try again later. (${detail.slice(0, 160)})`,
-      },
-      { status: congested ? 429 : 502 }
-    );
+    console.error('AI upstream error:', detail.slice(0, 300));
+    if (congested) return tooManyRequests('AI is busy right now. Try again in a minute.');
+    return NextResponse.json({ success: false, error: UNAVAILABLE }, { status: 502 });
   }
 
   // Re-emit OpenRouter's SSE as a plain text stream of content deltas —

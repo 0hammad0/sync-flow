@@ -1,62 +1,44 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { onAuthStateChanged, type User } from 'firebase/auth';
-import { clientAuth } from '@/shared/lib/firebase/client';
-import { CheckCircle2, UserRound } from 'lucide-react';
+import { ArrowRight, FolderOpen, UserRound } from 'lucide-react';
+import { useSignedIn } from '@/shared/lib/auth-state';
 
-export default function AuthCTA() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(clientAuth(), (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
-  if (loading) return null;
-
-  if (user) {
-    return (
-      <div className="mt-4 p-4 bg-success/10 border border-success/20 rounded-2xl animate-fade-in">
-        <div className="flex items-start gap-3">
-          <CheckCircle2 className="w-5 h-5 shrink-0 text-success-text mt-0.5" />
-          <div>
-            <p className="text-sm text-fg font-medium">
-              You&apos;re signed in!
-            </p>
-            <p className="text-xs text-fg-muted mt-0.5">
-              <Link href="/dashboard" className="text-success-text underline hover:no-underline font-medium">
-                Go to your dashboard
-              </Link>
-              {' '}to view and manage your uploaded files.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+/**
+ * Account nudge. Both variants are server-rendered and CSS shows the right
+ * one before first paint (see `.when-signed-in` in globals.css), so it never
+ * pops in or shifts the layout once Firebase answers.
+ */
+export default function AuthCTA({ className = '' }: { className?: string }) {
+  useSignedIn(); // keeps <html data-auth> in sync
 
   return (
-    <div className="mt-4 p-4 bg-brand/5 border border-brand/15 rounded-2xl animate-fade-in">
-      <div className="flex items-start gap-3">
-        <UserRound className="w-5 h-5 shrink-0 text-brand-text mt-0.5" />
-        <div>
-          <p className="text-sm text-fg font-medium">
-            Want to manage your files?
-          </p>
-          <p className="text-xs text-fg-muted mt-0.5">
-            <Link href="/login" className="text-brand-text underline hover:no-underline font-medium">
-              Sign in
-            </Link>
-            {' '}to view, organize, and delete your uploaded files anytime.
-          </p>
-        </div>
-      </div>
+    <div className={className}>
+      <p className="when-signed-in flex items-start gap-2.5 text-sm text-fg-muted">
+        <FolderOpen className="w-4 h-4 shrink-0 mt-0.5 text-brand-text" aria-hidden="true" />
+        <span>
+          You&apos;re signed in.{' '}
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 font-medium text-brand-text underline underline-offset-4 decoration-brand-text/40 hover:decoration-brand-text"
+          >
+            Open My Files
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </Link>
+        </span>
+      </p>
+      <p className="when-signed-out flex items-start gap-2.5 text-sm text-fg-muted">
+        <UserRound className="w-4 h-4 shrink-0 mt-0.5 text-brand-text" aria-hidden="true" />
+        <span>
+          <Link
+            href="/login"
+            className="font-medium text-brand-text underline underline-offset-4 decoration-brand-text/40 hover:decoration-brand-text"
+          >
+            Sign in with an email link
+          </Link>{' '}
+          to keep up to 10 files in My Files and choose 30-day or no expiry.
+        </span>
+      </p>
     </div>
   );
 }
