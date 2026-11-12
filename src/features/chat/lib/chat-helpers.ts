@@ -60,16 +60,10 @@ export const TYPING_THROTTLE_MS = 2_500;
 // the participant is announced as "left".
 export const ONLINE_WINDOW_MS = 2 * 60_000;
 
-// Curated quick-picker set — the textarea also accepts any emoji from the
-// OS keyboard (Win+. / Cmd+Ctrl+Space).
-export const EMOJI_SET = [
-  '😀', '😂', '🤣', '😊', '😍', '😘', '😎', '🤩',
-  '🥳', '😅', '😉', '🙃', '😢', '😭', '😡', '🤔',
-  '🤗', '🤫', '😴', '🥺', '👍', '👎', '👏', '🙏',
-  '🤝', '💪', '✌️', '🤞', '❤️', '🧡', '💛', '💚',
-  '💙', '💜', '🖤', '💔', '🔥', '✨', '🎉', '🎂',
-  '🌹', '☀️', '🌙', '⭐', '⚡', '💯', '✅', '❌',
-];
+// Curated quick-picker set (the textarea also accepts any emoji from the
+// OS keyboard). Defined in shared utils because the reactions route
+// validates the reaction "+" picker against it.
+export { EMOJI_SET } from '@/shared/lib/utils';
 
 // Composer rewrite presets — the client sends only the preset id; the
 // server owns the instruction text.
@@ -172,6 +166,11 @@ export function previewKind(att: ChatAttachment): 'image' | 'pdf' | 'docx' | nul
 
 export function attachmentViewUrl(roomCode: string, key: string): string {
   return `/api/chat/${roomCode}/attachments?key=${encodeURIComponent(key)}`;
+}
+
+// Same endpoint, signed as `attachment` and saved under the original name.
+export function attachmentDownloadUrl(roomCode: string, att: ChatAttachment): string {
+  return `${attachmentViewUrl(roomCode, att.key)}&download=1&name=${encodeURIComponent(att.name)}`;
 }
 
 // All attachments of a message — album field first, legacy single fallback.

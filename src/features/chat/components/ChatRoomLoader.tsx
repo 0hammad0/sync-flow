@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import ChatRoomSkeleton from '@/features/chat/components/ChatRoomSkeleton';
 import type { ChatRoom as ChatRoomType } from '@/types';
 
 // The room renders client-only: its first frame depends on localStorage (saved
@@ -9,11 +9,9 @@ import type { ChatRoom as ChatRoomType } from '@/types';
 // the name form for returning users or mismatch on hydration.
 const ChatRoom = dynamic(() => import('@/features/chat/components/ChatRoom'), {
   ssr: false,
-  loading: () => (
-    <div className="flex justify-center py-16">
-      <LoadingSpinner size="md" className="text-fg-faint" />
-    </div>
-  ),
+  // Same skeleton as the route's loading.tsx, so the hand-off from "page
+  // loading" to "room code loading" doesn't flash a different placeholder.
+  loading: () => <ChatRoomSkeleton />,
 });
 
 export default function ChatRoomLoader(props: { room: ChatRoomType; joinUrl: string }) {

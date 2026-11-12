@@ -15,10 +15,11 @@ import {
 } from '@/shared/lib/firebase/chat';
 import type { ChatReplyRef } from '@/types';
 import { isValidMessageId, isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
-import { deleteObject, putObject, signedDownloadUrl } from '@/shared/lib/r2';
+import { deleteObject, objectExists, putObject, signedDownloadUrl } from '@/shared/lib/r2';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { readUploadTicket, verifyUploadedObject } from '@/shared/lib/upload-ticket';
 import {
+  attachmentDownloadName,
   planAttachment,
   signAttachmentProof,
   type AttachmentPlan,
@@ -297,6 +298,14 @@ async function finishAttachment(
  * GET ?key=...&download=1 — redirect to a fresh 1-hour signed R2 URL for an
  * attachment of THIS room. <img>/<video> tags point here directly, so media
  * keeps working long after any individual signed URL would have expired.
+ *
+ * download=1 signs `Content-Disposition: attachment` so the browser saves the
+ * file instead of opening it; optional &name= is the original filename,
+ * accepted only if it matches the key (attachmentDownloadName).
+ * &format=json (one-tap download buttons) returns { url } instead of a
+ * redirect, after checking the object still exists — so the client can show
+ * a clean error instead of navigating to an R2 error page. Same checks as the
+ * redirect: key inside this room's prefix, room exists and is not expired.
  */
 export async function GET(
   request: NextRequest,
@@ -310,7 +319,8 @@ export async function GET(
   }
 
   const key = request.nextUrl.searchParams.get('key') || '';
-  const wantsDownload = request.nextUrl.searchParams.get('download') === '1';
+  const wantsJson = request.nextUrl.searchParams.get('format') === 'json';
+  const wantsDownload = wantsJson || request.nextUrl.searchParams.get('download') === '1';
 
   // The key must live inside this room's storage prefix — prevents using a
   // room code to read other rooms' files or the file-sharing area.
@@ -327,7 +337,20 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'expired' }, { status: 410 });
     }
 
-    const filename = key.split('/').pop() || 'file';
+    const filename = attachmentDownloadName(key, request.nextUrl.searchParams.get('name'));
+
+    if (wantsJson) {
+      if (!(await objectExists(key))) {
+        return NextResponse.json({ success: false, error: 'file_not_found' }, { status: 404 });
+      }
+      // Used at once by the client, so a short life is plenty.
+      const url = await signedDownloadUrl(key, 300, { downloadFilename: filename });
+      return NextResponse.json(
+        { success: true, url },
+        { headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     const signedUrl = await signedDownloadUrl(key, 3600, {
       downloadFilename: wantsDownload ? filename : undefined,
     });

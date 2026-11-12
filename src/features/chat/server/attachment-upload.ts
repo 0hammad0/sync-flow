@@ -52,6 +52,27 @@ export function planAttachment(
 }
 
 /**
+ * Filename to save a download as. Keys only hold the sanitized name
+ * ("Résumé (1).pdf" → "R_sum_1_.pdf"), so the client may pass the original
+ * name it shows — accepted only when it sanitizes back to the key's own
+ * filename (exactly how planAttachment built the key). That binds it to the
+ * stored object: no other name, and no other extension, can be forced.
+ */
+export function attachmentDownloadName(key: string, requested: string | null): string {
+  const keyName = key.split('/').pop() || 'file';
+  if (
+    !requested ||
+    requested.length > 255 ||
+    /[/\\]/.test(requested) ||
+    Array.from(requested).some((c) => c.charCodeAt(0) < 0x20 || c === '\x7f') ||
+    sanitizeFileName(requested) !== keyName
+  ) {
+    return keyName;
+  }
+  return requested;
+}
+
+/**
  * Album files are uploaded one by one (uploadOnly), then posted together via
  * /messages. The upload step returns this proof with each file's metadata so
  * /messages only accepts files this server really stored for this room, with

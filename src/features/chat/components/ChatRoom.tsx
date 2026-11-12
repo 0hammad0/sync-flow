@@ -1162,12 +1162,6 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     textareaRef.current?.focus();
   }, []);
 
-  // Stable identity array so memoized bubbles don't re-render on parent ticks.
-  const myReactorIds = useMemo(
-    () => [deviceHash, `legacy:${displayName}`],
-    [deviceHash, displayName]
-  );
-
   // Attachments the in-chat viewer can show, in chat order (albums are
   // flattened) — prev/next navigates this list, WhatsApp media-viewer style.
   const viewableAttachments = useMemo(() => {
@@ -1534,6 +1528,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             setShowJumpDown(fromBottom > 300);
             if (fromBottom < 200) setUnseenCount(0);
           }}
+          data-chat-scroll
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-canvas/50"
           aria-live="polite"
         >
@@ -1566,7 +1561,8 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                       ? m.sender_device_id === deviceHash
                       : m.sender_name === displayName
                   }
-                  myReactorIds={myReactorIds}
+                  // Reactions are "mine" only by device id, never by name.
+                  myDeviceHash={deviceHash}
                   roomCode={room.code}
                   highlighted={highlightId === m.id}
                   onReply={handleStartReply}

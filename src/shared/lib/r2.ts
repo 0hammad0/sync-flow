@@ -143,6 +143,20 @@ export async function objectExists(key: string): Promise<boolean> {
   return (await objectSize(key)) !== null;
 }
 
+/**
+ * `Content-Disposition: attachment` that survives any filename: a plain-ASCII
+ * `filename=` fallback for old clients plus the RFC 5987 `filename*` with the
+ * exact UTF-8 name (spaces, accents, emoji, quotes) for every current browser.
+ */
+export function attachmentDisposition(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7e]|["\\]/g, '_') || 'file';
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function signedDownloadUrl(
   key: string,
   expiresIn: number = 3600,
@@ -152,7 +166,7 @@ export async function signedDownloadUrl(
     Bucket: R2_BUCKET,
     Key: key,
     ResponseContentDisposition: options?.downloadFilename
-      ? `attachment; filename="${options.downloadFilename}"`
+      ? attachmentDisposition(options.downloadFilename)
       : undefined,
   });
   return getSignedUrl(r2(), cmd, { expiresIn });

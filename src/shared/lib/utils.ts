@@ -34,6 +34,25 @@ export function isValidRoomCode(code: string): boolean {
 // server-side validation in /api/chat/[roomCode]/reactions.
 export const CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
 
+// Curated emoji grid — the composer's quick picker and the reaction "+"
+// picker. Lives here (not in chat-helpers) because the reactions route
+// validates against it too.
+export const EMOJI_SET = [
+  '😀', '😂', '🤣', '😊', '😍', '😘', '😎', '🤩',
+  '🥳', '😅', '😉', '🙃', '😢', '😭', '😡', '🤔',
+  '🤗', '🤫', '😴', '🥺', '👍', '👎', '👏', '🙏',
+  '🤝', '💪', '✌️', '🤞', '❤️', '🧡', '💛', '💚',
+  '💙', '💜', '🖤', '💔', '🔥', '✨', '🎉', '🎂',
+  '🌹', '☀️', '🌙', '⭐', '⚡', '💯', '✅', '❌',
+] as const;
+
+// Any emoji a reaction may use: the six quick ones plus the "+" grid. Still a
+// closed whitelist, so reaction map keys stay a small, known set.
+const REACTION_EMOJI: ReadonlySet<string> = new Set<string>([...CHAT_REACTIONS, ...EMOJI_SET]);
+export function isReactionEmoji(v: unknown): v is string {
+  return typeof v === 'string' && REACTION_EMOJI.has(v);
+}
+
 // Long text messages: over INLINE the client transparently stores the body
 // in R2 (Firestore docs cap at 1MB and big docs slow every listener);
 // 15MB is the hard ceiling. Both shared client+server.
