@@ -75,7 +75,7 @@ AI controls appear only when an `OPENROUTER_API_KEY` or `GEMINI_API_KEY` is conf
 
 ### Prerequisites
 
-- Node.js 22+ (firebase-admin 14 needs it)
+- Node.js 22+
 - A [Firebase](https://console.firebase.google.com/) project (free Spark plan works)
 - A [Cloudflare](https://dash.cloudflare.com/) account with R2 enabled
 - *(Optional)* An [OpenRouter](https://openrouter.ai/) account for the AI features, and/or a [Gemini API key](https://aistudio.google.com/apikey) as fallback
