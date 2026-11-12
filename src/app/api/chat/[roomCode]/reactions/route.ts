@@ -6,7 +6,7 @@ import {
   sanitizeSenderName,
   toggleReaction,
 } from '@/shared/lib/firebase/chat';
-import { CHAT_REACTIONS, isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
+import { isReactionEmoji, isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -39,10 +39,8 @@ export async function POST(
   if (!isValidMessageId(body.messageId)) {
     return NextResponse.json({ success: false, error: 'invalid messageId' }, { status: 400 });
   }
-  if (
-    typeof body.emoji !== 'string' ||
-    !(CHAT_REACTIONS as readonly string[]).includes(body.emoji)
-  ) {
+  // Quick-bar six plus the "+" picker grid; anything else is rejected.
+  if (!isReactionEmoji(body.emoji)) {
     return NextResponse.json({ success: false, error: 'invalid emoji' }, { status: 400 });
   }
   const senderName = sanitizeSenderName(body.senderName);

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, FileText, X } from 'lucide-react';
 import { formatFileSize } from '@/shared/lib/utils';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import { attachmentViewUrl, previewKind } from '@/features/chat/lib/chat-helpers';
+import { attachmentDownloadUrl, attachmentViewUrl, previewKind } from '@/features/chat/lib/chat-helpers';
 import type { ChatAttachment } from '@/types';
 
 // Full-screen lightbox for chat attachments: images, PDFs (iframe), and
@@ -46,6 +46,8 @@ export function MediaViewer({
   const att = current.att;
   const kind = previewKind(att);
   const viewUrl = attachmentViewUrl(roomCode, att.key);
+  // Saved under the original filename (see attachmentDownloadName).
+  const downloadUrl = attachmentDownloadUrl(roomCode, att);
 
   // Portal to <body>: the chat wrapper's fade-in animation retains a
   // transform, which would otherwise trap this "fixed" overlay inside it.
@@ -71,10 +73,10 @@ export function MediaViewer({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <a
-            href={`${viewUrl}&download=1`}
+            href={downloadUrl}
             className="p-2 text-gray-300 hover:text-white rounded-lg hover:bg-white/10"
-            title="Download"
-            aria-label="Download"
+            title={`Download ${att.name}`}
+            aria-label={`Download ${att.name}`}
           >
             <Download className="w-5 h-5" />
           </a>
@@ -127,7 +129,7 @@ export function MediaViewer({
               className="w-full h-full max-w-4xl bg-white rounded-lg"
             />
           ) : (
-            <DocxPreview key={att.key} url={viewUrl} downloadUrl={`${viewUrl}&download=1`} />
+            <DocxPreview key={att.key} url={viewUrl} downloadUrl={downloadUrl} />
           )}
         </div>
 

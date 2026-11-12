@@ -11,19 +11,34 @@ import {
   Image as ImageIcon,
   Languages,
   Music,
+  Plus,
   Reply,
   SmilePlus,
   Square,
 } from 'lucide-react';
 import { formatChatTime } from '@/shared/lib/time';
-import { downloadAllAsZip } from '@/shared/lib/zip';
-import { CHAT_REACTIONS, formatFileSize, normalizeReactors } from '@/shared/lib/utils';
+import { CHAT_REACTIONS, formatFileSize } from '@/shared/lib/utils';
 import {
   CodeSnippet,
   detectCode,
   InlineCopyButton,
   LinkifiedText,
 } from '@/features/chat/components/MessageContent';
+import {
+  ReactionDetails,
+  ReactionEmojiGrid,
+  ReactionPill,
+  groupReactions,
+} from '@/features/chat/components/MessageReactions';
+import {
+  AlbumDownloadAllButton,
+  AttachmentDownloadButton,
+  DownloadErrorText,
+  MediaDownloadOverlay,
+  SheetDownloadButton,
+  useAlbumDownload,
+  useAttachmentDownload,
+} from '@/features/chat/components/AttachmentDownloadButton';
 import {
   browserLanguageName,
   cleanAiOutput,
@@ -65,7 +80,7 @@ export const SystemNotice = memo(function SystemNotice({ message }: { message: C
 interface MessageBubbleProps {
   message: ChatMessage;
   mine: boolean;
-  myReactorIds: string[]; // this device's reactor id + legacy name-based id
+  myDeviceHash: string; // reactor.id for this device — the only "is this me" test
   roomCode: string;
   highlighted: boolean;
   onReply: (m: ChatMessage) => void;
@@ -89,7 +104,7 @@ function QuoteKindIcon({ kind, className }: { kind: string | null | undefined; c
 export const MessageBubble = memo(function MessageBubble({
   message,
   mine,
-  myReactorIds,
+  myDeviceHash,
   roomCode,
   highlighted,
   onReply,
@@ -100,6 +115,8 @@ export const MessageBubble = memo(function MessageBubble({
   const time = useMemo(() => formatChatTime(message.created_at), [message.created_at]);
   const [expanded, setExpanded] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  // Quick bar's "+" → full emoji grid (shared by the hover bar and the sheet).
+  const [moreEmoji, setMoreEmoji] = useState(false);
   const reactionsRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -112,26 +129,44 @@ export const MessageBubble = memo(function MessageBubble({
         setShowReactions(false);
       }
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowReactions(false);
+    };
     document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [showReactions]);
 
   // Clamp the reaction popover inside the viewport — anchoring alone can
   // push it past either edge next to narrow bubbles on small screens.
   // Uses the standalone `translate` property so it composes with the
   // scale-in animation's `transform`.
+  // Also flips it below the actions when the scroll area would clip its top
+  // (the taller "+" grid on a message near the top of the list).
   useEffect(() => {
     if (!showReactions) return;
     const el = reactionsRef.current;
     if (!el) return;
     el.style.translate = '';
-    const r = el.getBoundingClientRect();
+    el.style.top = '';
+    el.style.bottom = '';
+    let r = el.getBoundingClientRect();
+    const scroller = el.closest<HTMLElement>('[data-chat-scroll]');
+    const minTop = (scroller?.getBoundingClientRect().top ?? 0) + 4;
+    if (r.top < minTop) {
+      el.style.bottom = 'auto';
+      el.style.top = 'calc(100% + 0.25rem)';
+      r = el.getBoundingClientRect();
+    }
     const vw = window.innerWidth;
     let dx = 0;
     if (r.left < 4) dx = 4 - r.left;
     else if (r.right > vw - 4) dx = vw - 4 - r.right;
     if (dx !== 0) el.style.translate = `${dx}px 0`;
-  }, [showReactions]);
+  }, [showReactions, moreEmoji]);
   const atts = getAtts(message);
   const isLongText = atts.length === 1 && atts[0].is_long_text === true;
   const isLarge = message.content.length > LARGE_MESSAGE_THRESHOLD;
@@ -139,10 +174,8 @@ export const MessageBubble = memo(function MessageBubble({
   const bigEmoji = atts.length === 0 && isEmojiOnly(message.content);
   const allImages = atts.length > 1 && atts.every((a) => (a.mime_type || '').startsWith('image/'));
 
-  // "Download all" — fetch every attachment and save one zip. Browsers
-  // block programmatic downloads after the first click, so sequential
-  // anchor clicks only ever land the first file.
-  const [zipping, setZipping] = useState(false);
+  // "Download all" — every attachment saved as one zip (see useAlbumDownload).
+  const albumDownload = useAlbumDownload(roomCode, atts);
   // AI translation of this message, streamed in below the original text.
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
@@ -216,6 +249,7 @@ export const MessageBubble = memo(function MessageBubble({
       pressTimer.current = null;
       pressFired.current = true;
       navigator.vibrate?.(10);
+      setMoreEmoji(false);
       setSheetOpen(true);
     }, LONG_PRESS_MS);
   };
@@ -234,27 +268,19 @@ export const MessageBubble = memo(function MessageBubble({
       /* clipboard blocked */
     }
   };
-  const downloadAll = async () => {
-    if (zipping) return;
-    setZipping(true);
-    try {
-      await downloadAllAsZip(
-        atts.map((a) => ({ name: a.name, url: attachmentViewUrl(roomCode, a.key) })),
-        `syncflow-${roomCode.toLowerCase()}-files.zip`
-      );
-    } finally {
-      setZipping(false);
-    }
-  };
-  const reactionEntries = Object.entries(message.reactions ?? {})
-    .map(([emoji, list]) => [emoji, normalizeReactors(list)] as const)
-    .filter(([, reactors]) => reactors.length > 0);
+  const reactionGroups = useMemo(() => groupReactions(message.reactions), [message.reactions]);
 
   // This device's current reaction (one per device) — highlighted in the
-  // picker so you can see what you already reacted with.
+  // picker so you can see what you already reacted with. Device id only:
+  // legacy name-keyed entries can't be toggled by this device anyway.
   const myReaction =
-    reactionEntries.find(([, reactors]) => reactors.some((r) => myReactorIds.includes(r.id)))?.[0] ??
-    null;
+    reactionGroups.find((g) => g.reactors.some((r) => r.id === myDeviceHash))?.emoji ?? null;
+
+  // "Who reacted" panel, opened from the pill. Closes itself if a live
+  // update removes the last reaction (React's derive-during-render pattern).
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const pillRef = useRef<HTMLButtonElement>(null);
+  if (detailsOpen && reactionGroups.length === 0) setDetailsOpen(false);
 
   // Hover/tap actions (react + reply) sit beside the bubble, WhatsApp-style.
   const actions = (
@@ -267,10 +293,14 @@ export const MessageBubble = memo(function MessageBubble({
     >
       <button
         type="button"
-        onClick={() => setShowReactions((s) => !s)}
+        onClick={() => {
+          setMoreEmoji(false);
+          setShowReactions((s) => !s);
+        }}
         className="p-1.5 rounded-full text-fg-faint hover:text-fg hover:bg-surface-2 cursor-pointer"
         title="React"
         aria-label="React to message"
+        aria-expanded={showReactions}
       >
         <SmilePlus className="w-4 h-4" />
       </button>
@@ -309,10 +339,20 @@ export const MessageBubble = memo(function MessageBubble({
           ref={reactionsRef}
           // Grows toward the bubble (inward); the effect above then clamps
           // it to the viewport for narrow bubbles near either edge.
-          className={`absolute bottom-full mb-1 z-10 flex gap-0.5 bg-surface border border-edge rounded-full shadow-lg px-1.5 py-1 animate-fade-in-scale ${
-            mine ? 'left-0' : 'right-0'
-          }`}
+          className={`absolute bottom-full mb-1 z-10 bg-surface border border-edge shadow-lg animate-fade-in-scale ${
+            moreEmoji ? 'rounded-2xl p-1.5' : 'flex items-center gap-0.5 rounded-full px-1.5 py-1'
+          } ${mine ? 'left-0' : 'right-0'}`}
         >
+          {moreEmoji ? (
+            <ReactionEmojiGrid
+              selected={myReaction}
+              onPick={(emoji) => {
+                onToggleReaction(message.id, emoji);
+                setShowReactions(false);
+              }}
+            />
+          ) : (
+          <>
           {CHAT_REACTIONS.map((emoji) => {
             const active = emoji === myReaction;
             return (
@@ -333,6 +373,17 @@ export const MessageBubble = memo(function MessageBubble({
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setMoreEmoji(true)}
+            className="ml-0.5 p-1 rounded-full bg-surface-2 text-fg-muted hover:text-fg hover:bg-surface-3 cursor-pointer"
+            aria-label="More reactions"
+            title="More reactions"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          </>
+          )}
         </div>
       )}
     </div>
@@ -361,8 +412,15 @@ export const MessageBubble = memo(function MessageBubble({
         highlighted ? 'ring-2 ring-brand ring-offset-2 ring-offset-canvas' : ''
       }`}
     >
+      {/* Wrapper anchors the reaction pill on the bubble's bottom edge; its
+          bottom margin keeps the overhanging pill clear of the next message. */}
       <div
-        className={`min-w-0 max-w-[calc(100%-4.25rem)] sm:max-w-[75%] rounded-2xl px-3 py-2 ${
+        className={`relative min-w-0 max-w-[calc(100%-4.25rem)] sm:max-w-[75%] ${
+          reactionGroups.length > 0 ? 'mb-4' : ''
+        }`}
+      >
+      <div
+        className={`rounded-2xl px-3 py-2 ${
           mine
             ? 'bg-brand text-white rounded-br-sm'
             : 'bg-surface-2 text-fg rounded-bl-sm'
@@ -424,39 +482,30 @@ export const MessageBubble = memo(function MessageBubble({
                   <span>
                     {atts.length} files · {formatFileSize(atts.reduce((s, a) => s + a.size, 0))}
                   </span>
-                  <button
-                    type="button"
-                    onClick={downloadAll}
-                    disabled={zipping}
-                    className={`flex items-center gap-1 underline cursor-pointer disabled:opacity-60 disabled:cursor-wait ${
-                      mine ? 'hover:text-white' : 'hover:text-fg'
-                    }`}
-                    title="Download all files as a zip"
-                  >
-                    <Download className="w-3 h-3" />
-                    {zipping ? 'Preparing zip…' : 'Download all'}
-                  </button>
+                  <AlbumDownloadAllButton controller={albumDownload} count={atts.length} mine={mine} />
                 </div>
               )}
               {allImages ? (
                 // Photo album: WhatsApp-style grid, each opens the viewer
                 <div className="grid grid-cols-2 gap-1 mb-1">
                   {atts.map((a) => (
-                    <button
-                      key={a.key}
-                      type="button"
-                      onClick={() => onOpenViewer(a.key)}
-                      className="cursor-zoom-in"
-                      aria-label={`View image ${a.name}`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element -- R2-redirect src */}
-                      <img
-                        src={attachmentViewUrl(roomCode, a.key)}
-                        alt={a.name}
-                        loading="lazy"
-                        className="rounded-lg h-32 w-full object-cover"
-                      />
-                    </button>
+                    <div key={a.key} className="relative group/media">
+                      <button
+                        type="button"
+                        onClick={() => onOpenViewer(a.key)}
+                        className="block w-full cursor-zoom-in"
+                        aria-label={`View image ${a.name}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- R2-redirect src */}
+                        <img
+                          src={attachmentViewUrl(roomCode, a.key)}
+                          alt={a.name}
+                          loading="lazy"
+                          className="rounded-lg h-32 w-full object-cover"
+                        />
+                      </button>
+                      <MediaDownloadOverlay roomCode={roomCode} attachment={a} />
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -548,40 +597,17 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {/* Reaction pills */}
-        {reactionEntries.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {reactionEntries.map(([emoji, reactors]) => {
-              const names = reactors.map((r) => r.name);
-              const mineToo = reactors.some((r) => myReactorIds.includes(r.id));
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => onToggleReaction(message.id, emoji)}
-                  title={names.join(', ')}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs border transition-colors cursor-pointer ${
-                    mine
-                      ? mineToo
-                        ? 'bg-white/25 border-white/60'
-                        : 'bg-white/10 border-white/25 hover:bg-white/20'
-                      : mineToo
-                        ? 'bg-brand/10 border-brand/40'
-                        : 'bg-surface border-edge hover:bg-surface-2'
-                  }`}
-                  aria-label={`${emoji} reaction from ${names.join(', ')}`}
-                >
-                  <span className="text-sm leading-none">{emoji}</span>
-                  {reactors.length > 1 && (
-                    <span className={mine ? 'text-white/80' : 'text-fg-muted'}>
-                      {reactors.length}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+      </div>
+      {reactionGroups.length > 0 && (
+        <ReactionPill
+          groups={reactionGroups}
+          myId={myDeviceHash}
+          mine={mine}
+          expanded={detailsOpen}
+          onOpen={() => setDetailsOpen(true)}
+          pillRef={pillRef}
+        />
+      )}
       </div>
       {actions}
       {sheetOpen &&
@@ -593,7 +619,19 @@ export const MessageBubble = memo(function MessageBubble({
               aria-hidden="true"
             />
             <div className="relative w-full max-w-md mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] p-2 bg-surface border border-edge rounded-2xl shadow-lg animate-menu-up">
-              <div className="flex justify-between gap-1 px-1 pb-2 mb-1 border-b border-edge">
+              {moreEmoji ? (
+                <div className="px-1 pb-2 mb-1 border-b border-edge">
+                  <ReactionEmojiGrid
+                    large
+                    selected={myReaction}
+                    onPick={(emoji) => {
+                      onToggleReaction(message.id, emoji);
+                      setSheetOpen(false);
+                    }}
+                  />
+                </div>
+              ) : (
+              <div className="flex items-center justify-between gap-0.5 px-1 pb-2 mb-1 border-b border-edge">
                 {CHAT_REACTIONS.map((emoji) => {
                   const active = emoji === myReaction;
                   return (
@@ -614,7 +652,16 @@ export const MessageBubble = memo(function MessageBubble({
                     </button>
                   );
                 })}
+                <button
+                  type="button"
+                  onClick={() => setMoreEmoji(true)}
+                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-surface-2 text-fg-muted active:bg-surface-3 cursor-pointer"
+                  aria-label="More reactions"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
+              )}
               <SheetButton
                 icon={<Reply className="w-4 h-4" />}
                 label="Reply"
@@ -643,10 +690,41 @@ export const MessageBubble = memo(function MessageBubble({
                   }}
                 />
               )}
+              {/* Download (single file) / Download all (album) */}
+              {atts.length === 1 && (
+                <SheetDownloadButton
+                  roomCode={roomCode}
+                  attachment={atts[0]}
+                  onDone={() => setSheetOpen(false)}
+                />
+              )}
+              {atts.length > 1 && (
+                <SheetButton
+                  icon={<Download className="w-4 h-4" />}
+                  label={`Download all (${atts.length})`}
+                  onClick={() => {
+                    setSheetOpen(false);
+                    albumDownload.start();
+                  }}
+                />
+              )}
             </div>
           </div>,
           document.body
         )}
+      {detailsOpen && reactionGroups.length > 0 && (
+        <ReactionDetails
+          groups={reactionGroups}
+          myId={myDeviceHash}
+          returnFocusRef={pillRef}
+          onClose={() => setDetailsOpen(false)}
+          onRemove={(emoji) => {
+            // Same emoji again = remove (server toggle), WhatsApp-style.
+            onToggleReaction(message.id, emoji);
+            setDetailsOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 });
@@ -774,41 +852,62 @@ function AttachmentView({
   onOpenViewer: (attachmentKey: string) => void;
 }) {
   const viewUrl = attachmentViewUrl(roomCode, attachment.key);
-  const downloadUrl = `${viewUrl}&download=1`;
   const mime = attachment.mime_type || '';
   const kind = previewKind(attachment);
+  // Shared by the card body and its download icon (audio row too).
+  const download = useAttachmentDownload(roomCode, attachment);
 
   if (kind === 'image') {
     return (
-      <button
-        type="button"
-        onClick={() => onOpenViewer(attachment.key)}
-        className="block mb-1 cursor-zoom-in"
-        title="View image"
-        aria-label={`View image ${attachment.name}`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element -- R2-redirect src, next/image can't optimize it */}
-        <img
-          src={viewUrl}
-          alt={attachment.name}
-          loading="lazy"
-          className="rounded-lg max-h-72 w-auto max-w-full"
-        />
-      </button>
+      <div className="relative group/media mb-1 w-fit max-w-full">
+        <button
+          type="button"
+          onClick={() => onOpenViewer(attachment.key)}
+          className="block max-w-full cursor-zoom-in"
+          title="View image"
+          aria-label={`View image ${attachment.name}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- R2-redirect src, next/image can't optimize it */}
+          <img
+            src={viewUrl}
+            alt={attachment.name}
+            loading="lazy"
+            className="rounded-lg max-h-72 w-auto max-w-full"
+          />
+        </button>
+        <MediaDownloadOverlay roomCode={roomCode} attachment={attachment} />
+      </div>
     );
   }
   if (mime.startsWith('video/')) {
+    // Download sits top-right; the native play/seek controls are at the bottom.
     return (
-      <video
-        controls
-        preload="metadata"
-        src={viewUrl}
-        className="rounded-lg max-h-72 max-w-full mb-1"
-      />
+      <div className="relative group/media mb-1 w-fit max-w-full">
+        <video
+          controls
+          preload="metadata"
+          src={viewUrl}
+          className="block rounded-lg max-h-72 max-w-full"
+        />
+        <MediaDownloadOverlay roomCode={roomCode} attachment={attachment} />
+      </div>
     );
   }
   if (mime.startsWith('audio/')) {
-    return <audio controls preload="metadata" src={viewUrl} className="max-w-full mb-1" />;
+    return (
+      <div className="mb-1">
+        <div className="flex items-center gap-1.5">
+          <audio controls preload="metadata" src={viewUrl} className="min-w-0 flex-1 max-w-full" />
+          <AttachmentDownloadButton
+            roomCode={roomCode}
+            attachment={attachment}
+            mine={mine}
+            controller={download}
+          />
+        </div>
+        <DownloadErrorText error={download.error} mine={mine} />
+      </div>
+    );
   }
 
   const previewable = kind === 'pdf' || kind === 'docx';
@@ -818,45 +917,38 @@ function AttachmentView({
       ? 'bg-black/20 border-white/25 hover:bg-black/30'
       : 'bg-surface border-edge hover:bg-surface-2'
   }`;
-  const inner = (
-    <>
-      <TypeIcon className={`w-7 h-7 shrink-0 ${mine ? 'text-white/80' : 'text-fg-faint'}`} />
-      <span className="min-w-0 flex-1">
-        <span className={`block text-xs font-medium truncate ${mine ? 'text-white' : 'text-fg'}`}>
-          {attachment.name}
-        </span>
-        <span className={`block text-[10px] ${mine ? 'text-white/60' : 'text-fg-muted'}`}>
-          {formatFileSize(attachment.size)}
-          {previewable && ' · tap to preview'}
-        </span>
-      </span>
-    </>
-  );
-
-  // PDF / DOCX → open the in-chat viewer; everything else downloads.
-  if (previewable) {
-    return (
-      <div className={cardClasses} onClick={() => onOpenViewer(attachment.key)} role="button" tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && onOpenViewer(attachment.key)}
-        title={`Preview ${attachment.name}`}
-      >
-        {inner}
-        <a
-          href={downloadUrl}
-          onClick={(e) => e.stopPropagation()}
-          className="p-1 -m-1"
-          title={`Download ${attachment.name}`}
-          aria-label={`Download ${attachment.name}`}
-        >
-          <Download className={`w-4 h-4 shrink-0 ${mine ? 'text-white/80' : 'text-fg-faint'}`} />
-        </a>
-      </div>
-    );
-  }
+  // PDF / DOCX → card opens the in-chat viewer; everything else downloads.
+  // Either way the icon on the card downloads in one tap. The card's main
+  // button and the icon are siblings (no nested controls); the outer click
+  // handler also catches taps on the card's padding.
+  const cardAction = previewable ? () => onOpenViewer(attachment.key) : download.start;
   return (
-    <a href={downloadUrl} className={cardClasses} title={`Download ${attachment.name}`}>
-      {inner}
-      <Download className={`w-4 h-4 shrink-0 ${mine ? 'text-blue-100' : 'text-gray-400'}`} />
-    </a>
+    <div className={cardClasses} onClick={cardAction}>
+      <button
+        type="button"
+        className={`flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 ${
+          mine ? 'focus-visible:outline-white' : 'focus-visible:outline-brand'
+        }`}
+        title={previewable ? `Preview ${attachment.name}` : `Download ${attachment.name}`}
+      >
+        <TypeIcon className={`w-7 h-7 shrink-0 ${mine ? 'text-white/80' : 'text-fg-faint'}`} />
+        <span className="min-w-0 flex-1">
+          <span className={`block text-xs font-medium truncate ${mine ? 'text-white' : 'text-fg'}`}>
+            {attachment.name}
+          </span>
+          <span className={`block text-[10px] ${mine ? 'text-white/60' : 'text-fg-muted'}`}>
+            {formatFileSize(attachment.size)}
+            {previewable && ' · tap to preview'}
+          </span>
+          <DownloadErrorText error={download.error} mine={mine} />
+        </span>
+      </button>
+      <AttachmentDownloadButton
+        roomCode={roomCode}
+        attachment={attachment}
+        mine={mine}
+        controller={download}
+      />
+    </div>
   );
 }
