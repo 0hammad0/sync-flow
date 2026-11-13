@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { adminDb } from './admin';
-import { generateRoomCode, normalizeReactors, sanitizeDeviceId } from '@/shared/lib/utils';
+import { generateRoomCode, normalizeReactors } from '@/shared/lib/utils';
 import { deletePrefixCounted } from '@/shared/lib/r2';
 import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
 import type {
@@ -53,16 +53,6 @@ function messagesRef(code: string) {
   return roomRef(code).collection(MESSAGES_SUBCOLLECTION);
 }
 
-/**
- * The public form of a device id. The browser keeps its raw id secret and
- * sends it on every write; only sha256(raw) is stored (messages, presence,
- * reactions), so a value read from Firestore can't be replayed to act as
- * that device. Must match deviceIdHash() in features/chat/lib/chat-helpers.ts.
- */
-export function deviceKey(raw: unknown): string | null {
-  const id = sanitizeDeviceId(raw);
-  return id ? createHash('sha256').update(id).digest('hex').slice(0, 32) : null;
-}
 
 // One doc per attachment key that is already part of a message. Created in
 // the same batch as the message, so a key can only ever be posted once.

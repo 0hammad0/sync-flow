@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getBlocks } from '@/server/container';
+import { getBlocks } from '@/server/container-light';
 import { compileBlocklist, EMPTY_BLOCKLIST, type CompiledBlocklist } from './matchers';
 import type { BlocklistSnapshot } from './types';
 

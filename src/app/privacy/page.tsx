@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/privacy' },
 };
 
-const LAST_UPDATED = 'November 12, 2026';
+const LAST_UPDATED = 'November 13, 2026';
 
 const SECTIONS = [
   { id: 'collect', title: 'What we collect' },
@@ -33,9 +33,10 @@ export default function PrivacyPage() {
       sections={SECTIONS}
       intro={
         <p>
-          SyncFlow is built to know as little about you as possible: no ad trackers, no analytics
-          profiles, no selling of data, and content that expires on the schedule you choose. This
-          page explains exactly what we can and can&apos;t see in each tool.
+          SyncFlow is built to know as little about you as possible: no ad trackers, no
+          third-party analytics, no selling of data, and content that expires on the schedule you
+          choose. We do keep our own simple visit statistics, described below. This page explains
+          exactly what we can and can&apos;t see in each tool.
         </p>
       }
     >
@@ -69,6 +70,15 @@ export default function PrivacyPage() {
         <p>
           <strong>Email sharing.</strong> If you send a share link by email, we use the recipient
           address once to deliver that email. We don&apos;t store it or add it to any list.
+        </p>
+        <p>
+          <strong>Visit statistics.</strong> When you use the site we record which pages you open,
+          when, for how long the page was visible, how far you scrolled, and which buttons and
+          links you click (never what you type or your messages). With each visit we store your IP
+          address, the approximate location our host Vercel derives from it (country, region,
+          city), your browser, operating system, device type and screen size, and the site that
+          sent you. If you are signed in, the visit is linked to your account. We use this to keep
+          the service secure, stop abuse, and improve it.
         </p>
       </LegalSection>
 
@@ -130,7 +140,7 @@ export default function PrivacyPage() {
           <li>No advertising or cross-site trackers, and no third-party analytics.</li>
           <li>No decryption keys for end-to-end encrypted files.</li>
           <li>No passwords.</li>
-          <li>No contact lists, location data or device fingerprints.</li>
+          <li>No contact lists, precise location (GPS) or device fingerprints.</li>
         </ul>
       </LegalSection>
 
@@ -142,6 +152,11 @@ export default function PrivacyPage() {
           your device: your theme choice, a signed-in flag so the page shows the right buttons
           straight away, your chat display name, a random device ID used to mark which chat
           messages are yours, and, briefly, the email address used to complete a sign-in link.
+          If visit statistics are on, we also set a cookie that remembers your consent choice
+          (EU/EEA/UK only) and keep a random per-tab id in session storage, which is sent with
+          visit statistics and cleared when you close the tab. A second small cookie records only
+          whether your region needs that choice, or that visit statistics are switched off; it
+          holds no identifier and expires within a day.
         </p>
       </LegalSection>
 
@@ -165,6 +180,10 @@ export default function PrivacyPage() {
           <li>
             <strong>Accounts:</strong> until you ask us to delete yours.
           </li>
+          <li>
+            <strong>Visit statistics:</strong> full IP address 30 days, then shortened. Per-visit
+            records 90 days, then deleted. Daily totals (no IP, no account) are kept.
+          </li>
         </ul>
       </LegalSection>
 
@@ -172,8 +191,9 @@ export default function PrivacyPage() {
         <p>
           File contents and chat attachments are stored in Cloudflare R2 (object storage) in a
           private bucket. Downloads happen only through short-lived signed URLs. Metadata,
-          accounts and chat messages are stored in Google Firebase (Firestore and Firebase
-          Authentication). Emails are delivered over SMTP. If AI features are enabled, the text
+          accounts, chat messages and visit statistics are stored in Google Firebase (Firestore
+          and Firebase Authentication). Approximate location is looked up by our host, Vercel,
+          from your IP address. Emails are delivered over SMTP. If AI features are enabled, the text
           you send to them is processed by OpenRouter and the model provider, or by Google Gemini
           as a fallback (see{' '}
           <InlineLink href="#ai">AI features</InlineLink>). These providers process data on our
@@ -200,6 +220,12 @@ export default function PrivacyPage() {
           will arrange one. Depending on where you live (for example under the GDPR or CCPA), you
           may have further rights of access, correction, deletion and portability. We honour
           reasonable requests regardless of where you live.
+        </p>
+        <p>
+          Visit statistics do not run if your browser sends Global Privacy Control or Do Not
+          Track. In the EU, EEA and UK they run only after you click Accept, and you can change
+          your choice any time from <strong>Privacy choices</strong> in the footer. You can ask us
+          to delete the visit records for your IP address or account.
         </p>
       </LegalSection>
 

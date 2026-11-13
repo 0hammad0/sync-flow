@@ -3,7 +3,6 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
-  deviceKey,
   getMessage,
   getRoom,
   isAlreadyExistsError,
@@ -13,6 +12,7 @@ import {
   roomStoragePrefix,
   sanitizeSenderName,
 } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import {
   isValidMessageId,
   isValidRoomCode,

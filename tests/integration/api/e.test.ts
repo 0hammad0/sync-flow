@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const scheduled: (() => unknown)[] = [];
 const ingest = vi.fn(async (...args: unknown[]) => (void args, 'written'));
+const tracking = { enabled: true as boolean, peek: null as boolean | null, fail: false };
 
 vi.mock('next/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/server')>()),
@@ -12,8 +13,15 @@ vi.mock('next/server', async (importOriginal) => ({
 }));
 
 // No Firebase in this test: the route must not touch the container before after().
-vi.mock('@/server/container', () => ({
-  getTrackingContainer: () => ({ ingest: { ingest } }),
+vi.mock('@/server/container-light', () => ({
+  getIngest: () => ({
+    ingest,
+    trackingEnabled: async () => {
+      if (tracking.fail) throw new Error('no settings');
+      return tracking.enabled;
+    },
+  }),
+  peekTrackingEnabled: () => tracking.peek,
 }));
 
 const SID = '0123456789abcdef0123456789abcdef';
@@ -41,10 +49,17 @@ async function call(req: NextRequest) {
   return POST(req);
 }
 
+async function probe(headers: Record<string, string> = {}, url = 'http://localhost:3000/api/e') {
+  const { GET } = await import('@/app/api/e/route');
+  return GET(new NextRequest(url, { headers }));
+}
+
 describe('POST /api/e', () => {
   beforeEach(() => {
     scheduled.length = 0;
     ingest.mockClear();
+    Object.assign(tracking, { enabled: true, peek: null, fail: false });
+    vi.unstubAllEnvs();
   });
 
   it('answers 204 at once and does the work in after()', async () => {
@@ -121,5 +136,59 @@ describe('POST /api/e', () => {
     expect(scheduled).toHaveLength(1);
     await scheduled[0]();
     expect(ingest.mock.calls[0][0]).toMatchObject({ events: [], invalid: 1 });
+  });
+
+  it('POST sets no cookie while the kill switch is unknown or on', async () => {
+    expect((await call(post({ sid: SID, seq: 0, events: [pageview] }))).headers.get('set-cookie')).toBeNull();
+    tracking.peek = true;
+    expect((await call(post({ sid: SID, seq: 1, events: [pageview] }))).headers.get('set-cookie')).toBeNull();
+  });
+
+  it('POST tells a running tracker to stop once the cached kill switch is off (still 204)', async () => {
+    tracking.peek = false;
+    const res = await call(post({ sid: SID, seq: 0, events: [pageview] }));
+    expect(res.status).toBe(204);
+    expect(res.headers.get('set-cookie')).toMatch(/^sf_cr=off; Max-Age=3600; Path=\/; SameSite=Lax$/);
+  });
+});
+
+describe('GET /api/e (region and kill-switch probe)', () => {
+  beforeEach(() => {
+    Object.assign(tracking, { enabled: true, peek: null, fail: false });
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ['DE', 'eu'],
+    ['GB', 'eu'],
+    ['NO', 'eu'],
+    ['US', 'ok'],
+    ['PK', 'ok'],
+  ])('country %s → sf_cr=%s, 204, no body', async (country, region) => {
+    const res = await probe({ 'x-vercel-ip-country': country });
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe('');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('set-cookie')).toBe(`sf_cr=${region}; Max-Age=86400; Path=/; SameSite=Lax`);
+  });
+
+  it('no country header: ok off Vercel, eu (ask) on Vercel', async () => {
+    expect((await probe()).headers.get('set-cookie')).toMatch(/^sf_cr=ok;/);
+    vi.stubEnv('VERCEL', '1');
+    expect((await probe()).headers.get('set-cookie')).toMatch(/^sf_cr=eu;/);
+  });
+
+  it('kill switch off or settings unreadable → sf_cr=off for an hour', async () => {
+    tracking.enabled = false;
+    expect((await probe({ 'x-vercel-ip-country': 'US' })).headers.get('set-cookie')).toMatch(/^sf_cr=off; Max-Age=3600;/);
+    tracking.fail = true;
+    const res = await probe({ 'x-vercel-ip-country': 'US' });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('set-cookie')).toMatch(/^sf_cr=off;/);
+  });
+
+  it('marks the cookie Secure over https', async () => {
+    const res = await probe({ 'x-vercel-ip-country': 'US' }, 'https://syncflow.example/api/e');
+    expect(res.headers.get('set-cookie')).toMatch(/; Secure$/);
   });
 });
