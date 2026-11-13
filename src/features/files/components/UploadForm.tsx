@@ -12,6 +12,7 @@ import {
   isEncryptionSupported,
 } from '@/shared/lib/crypto';
 import { directUpload, CANCELLED_MESSAGE } from '@/shared/lib/direct-upload';
+import { blockedError } from '@/shared/lib/blocked';
 import {
   DEFAULT_GUEST_EXPIRY_HOURS,
   ENCRYPTION_OVERHEAD_BYTES,
@@ -20,9 +21,10 @@ import {
   SHARE_EXPIRY_OPTIONS,
 } from '@/shared/lib/limits';
 import CopyButton from '@/shared/components/CopyButton';
+import ActionError from '@/shared/components/ActionError';
 import ProgressBar from '@/features/files/components/ProgressBar';
 import QRModal from '@/features/files/components/QRModal';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import {
   AlertCircle,
   Check,
@@ -473,7 +475,7 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
         setRecipientEmail('');
         setEmailMessage('');
       } else {
-        setEmailError(result.error || 'Failed to send email');
+        setEmailError(blockedError(result) ?? (result.error || 'Failed to send email'));
       }
     } catch {
       setEmailError('Failed to send email. Please try again.');
@@ -708,7 +710,7 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
           <div aria-live="polite">
             {error && (
               <div className="mt-4 p-3 sm:p-4 bg-danger/10 border border-danger/20 rounded-2xl animate-fade-in" role="alert">
-                <p className="text-xs sm:text-sm text-danger-text font-medium">{error}</p>
+                <p className="text-xs sm:text-sm text-danger-text font-medium"><ActionError text={error} /></p>
                 {signInNeeded && <SignInAgainLink />}
                 {files.length > 0 && (
                   <p className="text-xs text-danger-text/80 mt-1">
@@ -872,7 +874,7 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
                 ) : (
                   <p className="text-xs text-danger-text flex items-center gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    {r.error || 'Upload failed'}
+                    <span><ActionError text={r.error || 'Upload failed'} /></span>
                   </p>
                 )}
               </div>
@@ -971,7 +973,7 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
                 </div>
                 <div aria-live="polite">
                   {emailError && (
-                    <p className="text-xs text-danger-text" role="alert">{emailError}</p>
+                    <p className="text-xs text-danger-text" role="alert"><ActionError text={emailError} /></p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

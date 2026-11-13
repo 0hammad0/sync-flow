@@ -4,7 +4,6 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
-  deviceKey,
   getMessage,
   getRoom,
   isAlreadyExistsError,
@@ -13,6 +12,7 @@ import {
   sanitizeSenderName,
   roomStoragePrefix,
 } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import type { ChatReplyRef } from '@/types';
 import { isValidMessageId, isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
 import { deleteObject, objectExists, putObject, signedDownloadUrl } from '@/shared/lib/r2';
@@ -24,6 +24,7 @@ import {
   signAttachmentProof,
   type AttachmentPlan,
 } from '@/features/chat/server/attachment-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -38,6 +39,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 
@@ -91,6 +94,8 @@ export async function POST(
     uploadOnly: formData.get('uploadOnly') === '1',
   });
   if ('error' in fields) return fields.error;
+  const blockedDevice = await assertNotBlocked({ device: fields.deviceId });
+  if (blockedDevice) return blockedApiResponse(blockedDevice);
 
   try {
     const pre = await checkRoomAndReply(code, fields.replyToId);
@@ -154,6 +159,12 @@ async function completeDirectUpload(request: NextRequest, code: string) {
   if ('error' in fields) {
     await deleteObject(plan.key).catch(() => {});
     return fields.error;
+  }
+  const blockedDevice = await assertNotBlocked({ device: fields.deviceId });
+  if (blockedDevice) {
+    // Same as any refused complete: the uploaded object is not kept.
+    await deleteObject(plan.key).catch(() => {});
+    return blockedApiResponse(blockedDevice);
   }
 
   try {
@@ -317,6 +328,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 

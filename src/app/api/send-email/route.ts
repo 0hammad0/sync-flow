@@ -4,6 +4,7 @@ import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { getRequestOrigin } from '@/shared/lib/utils';
 import { getFile } from '@/shared/lib/firebase/files';
 import type { FileRecord } from '@/types';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 // Escape user-supplied text before templating it into the HTML email, so a
 // crafted filename or link can't inject markup or attributes.
@@ -73,6 +74,8 @@ function fileBlockHtml(name: string, link: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Uses our SMTP account to send mail, so throttle hard: 5 per 10 min per
     // IP. Without this the endpoint is an open relay for spam.

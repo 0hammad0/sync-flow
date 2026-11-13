@@ -4,7 +4,7 @@ import { useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Clock, X } from 'lucide-react';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import RoomLinkPending from '@/features/chat/components/RoomLinkPending';
 import { clientTimezone, formatTimeUntil } from '@/shared/lib/time';
 import { isValidRoomCode, ROOM_CODE_LENGTH } from '@/shared/lib/utils';

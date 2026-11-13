@@ -19,6 +19,7 @@ import {
   startTextStream,
   streamGemini,
 } from '@/features/ai/lib/ai-providers';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -68,6 +69,8 @@ export async function GET() {
  * unexpired room, so the operator's key is not an open proxy.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const apiKey = process.env.OPENROUTER_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!apiKey && !geminiKey) {

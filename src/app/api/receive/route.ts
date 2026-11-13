@@ -3,10 +3,13 @@ import { generateToken, getRequestOrigin } from '@/shared/lib/utils';
 import { currentUser } from '@/shared/lib/firebase/session';
 import { createReceiveSession } from '@/shared/lib/firebase/files';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 const TTL_MS = 10 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Public endpoint that writes a Firestore doc — throttle (10 per minute per IP).
     const rl = rateLimit(`receive:${clientKey(request)}`, 10, 60_000);

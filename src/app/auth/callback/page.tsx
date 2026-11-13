@@ -13,7 +13,7 @@ import {
   STORED_NEXT_KEY,
 } from '@/shared/lib/firebase/client';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import { AlertCircle, MailCheck } from 'lucide-react';
 
 /** Where to go after sign-in: ?next= on the link, else the copy saved when the link was sent. */

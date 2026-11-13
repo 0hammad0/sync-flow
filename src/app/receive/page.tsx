@@ -9,7 +9,9 @@ import { downloadAllAsZip } from '@/shared/lib/zip';
 import { useCopy } from '@/shared/lib/clipboard';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import CopyButton from '@/shared/components/CopyButton';
-import Button from '@/shared/components/ui/Button';
+import ActionError from '@/shared/components/ActionError';
+import { blockedError } from '@/shared/lib/blocked';
+import Button from '@/shared/ui/Button';
 import Link from 'next/link';
 import {
   AlertCircle,
@@ -293,10 +295,10 @@ export default function ReceivePage() {
         link.click();
         link.remove();
       } else {
-        setDownloadError(`${f.name}: ${downloadErrorText(info.error)}`);
+        setDownloadError(blockedError(info) ?? `${f.name}: ${downloadErrorText(info.error)}`);
       }
-    } catch {
-      setDownloadError(`${f.name}: ${downloadErrorText(undefined)}`);
+    } catch (error) {
+      setDownloadError(blockedError(error) ?? `${f.name}: ${downloadErrorText(undefined)}`);
     } finally {
       setDownloading(null);
     }
@@ -451,7 +453,7 @@ export default function ReceivePage() {
               role="alert"
               className="mb-3 p-2.5 text-xs bg-danger/10 border border-danger/20 text-danger-text rounded-xl"
             >
-              {downloadError}
+              <ActionError text={downloadError} />
             </p>
           )}
           <ul className="space-y-2">

@@ -27,7 +27,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --project unit --project unit-dom",
+    "test:integration": "vitest run --project integration",
+    "test:integration:emulator": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore,auth --project demo-syncflow \"npm run test:integration\"",
+    "test:e2e": "playwright test",
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check:entry-points": "node scripts/list-admin-entry-points.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
@@ -35,6 +41,7 @@
     "@tanstack/react-table": "9.3.1",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.10.0",
+    "isbot": "5.2.2",
     "lucide-react": "^0.562.0",
     "mammoth": "^1.12.0",
     "next": "^16.4.6",
@@ -47,6 +54,8 @@
     "react-textarea-autosize": "^8.5.9",
     "server-only": "0.0.1",
     "sonner": "2.0.8",
+    "ua-parser-js": "1.0.41",
+    "web-vitals": "6.2.3",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -60,6 +69,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ua-parser-js": "0.7.39",
     "@vitejs/plugin-react": "6.3.0",
     "eslint": "^9",
     "eslint-config-next": "^16.4.6",

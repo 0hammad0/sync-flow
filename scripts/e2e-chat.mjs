@@ -13,7 +13,7 @@ import { readFileSync } from 'fs';
 import { createHash } from 'crypto';
 
 // The server stores only a public key for each device: the first 32 hex
-// chars of sha256(raw id). Same as deviceKey() in shared/lib/firebase/chat.ts.
+// chars of sha256(raw id). Same as deviceKey() in src/server/device-key.ts.
 const devKey = (raw) => createHash('sha256').update(raw).digest('hex').slice(0, 32);
 
 const BASE = process.argv[2] || 'http://localhost:3001';

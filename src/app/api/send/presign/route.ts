@@ -4,6 +4,7 @@ import { SEND_LATE_FILE_GRACE_MS } from '@/shared/lib/limits';
 import { createUploadTicket } from '@/shared/lib/upload-ticket';
 import { planSendUpload } from '@/features/files/server/send-upload';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * Step 1 of a direct-to-R2 phone → PC upload. Body (JSON):
@@ -11,6 +12,8 @@ import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
  * Returns { uploadUrl, contentType, ticket }.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Public endpoint — throttle per IP. A session holds at most
     // MAX_SESSION_FILES (25) files, so 40 per minute leaves room for a full batch plus retries.

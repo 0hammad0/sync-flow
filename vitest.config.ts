@@ -1,0 +1,50 @@
+import { fileURLToPath } from 'node:url';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
+
+// `server-only` throws outside a React Server Components build. Tests import
+// src/server/** directly, so point it at the package's own empty module.
+const alias = {
+  '@': fileURLToPath(new URL('./src', import.meta.url)),
+  'server-only': fileURLToPath(new URL('./node_modules/server-only/empty.js', import.meta.url)),
+};
+
+/**
+ * Three Vitest projects (Playwright runs e2e separately):
+ * - unit:      pure logic in node (`*.test.ts`)
+ * - unit-dom:  React components in jsdom (`*.test.tsx`)
+ * - integration: route handlers and services in node, later against the
+ *   Firestore emulator. Slower, so it runs as its own CI job.
+ */
+export default defineConfig({
+  plugins: [react()],
+  resolve: { alias },
+  test: {
+    projects: [
+      {
+        extends: true,
+        test: { name: 'unit', environment: 'node', include: ['tests/unit/**/*.test.ts'] },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'unit-dom',
+          environment: 'jsdom',
+          include: ['tests/unit/**/*.test.tsx'],
+          setupFiles: ['tests/support/setup-dom.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['tests/integration/**/*.test.ts'],
+          // One file at a time: the emulator suites share one Firestore and
+          // Auth emulator, and each clears all of it before its tests.
+          fileParallelism: false,
+        },
+      },
+    ],
+  },
+});

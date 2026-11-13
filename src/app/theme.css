@@ -1,0 +1,49 @@
+/* ============================================================
+   Tailwind theme shared by both stylesheets: globals.css (every
+   page) and admin/admin.css (admin routes only). Only @theme and
+   @custom-variant here: they emit no CSS on their own, so importing
+   this twice duplicates nothing. The token VALUES (:root / .dark)
+   live in globals.css, which admin routes load too.
+   ============================================================ */
+
+/* Class-based dark mode (toggled on <html> before paint by the theme script) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Landscape phones: wide but very short */
+@custom-variant short (@media (max-height: 500px) and (orientation: landscape));
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-2: var(--brand-2);
+  --color-brand-3: var(--brand-3);
+  --color-brand-text: var(--brand-text);
+  --color-focus: var(--focus);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-on-brand: var(--on-brand);
+  --color-on-danger: var(--on-danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-space-grotesk);
+}
+
+/* Admin breakpoints (04-responsive.md). New names only: no public class changes. */
+@theme {
+  --breakpoint-xs: 23.4375rem;
+  --breakpoint-3xl: 90rem;
+  --breakpoint-4xl: 120rem;
+}

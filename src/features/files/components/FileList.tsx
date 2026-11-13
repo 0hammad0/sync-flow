@@ -7,8 +7,10 @@ import { formatFileSize, getBaseUrl, MAX_USER_FILES } from '@/shared/lib/utils';
 import { SHARE_EXPIRY_OPTIONS } from '@/shared/lib/limits';
 import { deleteFile, reshareFile } from '@/features/files/server/files';
 import CopyButton from '@/shared/components/CopyButton';
+import ActionError from '@/shared/components/ActionError';
+import { blockedError } from '@/shared/lib/blocked';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import QRModal from '@/features/files/components/QRModal';
 import { AlertTriangle, FolderOpen, Lock, QrCode } from 'lucide-react';
 
@@ -65,13 +67,17 @@ export default function FileList({ files }: FileListProps) {
   const handleDelete = async (token: string) => {
     setDeletingToken(token);
     setRowError(null);
-    const result = await deleteFile(token);
+    // A blocked visitor's action is stopped by the proxy (403): the Next client throws.
+    const result = await deleteFile(token).catch((error: unknown) => ({
+      success: false,
+      error: blockedError(error) ?? 'Failed to delete file',
+    }));
 
     if (result.success) {
       setConfirmDeleteToken(null);
       router.refresh();
     } else {
-      setRowError({ token, message: result.error || 'Failed to delete file' });
+      setRowError({ token, message: blockedError(result) ?? (result.error || 'Failed to delete file') });
     }
 
     setDeletingToken(null);
@@ -80,13 +86,16 @@ export default function FileList({ files }: FileListProps) {
   const handleReshare = async (token: string, expiresInHours: number | null) => {
     setResharingToken(token);
     setRowError(null);
-    const result = await reshareFile(token, expiresInHours);
+    const result = await reshareFile(token, expiresInHours).catch((error: unknown) => ({
+      success: false,
+      error: blockedError(error) ?? 'Failed to update file',
+    }));
 
     if (result.success) {
       setShowReshareModal(null);
       router.refresh();
     } else {
-      setRowError({ token, message: result.error || 'Failed to update file' });
+      setRowError({ token, message: blockedError(result) ?? (result.error || 'Failed to update file') });
     }
 
     setResharingToken(null);
@@ -331,7 +340,7 @@ export default function FileList({ files }: FileListProps) {
             <div aria-live="polite">
               {error && (
                 <p className="mt-2 text-xs text-danger-text" role="alert">
-                  {error}
+                  <ActionError text={error} />
                 </p>
               )}
             </div>

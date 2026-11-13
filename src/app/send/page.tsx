@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { postJson } from '@/shared/lib/direct-upload';
 import { SHORT_CODE_ALPHABET, SHORT_CODE_LENGTH } from '@/shared/lib/limits';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
+import ActionError from '@/shared/components/ActionError';
 import { MonitorSmartphone } from 'lucide-react';
 
 // Same alphabet as the server (no 0/O/1/I); anything else is dropped as typed.
@@ -69,7 +70,7 @@ export default function SendCodePage() {
           />
           {error && (
             <p id="code-error" role="alert" className="text-xs text-danger-text text-center">
-              {error}
+              <ActionError text={error} />
             </p>
           )}
           <Button

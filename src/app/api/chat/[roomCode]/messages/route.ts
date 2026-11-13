@@ -3,7 +3,6 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
-  deviceKey,
   getMessage,
   getRoom,
   isAlreadyExistsError,
@@ -13,6 +12,7 @@ import {
   roomStoragePrefix,
   sanitizeSenderName,
 } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import {
   isValidMessageId,
   isValidRoomCode,
@@ -22,6 +22,7 @@ import {
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { isValidAttachmentProof } from '@/features/chat/server/attachment-upload';
 import type { ChatAttachment, ChatReplyRef } from '@/types';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -57,6 +58,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 
@@ -122,6 +125,8 @@ export async function POST(
   }
 
   const tz = sanitizeIanaTz(body.tz);
+  const blockedDevice = await assertNotBlocked({ device: deviceKey(body.deviceId) });
+  if (blockedDevice) return blockedApiResponse(blockedDevice);
 
   try {
     const room = await getRoom(code);

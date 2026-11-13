@@ -6,7 +6,8 @@ import { formatFileSize } from '@/shared/lib/utils';
 import { directUpload } from '@/shared/lib/direct-upload';
 import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import ActionError from '@/shared/components/ActionError';
+import Button from '@/shared/ui/Button';
 import {
   AlertCircle,
   CheckCircle2,
@@ -379,7 +380,7 @@ export default function SendPage({ params }: SendPageProps) {
                     <span className="block text-xs font-medium text-fg truncate">{item.file.name}</span>
                     <span className={`block text-[10px] ${item.status === 'error' ? 'text-danger-text' : 'text-fg-muted'}`}>
                       {item.status === 'error'
-                        ? item.error
+                        ? <ActionError text={item.error ?? 'Upload failed'} />
                         : item.status === 'uploading'
                           ? `Sending · ${item.progress}%`
                           : item.status === 'done'

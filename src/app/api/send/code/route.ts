@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findReceiveSessionByCode } from '@/shared/lib/firebase/files';
 import { SHORT_CODE_ALPHABET, SHORT_CODE_LENGTH } from '@/shared/lib/limits';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 const CODE_RE = new RegExp(`^[${SHORT_CODE_ALPHABET}]{${SHORT_CODE_LENGTH}}$`);
 
@@ -10,6 +11,8 @@ const CODE_RE = new RegExp(`^[${SHORT_CODE_ALPHABET}]{${SHORT_CODE_LENGTH}}$`);
  * that can't scan the QR code. Body (JSON): { code }. Returns { sessionToken }.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Tight limit: codes are short, so guessing must stay slow (10 per minute per IP).
     const rl = rateLimit(`send-code:${clientKey(request)}`, 10, 60_000);

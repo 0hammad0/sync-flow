@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deviceKey, getRoom, isRoomExpired, markVoicePlayed } from '@/shared/lib/firebase/chat';
+import { getRoom, isRoomExpired, markVoicePlayed } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import { isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +16,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
   if (!isValidRoomCode(code)) {
@@ -37,6 +41,8 @@ export async function POST(
   if (!listener) {
     return NextResponse.json({ success: false, error: 'invalid deviceId' }, { status: 400 });
   }
+  const blockedDevice = await assertNotBlocked({ device: listener });
+  if (blockedDevice) return blockedApiResponse(blockedDevice);
 
   try {
     const room = await getRoom(code);

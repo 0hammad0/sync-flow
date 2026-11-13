@@ -7,7 +7,7 @@
 export const FAQ: { q: string; a: string }[] = [
   {
     q: 'Is SyncFlow free?',
-    a: 'Yes. There are no paid plans, no ads and no trackers. SyncFlow is open source under the MIT licence, so you can also run your own copy.',
+    a: 'Yes. There are no paid plans, no ads and no ad trackers. SyncFlow is open source under the MIT licence, so you can also run your own copy.',
   },
   {
     q: 'How long are my files kept?',

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { putObject } from '@/shared/lib/r2';
 import { finishSendUpload, planSendUpload } from '@/features/files/server/send-upload';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * Legacy multipart phone → PC upload, kept on purpose for scripts and API
@@ -12,6 +13,8 @@ import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
  * Same rules as the direct flow (shared send-upload.ts).
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Shares the presign route's bucket (40 per minute per IP).
     const rl = rateLimit(`send:${clientKey(request)}`, 40, 60_000);

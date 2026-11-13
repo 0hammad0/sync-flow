@@ -23,7 +23,333 @@
         { "fieldPath": "created_by", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "actor_uid", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "target_id", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "actor_uid", "order": "ASCENDING" },
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_cron_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "job", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "ends_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "ends_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "removed_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "ends_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "ends_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removed", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "removed_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "attachments", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "attachment", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "attachments", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "attachment", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rooms",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ttl_hours", "order": "ASCENDING" },
+        { "fieldPath": "expires_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rooms",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ttl_hours", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "country", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "device", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "rolled_up", "order": "ASCENDING" },
+        { "fieldPath": "last_seen_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ip_held", "order": "ASCENDING" },
+        { "fieldPath": "last_seen_at", "order": "ASCENDING" }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "admin_audit",
+      "fieldPath": "before",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "fieldPath": "after",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "pages",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "clicks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "vitals",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "path",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "city",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "country",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "region",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "device",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "browser",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "os",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "referrer",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_source",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_medium",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_campaign",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "clicks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "path",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "city",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "country",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "region",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "device",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "browser",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "os",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "referrer",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_source",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_medium",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_campaign",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "clicks",
+      "indexes": []
+    }
+  ]
 }

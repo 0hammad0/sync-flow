@@ -1,7 +1,24 @@
 @import "tailwindcss";
+/* @theme + @custom-variant (dark, short), shared with admin/admin.css */
+@import "./theme.css";
 
-/* Class-based dark mode (toggled on <html> before paint by the theme script) */
-@custom-variant dark (&:where(.dark, .dark *));
+/* Admin-only code is compiled into src/app/admin/admin.css, which only
+   admin routes load, so public pages do not pay for it.
+   Button is the one kit primitive public pages use, so src/shared/ui is
+   excluded file by file EXCEPT Button.tsx: a later `@source "…/Button.tsx"`
+   cannot re-include a file under a `@source not` folder (negation wins),
+   and globs have no `!(…)`. Subfolders, then every file not starting with
+   "B", then "B…" files whose 2nd letter is not "u". A new kit file named
+   "Bu…" would land in the public sheet: name it otherwise.
+   src/server and tests hold no rendered markup; their identifiers
+   (e.g. `container`) would otherwise become public utilities. */
+@source not "../shared/ui/*/**";
+@source not "../shared/ui/[!B]*";
+@source not "../shared/ui/B[!u]*";
+@source not "../features/admin";
+@source not "./admin";
+@source not "../server";
+@source not "../../tests";
 
 /* ============================================================
    Design tokens — single source of truth for the entire UI.
@@ -130,33 +147,6 @@
   --skeleton-b: #212725;
 
   color-scheme: dark;
-}
-
-@theme inline {
-  --color-canvas: var(--canvas);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-fg: var(--fg);
-  --color-fg-muted: var(--fg-muted);
-  --color-fg-faint: var(--fg-faint);
-  --color-edge: var(--edge);
-  --color-edge-strong: var(--edge-strong);
-  --color-brand: var(--brand);
-  --color-brand-hover: var(--brand-hover);
-  --color-brand-2: var(--brand-2);
-  --color-brand-3: var(--brand-3);
-  --color-brand-text: var(--brand-text);
-  --color-focus: var(--focus);
-  --color-success: var(--success);
-  --color-success-text: var(--success-text);
-  --color-warning: var(--warning);
-  --color-warning-text: var(--warning-text);
-  --color-danger: var(--danger);
-  --color-danger-text: var(--danger-text);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-space-grotesk);
 }
 
 /* Display headlines */
