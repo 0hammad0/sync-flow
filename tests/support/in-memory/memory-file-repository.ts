@@ -1,9 +1,9 @@
+import type { FileIdCodec } from '@/server/files/file-id';
 import {
   attachmentRemoval,
   attachmentsOf,
   chatMessageSchema,
   chatRows,
-  parseFileId,
   shareDocSchema,
   shareRow,
 } from '@/server/repositories/admin-files';
@@ -30,6 +30,8 @@ export class MemoryFileRepository implements FileReader, FileRemover {
   readonly shares = new Map<string, Raw>();
   readonly messages: StoredMessage[] = [];
 
+  constructor(private readonly ids: FileIdCodec) {}
+
   addShare(token: string, doc: Raw): void {
     this.shares.set(token, structuredClone(doc));
   }
@@ -52,16 +54,16 @@ export class MemoryFileRepository implements FileReader, FileRemover {
   }
 
   async get(id: string): Promise<AdminFile | null> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return null;
     if (parsed.kind === 'share') {
       const doc = shareDocSchema.safeParse(this.shares.get(parsed.token));
-      return doc.success ? shareRow(parsed.token, doc.data) : null;
+      return doc.success ? shareRow(id, doc.data) : null;
     }
     const msg = this.findMessage(parsed.roomCode, parsed.messageId);
     const data = msg ? chatMessageSchema.safeParse(msg.doc) : null;
     if (!data?.success) return null;
-    return chatRows(parsed.roomCode, parsed.messageId, data.data).find((r) => r.id === id) ?? null;
+    return chatRows(parsed.roomCode, data.data, this.chatIdOf(parsed.roomCode, parsed.messageId)).find((r) => r.id === id) ?? null;
   }
 
   async shareTotals(): Promise<StoredBytes> {
@@ -77,7 +79,7 @@ export class MemoryFileRepository implements FileReader, FileRemover {
   }
 
   async storageKeyOf(id: string): Promise<string | null> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return null;
     if (parsed.kind === 'share') {
       const path = this.shares.get(parsed.token)?.file_path;
@@ -91,7 +93,7 @@ export class MemoryFileRepository implements FileReader, FileRemover {
   }
 
   async removeRecord(id: string, removedAt: Date): Promise<boolean> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return false;
     if (parsed.kind === 'share') return this.shares.delete(parsed.token);
     const msg = this.findMessage(parsed.roomCode, parsed.messageId);
@@ -100,6 +102,10 @@ export class MemoryFileRepository implements FileReader, FileRemover {
     if (!removal) return false;
     Object.assign(msg.doc, structuredClone(removal.update));
     return true;
+  }
+
+  private chatIdOf(roomCode: string, messageId: string) {
+    return (index: number) => this.ids.encode({ kind: 'chat', roomCode, messageId, index });
   }
 
   private findMessage(code: string, id: string): StoredMessage | undefined {
@@ -130,7 +136,7 @@ export class MemoryFileRepository implements FileReader, FileRemover {
       .map(([token, d]) => {
         const parsed = shareDocSchema.safeParse(d);
         if (!parsed.success) return { sortKey: Number.NEGATIVE_INFINITY, rows: [], cursor: '' };
-        const row = shareRow(token, parsed.data);
+        const row = shareRow(this.ids.encode({ kind: 'share', token }), parsed.data);
         return { sortKey: query.expired ? -(row.expiresAt?.getTime() ?? 0) : row.createdAt.getTime(), rows: [row], cursor: '' };
       });
   }
@@ -147,7 +153,7 @@ export class MemoryFileRepository implements FileReader, FileRemover {
         const inAlbum = source === 'single' && (parsed.data.attachments?.length ?? 0) > 0;
         return {
           sortKey: parsed.data.created_at.getTime(),
-          rows: inAlbum ? [] : chatRows(m.code, m.id, parsed.data),
+          rows: inAlbum ? [] : chatRows(m.code, parsed.data, this.chatIdOf(m.code, m.id)),
           cursor: '',
         };
       });

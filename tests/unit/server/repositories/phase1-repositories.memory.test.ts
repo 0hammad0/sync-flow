@@ -1,3 +1,4 @@
+import { testFileIds } from '../../../support/file-ids';
 import { MemoryFileRepository } from '../../../support/in-memory/memory-file-repository';
 import { MemoryCronRunRepository, MemoryUserRepository } from '../../../support/in-memory/memory-misc-repositories';
 import { MemoryRoomHistoryRepository } from '../../../support/in-memory/memory-room-history-repository';
@@ -8,7 +9,7 @@ import { runRoomRepositoryContract } from './room-repository.contract';
 import { runUserRepositoryContract } from './user-repository.contract';
 
 runFileRepositoryContract('in-memory', async (seed) => {
-  const repo = new MemoryFileRepository();
+  const repo = new MemoryFileRepository(testFileIds);
   for (const s of seed.shares) repo.addShare(s.token, s.doc);
   for (const m of seed.messages) repo.addMessage(m.code, m.id, m.doc);
   return repo;

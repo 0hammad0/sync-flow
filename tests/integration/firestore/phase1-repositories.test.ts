@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { QuotaDecision, QuotaKind, QuotaMeter } from '@/server/quota/quota-guard';
 import { FirestoreCronRunRepository } from '@/server/repositories/firestore/cron-run-repository';
 import { FirestoreFileRepository } from '@/server/repositories/firestore/file-repository';
+import { chatId, testFileIds } from '../../support/file-ids';
 import { FirestoreRoomHistoryRepository } from '@/server/repositories/firestore/room-history-repository';
 import { FirestoreRoomRepository } from '@/server/repositories/firestore/room-repository';
 import { FirebaseUserRepository } from '@/server/repositories/firestore/user-repository';
@@ -59,7 +60,7 @@ describe.skipIf(!hasFirestoreEmulator)('Firestore emulator: phase 1 repositories
     for (const s of seed.shares) batch.set(env.db.collection('files').doc(s.token), s.doc);
     for (const m of seed.messages) batch.set(env.db.doc(`rooms/${m.code}/messages/${m.id}`), m.doc);
     await batch.commit();
-    return new FirestoreFileRepository(env.db, new RecordingMeter());
+    return new FirestoreFileRepository(env.db, new RecordingMeter(), testFileIds);
   });
 
   runRoomRepositoryContract('Firestore (emulator)', async (seed) => {
@@ -101,8 +102,8 @@ describe.skipIf(!hasFirestoreEmulator)('Firestore emulator: phase 1 repositories
     it('marking a chat attachment removed leaves the message text untouched', async () => {
       const m1 = FILE_SEED.messages[0];
       await env.db.doc(`rooms/${m1.code}/messages/${m1.id}`).set(m1.doc);
-      const repo = new FirestoreFileRepository(env.db, meter);
-      expect(await repo.removeRecord(`c_${ROOM_A}_m1_0`, new Date())).toBe(true);
+      const repo = new FirestoreFileRepository(env.db, meter, testFileIds);
+      expect(await repo.removeRecord(chatId(ROOM_A, 'm1', 0), new Date())).toBe(true);
       const stored = (await env.db.doc(`rooms/${m1.code}/messages/${m1.id}`).get()).data();
       expect(stored?.content).toBe(SECRET);
       expect(stored?.attachments[0].removed_at).toEqual(expect.any(String));

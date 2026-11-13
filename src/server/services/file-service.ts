@@ -31,11 +31,14 @@ export type FileServiceDeps = {
   logger?: Pick<Console, 'error'>;
 };
 
-/** What the audit row keeps about a file: metadata only, never content or keys [D-4]. */
-function auditBefore(file: AdminFile) {
+/**
+ * What the audit row keeps about a file: metadata only. Never the file name
+ * (D-6, overrides the spec's "before = name, …"), content or keys [D-4].
+ * The target id is the opaque file id, never a share token.
+ */
+export function fileAuditBefore(file: AdminFile) {
   return {
     kind: file.kind,
-    name: file.name,
     size: file.size,
     mime: file.mimeType,
     owner: file.uploaderUid,
@@ -69,6 +72,11 @@ export class FileService {
     return this.deps.storage.bucketTotals();
   }
 
+  /** R2 objects and bytes under one prefix (Class A list calls, no Firestore). */
+  prefixUsage(prefix: string): Promise<{ objects: number; bytes: number }> {
+    return this.deps.storage.prefixUsage(prefix);
+  }
+
   shareTotals(): Promise<StoredBytes> {
     return this.deps.reader.shareTotals();
   }
@@ -100,7 +108,7 @@ export class FileService {
       ctx,
       action: 'file.delete',
       target: { type: file.kind === 'share' ? 'share_file' : 'chat_attachment', id },
-      before: auditBefore(file),
+      before: fileAuditBefore(file),
       after: opts.batchId ? { batchId: opts.batchId } : null,
       reason: opts.reason ?? null,
       request: opts.request,
@@ -126,7 +134,10 @@ export class FileService {
         if (one.ok) result.deleted.push(id);
         else result.missing.push(id);
       } catch (error) {
-        this.logger.error(`[files] delete failed for ${id}`, error);
+        // The opaque id and the error kind only: an R2 or Firestore message can
+        // hold the object key (`{token}/{name}`) or a doc path with the token.
+        const code = (error as { code?: unknown; name?: unknown } | null) ?? {};
+        this.logger.error(`[files] delete failed for ${id}`, String(code.name ?? 'Error'), String(code.code ?? ''));
         result.failed.push(id);
       }
     }

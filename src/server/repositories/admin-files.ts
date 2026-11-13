@@ -12,31 +12,18 @@ import type { AdminFile } from '@/server/repositories/interfaces';
 /** The only message fields the admin may read. Never add `content` or `reply_to`. */
 export const CHAT_FILE_FIELDS = ['attachment', 'attachments', 'created_at', 'sender_name', 'sender_id'] as const;
 
-const ROOM_CODE = /^[A-Z0-9]{8}$/;
-const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
-export type ParsedFileId =
-  | { kind: 'share'; token: string }
-  | { kind: 'chat'; roomCode: string; messageId: string; index: number };
-
-export function shareFileId(token: string): string {
-  return `s_${token}`;
-}
-
-export function chatFileId(roomCode: string, messageId: string, index: number): string {
-  return `c_${roomCode}_${messageId}_${index}`;
-}
-
-/** null for anything that is not a well-formed id (→ 404). */
-export function parseFileId(id: string): ParsedFileId | null {
-  if (id.startsWith('s_')) {
-    const token = id.slice(2);
-    return SAFE_ID.test(token) ? { kind: 'share', token } : null;
-  }
-  const chat = /^c_([A-Z0-9]{8})_(.+)_(\d{1,3})$/.exec(id);
-  if (!chat || !ROOM_CODE.test(chat[1]) || !SAFE_ID.test(chat[2])) return null;
-  return { kind: 'chat', roomCode: chat[1], messageId: chat[2], index: Number(chat[3]) };
-}
+/** Share doc fields the admin may read. `original_name` is never fetched [D-6]. */
+export const SHARE_FILE_FIELDS = [
+  'file_path',
+  'size',
+  'mime_type',
+  'owner_id',
+  'created_at',
+  'is_encrypted',
+  'expires_at',
+  'max_downloads',
+  'download_count',
+] as const;
 
 const isoDate = z
   .string()
@@ -48,7 +35,6 @@ const nullableNumber = z.number().nullish().catch(null).transform((v) => v ?? nu
 
 export const shareDocSchema = z.object({
   file_path: z.string(),
-  original_name: z.string().catch('(no name)'),
   size: z.number().nonnegative().catch(0),
   mime_type: z.string().catch('application/octet-stream'),
   owner_id: nullableString,
@@ -63,7 +49,6 @@ export type ShareDoc = z.infer<typeof shareDocSchema>;
 
 const attachmentSchema = z.object({
   key: z.string(),
-  name: z.string().catch('(no name)'),
   size: z.number().nonnegative().catch(0),
   mime_type: z.string().catch('application/octet-stream'),
   is_long_text: z.boolean().optional().catch(undefined),
@@ -94,11 +79,13 @@ export function isListedAttachment(a: StoredAttachment): boolean {
   return !a.is_long_text && !a.removed_at;
 }
 
-export function shareRow(token: string, d: ShareDoc): AdminFile {
+// Rows carry the opaque id the caller made with its FileIdCodec. Zod drops
+// every field not in the schemas above, so a file name never reaches a row.
+
+export function shareRow(id: string, d: ShareDoc): AdminFile {
   return {
-    id: shareFileId(token),
+    id,
     kind: 'share',
-    name: d.original_name,
     mimeType: d.mime_type,
     size: d.size,
     createdAt: d.created_at,
@@ -113,15 +100,17 @@ export function shareRow(token: string, d: ShareDoc): AdminFile {
   };
 }
 
-/** Every listed attachment of one message, in album order. Index = position in attachmentsOf(). */
-export function chatRows(roomCode: string, messageId: string, m: ChatFileMessage): AdminFile[] {
+/**
+ * Every listed attachment of one message, in album order. Index = position in
+ * attachmentsOf(). `idOf(index)` returns the opaque id of that attachment.
+ */
+export function chatRows(roomCode: string, m: ChatFileMessage, idOf: (index: number) => string): AdminFile[] {
   const rows: AdminFile[] = [];
   attachmentsOf(m).forEach((a, index) => {
     if (!isListedAttachment(a)) return;
     rows.push({
-      id: chatFileId(roomCode, messageId, index),
+      id: idOf(index),
       kind: 'chat',
-      name: a.name,
       mimeType: a.mime_type,
       size: a.size,
       createdAt: m.created_at,
