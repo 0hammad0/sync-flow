@@ -113,7 +113,8 @@ export function runBlockRepositoryContract(
     it('lists by status and type, with counts', async () => {
       const active = await create({ value: '203.0.113.1' });
       const never = await create({ value: '203.0.113.2', expiresAt: null });
-      const country = await create({ type: 'country', value: 'KP' });
+      // Ends after `active`: equal expiry times would be ordered by random doc id.
+      const country = await create({ type: 'country', value: 'KP', expiresAt: new Date(NOW.getTime() + 48 * HOUR) });
       const expired = await create({ value: '203.0.113.3', expiresAt: new Date(NOW.getTime() - HOUR) }, new Date(NOW.getTime() - 2 * HOUR));
       const removed = await create({ value: '203.0.113.4' });
       await repo.remove(removed.id, 'a', (_b, after) => auditFor('block.remove', after), NOW);
