@@ -124,7 +124,8 @@ async function runCleanup(request: NextRequest) {
     const errors = [...failed];
     const timeBudgetUsed = !hasTime();
     // Counts only: the failed file tokens are share links, never stored [D-4].
-    reportRun(errors.length > 0 || roomsFailed ? 'partial' : 'ok', startedAt, {
+    const blocksFailed = 'error' in blocks;
+    reportRun(errors.length > 0 || roomsFailed || blocksFailed ? 'partial' : 'ok', startedAt, {
       filesDeleted,
       filesTotal: seen.size,
       filesFailed: errors.length,
@@ -132,7 +133,7 @@ async function runCleanup(request: NextRequest) {
       roomsDeleted,
       roomsFailed,
       blocksSwept: 'removed' in blocks ? blocks.removed : null,
-      blocksFailed: 'error' in blocks,
+      blocksFailed,
       timeBudgetUsed,
     }, null);
     return NextResponse.json({

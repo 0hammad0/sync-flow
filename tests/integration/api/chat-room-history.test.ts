@@ -31,6 +31,11 @@ vi.mock('@/shared/lib/firebase/chat', () => ({
   createRoom: async () => h.room,
 }));
 vi.mock('@/server/rooms/room-history', () => ({ recordRoomOpened: h.recordRoomOpened }));
+// The visitor-block check reads request headers; this test is about history only.
+vi.mock('@/server/blocklist/assert-not-blocked', () => ({
+  assertNotBlocked: async () => null,
+  blockedApiResponse: () => new Response(null, { status: 403 }),
+}));
 
 async function create() {
   const { POST } = await import('@/app/api/chat/route');

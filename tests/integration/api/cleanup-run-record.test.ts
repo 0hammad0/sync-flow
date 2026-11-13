@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   listExpiredAnonymousFiles: vi.fn(async (): Promise<{ token: string; file_path: string }[]> => []),
   deleteObject: vi.fn(async () => undefined),
   hooks: { beforeDelete: async () => null },
+  sweepExpired: vi.fn(async (): Promise<{ removed: number } | { error: string }> => ({ removed: 4 })),
 }));
 
 vi.mock('next/server', async (importOriginal) => ({
@@ -29,6 +30,7 @@ vi.mock('@/shared/lib/firebase/chat', () => ({ deleteExpiredRooms: h.deleteExpir
 vi.mock('@/shared/lib/r2', () => ({ deleteObject: h.deleteObject }));
 vi.mock('@/server/cron/record-cron-run', () => ({ recordCronRun: h.recordCronRun }));
 vi.mock('@/server/rooms/room-history', () => ({ cronRoomHooks: () => h.hooks }));
+vi.mock('@/server/container', () => ({ getBlocks: () => ({ service: { sweepExpired: h.sweepExpired } }) }));
 
 async function call() {
   const { GET } = await import('@/app/api/cleanup/route');
@@ -65,7 +67,14 @@ describe('/api/cleanup run record', () => {
         job: 'cleanup',
         status: 'ok',
         errorId: null,
-        result: expect.objectContaining({ roomsDeleted: 3, sessionsDeleted: 2, filesDeleted: 0, filesFailed: 0 }),
+        result: expect.objectContaining({
+          roomsDeleted: 3,
+          sessionsDeleted: 2,
+          filesDeleted: 0,
+          filesFailed: 0,
+          blocksSwept: 4,
+          blocksFailed: false,
+        }),
       }),
     );
   });
@@ -78,6 +87,15 @@ describe('/api/cleanup run record', () => {
     const run = (h.recordCronRun.mock.calls[0] as unknown[])[0];
     expect(run).toMatchObject({ status: 'partial', result: { filesFailed: 1 } });
     expect(JSON.stringify(run)).not.toContain('secret-token');
+  });
+
+  it('a failed block sweep makes the run partial but the cleanup still answers 200', async () => {
+    h.sweepExpired.mockResolvedValueOnce({ error: 'sweep_failed' });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(h.recordCronRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'partial', result: expect.objectContaining({ blocksSwept: null, blocksFailed: true }) }),
+    );
   });
 
   it('an unexpected failure is recorded as error with an error id; the response stays 500', async () => {
