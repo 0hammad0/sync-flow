@@ -3,7 +3,9 @@
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { BULK_CAP } from './types';
-import { formatCount, GHOST_BUTTON, ICON_BUTTON } from './styles';
+import AdminButton from '@/shared/ui/AdminButton';
+import IconButton from '@/shared/ui/IconButton';
+import { formatCount } from './styles';
 
 type BulkBarProps = {
   /** Rows ticked on this page. */
@@ -37,16 +39,14 @@ export default function BulkBar({ count, totalMatching, allMatching, onSelectAll
         {allMatching && total !== null ? `All ${formatCount(total)} matching selected` : `${formatCount(count)} selected`}
       </p>
       {canSelectAll && (
-        <button type="button" onClick={onSelectAllMatching} className={`${GHOST_BUTTON} text-brand-text`}>
+        <AdminButton variant="link" size="sm" onClick={onSelectAllMatching}>
           Select all {formatCount(total)} matching
-        </button>
+        </AdminButton>
       )}
       {overCap && <p className="text-xs text-fg-muted">Up to {formatCount(BULK_CAP)} at a time</p>}
       <div className="ml-auto flex items-center gap-2">
         {children}
-        <button type="button" aria-label="Clear selection" onClick={onClear} className={ICON_BUTTON}>
-          <X aria-hidden="true" strokeWidth={1.75} className="size-4" />
-        </button>
+        <IconButton icon={X} aria-label="Clear selection" onClick={onClear} />
       </div>
     </div>
   );

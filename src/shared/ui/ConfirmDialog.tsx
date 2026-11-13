@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { AlertDialog } from 'radix-ui';
+import { buttonClass } from './button-styles';
 import { LoaderCircle } from 'lucide-react';
 
 /** What `onConfirm` resolves to. Matches the admin action result shape. */
@@ -24,13 +25,7 @@ type ConfirmDialogProps = {
   children?: ReactNode;
 };
 
-const BUTTON =
-  'inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors duration-[var(--dur-1)] pointer-coarse:h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
-
-const CONFIRM_TONES = {
-  default: 'bg-brand text-on-brand pointer-fine:hover:bg-brand-hover',
-  danger: 'bg-danger text-on-danger pointer-fine:hover:brightness-95',
-} as const;
+const CONFIRM_VARIANT = { default: 'primary', danger: 'danger-solid' } as const;
 
 /**
  * Confirmation for an action with consequences. Does not close on backdrop
@@ -153,7 +148,7 @@ export default function ConfirmDialog({
                 onClick={(e) => {
                   if (pending) e.preventDefault();
                 }}
-                className={`${BUTTON} border border-edge-strong bg-surface text-fg pointer-fine:hover:bg-surface-2`}
+                className={buttonClass()}
               >
                 Cancel
               </AlertDialog.Cancel>
@@ -163,7 +158,7 @@ export default function ConfirmDialog({
                 onClick={confirm}
                 aria-disabled={blocked || undefined}
                 aria-busy={pending || undefined}
-                className={`${BUTTON} relative ${CONFIRM_TONES[tone]}`}
+                className={buttonClass({ variant: CONFIRM_VARIANT[tone] })}
               >
                 <span className={pending ? 'invisible' : undefined}>{confirmLabel}</span>
                 {pending && (

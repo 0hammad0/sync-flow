@@ -17,6 +17,7 @@ import {
   type BlockDuration,
   type BlockType,
 } from '@/shared/lib/block-values';
+import AdminButton from '@/shared/ui/AdminButton';
 import Checkbox from '@/shared/ui/Checkbox';
 import Dialog from '@/shared/ui/Dialog';
 import Input from '@/shared/ui/Input';
@@ -133,21 +134,17 @@ export default function BlockDialog({ open, onOpenChange, actor, onCreated }: Bl
       description="Blocked visitors can't upload, send or download within 60 s. Pages still open."
       footer={
         <>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-edge px-3 text-sm font-medium text-fg pointer-coarse:h-11 pointer-fine:hover:bg-surface-2"
-          >
-            Cancel
-          </button>
-          <button
+          <AdminButton onClick={() => onOpenChange(false)}>Cancel</AdminButton>
+          <AdminButton
+            variant="danger-solid"
             type="submit"
             form={`${ids}-form`}
-            disabled={!canSubmit || pending}
-            className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md bg-danger px-3 text-sm font-medium text-on-danger pointer-coarse:h-11 disabled:cursor-not-allowed disabled:opacity-50 pointer-fine:hover:brightness-95"
+            disabled={!canSubmit}
+            loading={pending}
+            loadingText="Saving…"
           >
-            {pending ? 'Saving…' : SUBMIT_LABELS[type]}
-          </button>
+            {SUBMIT_LABELS[type]}
+          </AdminButton>
         </>
       }
     >

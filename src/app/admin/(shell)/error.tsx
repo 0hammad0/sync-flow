@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { RotateCcw } from 'lucide-react';
 import ErrorState from '@/shared/ui/ErrorState';
-import { BUTTON_SECONDARY } from '@/features/admin/shell/styles';
+import AdminButton from '@/shared/ui/AdminButton';
 
 type AdminErrorProps = { error: Error & { digest?: string }; retry: () => void };
 
@@ -30,10 +30,9 @@ export default function AdminError({ error, retry }: AdminErrorProps) {
       reason={reasonFor(error)}
       errorId={error.digest}
       action={
-        <button type="button" onClick={() => retry()} className={BUTTON_SECONDARY}>
-          <RotateCcw aria-hidden="true" strokeWidth={1.75} className="size-4" />
+        <AdminButton icon={RotateCcw} onClick={() => retry()}>
           Retry
-        </button>
+        </AdminButton>
       }
     />
   );

@@ -12,7 +12,7 @@ import Select from '@/shared/ui/Select';
 import SegmentedControl from '@/shared/ui/SegmentedControl';
 import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
-import { SECONDARY_BUTTON } from '@/shared/ui/data-table/styles';
+import AdminButton from '@/shared/ui/AdminButton';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { unblockSubject } from '../actions';
 import { formatExpiry, formatHits, formatUtc } from '../format';
@@ -87,14 +87,9 @@ export default function BlocksTable({ rows, counts, status, type, page, canWrite
   const columns = useMemo(() => buildColumns(canWrite && status === 'active', unblock), [canWrite, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const newBlockButton = canWrite ? (
-    <button
-      type="button"
-      className={`${SECONDARY_BUTTON} border-brand bg-brand text-on-brand pointer-fine:hover:bg-brand-hover`}
-      onClick={() => setDialogOpen(true)}
-    >
-      <Plus aria-hidden="true" strokeWidth={1.75} className="size-4" />
+    <AdminButton variant="primary" size="sm" icon={Plus} onClick={() => setDialogOpen(true)}>
       New block
-    </button>
+    </AdminButton>
   ) : null;
 
   const toolbarFilters = (
@@ -238,10 +233,10 @@ function buildColumns(showUnblock: boolean, unblock: (row: BlockRowDto) => void)
         id: 'unblock',
         header: () => <span className="sr-only">Unblock</span>,
         cell: (info) => (
-          <button type="button" className={SECONDARY_BUTTON} onClick={() => unblock(info.row.original)}>
+          <AdminButton size="sm" onClick={() => unblock(info.row.original)}>
             Unblock
             <span className="sr-only"> {info.row.original.value}</span>
-          </button>
+          </AdminButton>
         ),
         meta: { priority: 1, label: 'Unblock', width: 96, align: 'right', card: 'trailing' },
       }),

@@ -8,7 +8,7 @@ import Badge from '@/shared/ui/Badge';
 import Select from '@/shared/ui/Select';
 import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
-import { GHOST_BUTTON } from '@/shared/ui/data-table/styles';
+import AdminButton from '@/shared/ui/AdminButton';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { AUDIT_ACTION_LABELS, AUDIT_ACTION_LIST, isDangerAction, type AuditActionName } from '../catalog';
 import { formatAuditTime, middleTruncate } from '../format';
@@ -84,15 +84,10 @@ export default function AuditTable({ rows, range, action, actor, page, canSearch
         options={AUDIT_RANGES.map((r) => ({ value: r, label: AUDIT_RANGE_LABELS[r] }))}
       />
       {actor && (
-        <button
-          type="button"
-          className={`${GHOST_BUTTON} border border-edge`}
-          onClick={() => void setFilters({ actor: null, cursor: null })}
-        >
+        <AdminButton size="sm" iconRight={X} onClick={() => void setFilters({ actor: null, cursor: null })}>
           Actor: {actor.label}
-          <X aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
           <span className="sr-only">Remove actor filter</span>
-        </button>
+        </AdminButton>
       )}
     </>
   );

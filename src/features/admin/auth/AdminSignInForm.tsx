@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { authErrorMessage, sendMagicLink } from '@/shared/lib/firebase/client';
-import Button from '@/shared/ui/Button';
+import AdminButton from '@/shared/ui/AdminButton';
 import Input from '@/shared/ui/Input';
 
 const RESEND_COOLDOWN_S = 30;
@@ -156,17 +156,9 @@ export default function AdminSignInForm({ next }: { next: string }) {
         </p>
       )}
       {offlineNote}
-      <Button
-        type="submit"
-        variant="primary"
-        size="md"
-        fullWidth
-        disabled={!online}
-        loading={sending}
-        loadingText="Sending…"
-      >
+      <AdminButton type="submit" variant="primary" fullWidth disabled={!online} loading={sending} loadingText="Sending…">
         Send sign-in link
-      </Button>
+      </AdminButton>
     </form>
   );
 }

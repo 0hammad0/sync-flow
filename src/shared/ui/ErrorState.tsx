@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, Check, Copy } from 'lucide-react';
 import { useCopy } from '@/shared/lib/clipboard';
 import EmptyState, { type StateSize } from './EmptyState';
+import { buttonClass } from './button-styles';
 import ErrorGeneric from './illustrations/ErrorGeneric';
 
 export interface ErrorStateProps {
@@ -64,7 +65,7 @@ function ErrorId({ id }: { id: string }) {
       <button
         type="button"
         onClick={() => copy(id)}
-        className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-fg-muted transition-colors duration-[var(--dur-1,120ms)] hover:bg-surface-2 hover:text-fg pointer-coarse:h-10 pointer-coarse:px-2.5"
+        className={buttonClass({ variant: 'ghost', size: 'sm' })}
       >
         {copied ? (
           <Check className="size-3.5" aria-hidden="true" />

@@ -13,7 +13,8 @@ import { clientAuth } from '@/shared/lib/firebase/client';
 import { clearAuthHint } from '@/shared/lib/auth-state';
 import type { AdminRole } from '@/server/auth/types';
 import { ADMIN_SIGN_IN, initialsFor, roleLabel, signInHref } from './account';
-import { ICON_BUTTON, SIDEBAR_ROW } from './styles';
+import { iconButtonClass } from '@/shared/ui/button-styles';
+import { SIDEBAR_ROW } from './styles';
 
 // Loaded on first "Sign out everywhere", not with the shell.
 const ConfirmDialog = dynamic(() => import('@/shared/ui/ConfirmDialog'), { ssr: false });
@@ -113,7 +114,7 @@ export default function AccountMenu({ email, role, variant }: AccountMenuProps) 
         </span>
       </button>
     ) : (
-      <button type="button" aria-label={label} className={`${ICON_BUTTON} -mr-1`}>
+      <button type="button" aria-label={label} className={iconButtonClass('-mr-1')}>
         <Avatar email={email} className="size-7" />
       </button>
     );

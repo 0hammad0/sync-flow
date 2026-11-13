@@ -2,7 +2,7 @@
 
 import { MoreHorizontal } from 'lucide-react';
 import DropdownMenu, { type MenuItem } from '@/shared/ui/DropdownMenu';
-import { ICON_BUTTON } from './styles';
+import IconButton from '@/shared/ui/IconButton';
 
 export type RowAction = Extract<MenuItem, { type: 'item' }>;
 
@@ -34,13 +34,11 @@ export default function RowActions({ label, items, className = '' }: RowActionsP
       align="end"
       items={orderRowActions(items)}
       trigger={
-        <button
-          type="button"
+        <IconButton
+          icon={MoreHorizontal}
           aria-label={label}
-          className={`${ICON_BUTTON} pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:data-[state=open]:opacity-100 ${className}`}
-        >
-          <MoreHorizontal aria-hidden="true" strokeWidth={1.75} className="size-4" />
-        </button>
+          className={`pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:data-[state=open]:opacity-100 ${className}`}
+        />
       }
     />
   );

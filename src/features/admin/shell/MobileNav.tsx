@@ -3,7 +3,7 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import { Menu } from 'lucide-react';
 import Sheet from '@/shared/ui/Sheet';
-import { ICON_BUTTON } from './styles';
+import IconButton from '@/shared/ui/IconButton';
 
 /** Under 768 px: ☰ in the top bar opens the nav as a left Sheet (focus trapped, Esc closes). */
 export default function MobileNav({ nav, footer }: { nav: ReactNode; footer: ReactNode }) {
@@ -16,15 +16,13 @@ export default function MobileNav({ nav, footer }: { nav: ReactNode; footer: Rea
 
   return (
     <>
-      <button
-        type="button"
+      <IconButton
+        icon={Menu}
         aria-label="Open navigation"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className={`${ICON_BUTTON} -ml-2 md:hidden`}
-      >
-        <Menu aria-hidden="true" strokeWidth={1.75} className="size-4" />
-      </button>
+        className="-ml-2 md:hidden"
+      />
       <Sheet open={open} onOpenChange={setOpen} side="left" title="Navigation" hideTitle className="md:hidden">
         <div onClick={onClick} className="-mx-4 -mt-4 flex min-h-full flex-col">
           <div className="flex-1">{nav}</div>

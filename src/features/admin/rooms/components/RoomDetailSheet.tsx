@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import AdminButton from '@/shared/ui/AdminButton';
 import Sheet from '@/shared/ui/Sheet';
 import { formatBytes, formatCountdown, formatNumber, formatTtl, formatUtc, expiryTone } from '@/features/admin/format';
 import type { CloseRoomData } from '../actions';
@@ -98,13 +99,9 @@ export default function RoomDetailSheet({
           </div>
           {canClose && (
             <div className="sticky -bottom-4 -mx-4 mt-4 -mb-4 border-t border-edge bg-surface px-4 py-3">
-              <button
-                type="button"
-                onClick={() => setCloseOpen(true)}
-                className="inline-flex h-8 w-full cursor-pointer items-center justify-center rounded-md bg-danger px-3 text-sm font-medium text-on-danger pointer-coarse:h-11 pointer-fine:hover:brightness-95"
-              >
+              <AdminButton variant="danger-solid" fullWidth onClick={() => setCloseOpen(true)}>
                 Close room
-              </button>
+              </AdminButton>
             </div>
           )}
           {closeOpen && (

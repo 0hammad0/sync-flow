@@ -10,7 +10,7 @@ import SegmentedControl from '@/shared/ui/SegmentedControl';
 import Select from '@/shared/ui/Select';
 import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
-import { SECONDARY_BUTTON } from '@/shared/ui/data-table/styles';
+import AdminButton from '@/shared/ui/AdminButton';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import {
   FILE_TYPE_LABELS,
@@ -134,16 +134,16 @@ export default function FilesTable({ rows, kind, expired, page, canDelete, actio
           canDelete
             ? (selection, clear) =>
                 selection.allMatching ? null : (
-                  <button
-                    type="button"
+                  <AdminButton
+                    variant="danger"
+                    size="sm"
+                    icon={Trash2}
                     disabled={selection.ids.length > MAX_FILES_PER_DELETE}
                     title={selection.ids.length > MAX_FILES_PER_DELETE ? `Select ${MAX_FILES_PER_DELETE} files or fewer.` : undefined}
-                    className={`${SECONDARY_BUTTON} border-danger text-danger-text disabled:cursor-not-allowed disabled:opacity-50`}
                     onClick={() => setPending({ ids: selection.ids, label: `${selection.ids.length} files`, clear })}
                   >
-                    <Trash2 aria-hidden="true" strokeWidth={1.75} className="size-4" />
                     Delete {selection.ids.length} {selection.ids.length === 1 ? 'file' : 'files'}
-                  </button>
+                  </AdminButton>
                 )
             : undefined
         }
