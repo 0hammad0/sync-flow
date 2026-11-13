@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useTransition } from 'react';
+import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import NoDataYet from '@/shared/ui/illustrations/NoDataYet';
@@ -10,10 +11,13 @@ import DataTable from '@/shared/ui/data-table/DataTable';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { expiryTone, formatBytes, formatCountdown, formatNumber, formatTtl, formatUtc } from '@/features/admin/format';
 import type { CloseRoomData } from '../actions';
-import { ROOM_STATUSES, ROOM_TTLS, type RoomStatusParam } from '../schemas';
+import { ROOM_STATUSES, ROOM_TTLS, type RoomStatusParam } from '../constants';
 import type { RoomDetailDto, RoomRowDto } from '../types';
-import RoomDetailSheet from './RoomDetailSheet';
 import RoomStatusFilter from './RoomStatusFilter';
+
+// The sheet (and its close dialog) load only when `?code=` is set
+// (12-rooms.md "Performance": sheet and close dialog via next/dynamic).
+const RoomDetailSheet = dynamic(() => import('./RoomDetailSheet'));
 
 /** sonner loads lazily (LazyToaster), so import it on use. */
 async function toast(kind: 'success' | 'error', title: string, description?: string) {

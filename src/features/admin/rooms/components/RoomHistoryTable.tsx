@@ -8,7 +8,7 @@ import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { formatBytes, formatNumber, formatTtl, formatUtc } from '@/features/admin/format';
-import { ROOM_STATUSES } from '../schemas';
+import { ROOM_STATUSES } from '../constants';
 import type { RoomHistoryRowDto } from '../types';
 import RoomStatusFilter from './RoomStatusFilter';
 

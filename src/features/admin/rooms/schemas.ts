@@ -3,21 +3,9 @@ import { z } from 'zod';
 // Shared by the rooms screen (client) and its actions and page (server).
 // Spec: docs/admin/03-features/12-rooms.md.
 
-/** Room codes: 8 chars from this alphabet (src/shared/lib/utils.ts generateRoomCode). */
-export const ROOM_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
+import { REASON_MAX, REASON_MIN, ROOM_CODE_PATTERN, ROOM_STATUSES, ROOM_TTLS, normaliseRoomCode } from './constants';
 
-export const ROOM_STATUSES = ['live', 'expiring', 'history'] as const;
-export type RoomStatusParam = (typeof ROOM_STATUSES)[number];
-
-export const ROOM_TTLS = ['1', '24', '168'] as const;
-
-export const REASON_MIN = 3;
-export const REASON_MAX = 200;
-
-/** Uppercases and trims; anything that is not a code shape stays as typed (and finds nothing). */
-export function normaliseRoomCode(raw: string): string {
-  return raw.trim().toUpperCase();
-}
+export * from './constants';
 
 export const roomCodeSchema = z
   .string()

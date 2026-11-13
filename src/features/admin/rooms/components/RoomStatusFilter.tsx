@@ -1,7 +1,7 @@
 'use client';
 
 import SegmentedControl from '@/shared/ui/SegmentedControl';
-import { ROOM_STATUSES, type RoomStatusParam } from '../schemas';
+import { ROOM_STATUSES, type RoomStatusParam } from '../constants';
 
 const LABELS: Record<RoomStatusParam, string> = { live: 'Live', expiring: 'Expiring < 1 h', history: 'History' };
 

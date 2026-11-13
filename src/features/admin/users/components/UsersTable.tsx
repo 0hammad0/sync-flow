@@ -9,7 +9,7 @@ import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { formatAgo, formatBytes, formatDay, formatNumber, formatUtc } from '@/features/admin/format';
-import { USER_FILTERS, type UserFilter } from '../schemas';
+import { USER_FILTERS, type UserFilter } from '../constants';
 import type { UserRowDto } from '../types';
 import RoleBadge from './RoleBadge';
 

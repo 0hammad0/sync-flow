@@ -10,7 +10,7 @@ import DropdownMenu from '@/shared/ui/DropdownMenu';
 import { SECONDARY_BUTTON } from '@/shared/ui/data-table/styles';
 import StepUpNotice from '@/features/admin/shell/StepUpNotice';
 import { disableUser, enableUser, revokeUserSessions, setUserRole, type UserActionData } from '../actions';
-import { OWNER_CONFIRM, ROLE_CHOICES, type RoleChoice } from '../schemas';
+import { OWNER_CONFIRM, ROLE_CHOICES, type RoleChoice } from '../constants';
 import type { UserDetailDto } from '../types';
 
 async function toast(kind: 'success' | 'error', title: string, description?: string) {

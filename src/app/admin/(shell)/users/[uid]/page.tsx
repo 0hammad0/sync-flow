@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import UserDetail from '@/features/admin/users/components/UserDetail';
 import { getUserDetail, type UserDetailPage } from '@/features/admin/users/queries';
-import { UID_PATTERN } from '@/features/admin/users/schemas';
+import { UID_PATTERN } from '@/features/admin/users/constants';
 import { requireAdminPage } from '@/features/admin/shell/require-admin-page';
 import ErrorState from '@/shared/ui/ErrorState';
 import { can } from '@/server/auth/permissions';

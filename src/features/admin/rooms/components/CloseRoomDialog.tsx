@@ -6,7 +6,7 @@ import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import StepUpNotice from '@/features/admin/shell/StepUpNotice';
 import { formatBytes, formatNumber } from '@/features/admin/format';
 import { closeRoom, type CloseRoomData } from '../actions';
-import { REASON_MAX, REASON_MIN } from '../schemas';
+import { REASON_MAX, REASON_MIN } from '../constants';
 import type { RoomRowDto } from '../types';
 
 type CloseRoomDialogProps = {
