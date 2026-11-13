@@ -279,6 +279,11 @@ export class SettingsCache {
     private readonly ttlMs = SETTINGS_TTL_MS,
   ) {}
 
+  /** The last value read, without reading. `null` until the first read on this instance. */
+  peek(): TrackingSettings | null {
+    return this.readAt === Number.NEGATIVE_INFINITY ? null : this.value;
+  }
+
   get(): Promise<TrackingSettings> {
     if (this.now() - this.readAt < this.ttlMs) return Promise.resolve(this.value);
     this.loading ??= this.refresh().finally(() => {
@@ -344,6 +349,19 @@ export class IngestService {
       (day, delta) => deps.events.incrementCounters(day, 'ingest', delta),
       this.now,
     );
+  }
+
+  /**
+   * The kill switch, from the same 60 s cache as ingest (≤ 1 read per 60 s
+   * per instance). For `GET /api/e`, which tells the loader whether to run.
+   */
+  async trackingEnabled(): Promise<boolean> {
+    return (await this.settings.get()).trackingEnabled;
+  }
+
+  /** The cached kill switch without a read, or `null` before the first read. Safe before the 204. */
+  peekTrackingEnabled(): boolean | null {
+    return this.settings.peek()?.trackingEnabled ?? null;
   }
 
   /** Never throws. The outcome is for tests and logs only. */

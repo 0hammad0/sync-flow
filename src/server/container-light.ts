@@ -68,6 +68,15 @@ async function uidFromSessionCookie(cookie: string): Promise<string | null> {
   }
 }
 
+/**
+ * The cached kill switch if ingest already exists on this instance, else
+ * `null`. Never builds anything (no Firebase init), so `/api/e` can call it
+ * before its 204.
+ */
+export function peekTrackingEnabled(): boolean | null {
+  return ingest ? ingest.peekTrackingEnabled() : null;
+}
+
 export function getIngest(): IngestService {
   ingest ??= new IngestService({
     events: getEventRepository(),
