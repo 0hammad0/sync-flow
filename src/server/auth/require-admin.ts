@@ -1,10 +1,12 @@
 import 'server-only';
 import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
+import { after } from 'next/server';
 import { adminAuth } from '@/shared/lib/firebase/admin';
 import { SESSION_COOKIE } from '@/shared/lib/firebase/session';
 import { can, isAdminRole, type Permission } from '@/server/auth/permissions';
 import type { AdminContext, AdminRole } from '@/server/auth/types';
+import { getContainer } from '@/server/container';
 import {
   ForbiddenError,
   StepUpRequiredError,
@@ -176,9 +178,21 @@ const defaultInstance = createRequireAdmin({
     const h = await headers();
     return { ip: firstForwardedIp(h), userAgent: h.get('user-agent') };
   },
-  // TODO(0.6 wiring): container.audit — write `auth.denied` via AuditService
-  // (ideally inside `after()` so the 401/403 does not wait for Firestore).
-  onDenied: () => {},
+  // The `auth.denied` row is written after the response is sent, so the
+  // 401/403 never waits for Firestore. AuditService.recordDenied never throws.
+  onDenied: (event) => {
+    after(() =>
+      getContainer()
+        .audit.recordDenied({
+          uid: event.uid,
+          email: event.email,
+          target: { type: 'permission', id: event.permission },
+          reason: event.reason,
+          request: { ip: event.ip, userAgent: event.userAgent },
+        })
+        .then(() => undefined),
+    );
+  },
   now: () => Date.now(),
   memo: cache,
 });
