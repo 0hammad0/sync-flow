@@ -9,6 +9,7 @@ import {
 } from '@/shared/lib/firebase/chat';
 import { isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -35,6 +36,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 
@@ -58,6 +61,8 @@ export async function POST(
   if (!deviceId) {
     return NextResponse.json({ success: false, error: 'deviceId required' }, { status: 400 });
   }
+  const blockedDevice = await assertNotBlocked({ device: deviceId });
+  if (blockedDevice) return blockedApiResponse(blockedDevice);
   const senderName = sanitizeSenderName(body.senderName);
   if (senderName.length === 0) {
     return NextResponse.json({ success: false, error: 'senderName empty' }, { status: 400 });

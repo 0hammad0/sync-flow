@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getFileByToken } from '@/features/files/server/files';
+import { loadFileByToken } from '@/features/files/server/file-loaders';
 import DownloadCard from '@/features/files/components/DownloadCard';
 import Button from '@/shared/ui/Button';
 import { Clock, FileQuestion, ShieldAlert } from 'lucide-react';
@@ -56,7 +56,7 @@ function ErrorState({
 
 export default async function SharePage({ params }: SharePageProps) {
   const { token } = await params;
-  const downloadInfo = await getFileByToken(token);
+  const downloadInfo = await loadFileByToken(token);
 
   // Handle expired file
   if (!downloadInfo.success && downloadInfo.error === 'expired') {

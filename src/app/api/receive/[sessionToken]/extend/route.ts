@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extendReceiveSession } from '@/shared/lib/firebase/files';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 const EXTEND_MS = 10 * 60 * 1000;
 // A session can be stretched to at most an hour after it was created.
@@ -11,6 +12,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionToken: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     const rl = rateLimit(`receive-extend:${clientKey(request)}`, 10, 60_000);
     if (!rl.allowed) {

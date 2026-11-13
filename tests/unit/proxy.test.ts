@@ -6,6 +6,8 @@ import {
   unstable_getResponseFromNextConfig,
 } from 'next/experimental/testing/server';
 import { config, proxy } from '@/proxy';
+import { BlocklistCache, setBlocklistCacheForTests } from '@/server/blocklist/cache';
+import { emptyBlocklist } from '@/server/blocklist/types';
 import { isProtectedAdminPath } from '@/shared/lib/firebase/proxy';
 import nextConfig from '../../next.config';
 
@@ -20,6 +22,14 @@ vi.mock('@/shared/lib/firebase/admin', () => ({
 }));
 
 const ORIGIN = 'https://sync.test';
+
+// Action requests (/api/**) now run a blocklist check: give them an empty list.
+setBlocklistCacheForTests(
+  new BlocklistCache(() => ({
+    readBlocklist: async () => ({ blocklist: emptyBlocklist(), settings: null }),
+    addHits: async () => {},
+  })),
+);
 
 function request(path: string, cookie?: string) {
   return new NextRequest(`${ORIGIN}${path}`, {
@@ -64,10 +74,9 @@ describe('proxy: /admin', () => {
     expect(verifySessionCookie).not.toHaveBeenCalled();
   });
 
-  it('/api/admin/** is never redirected', async () => {
+  it('/api/admin/** is never redirected (the proxy only runs its blocklist check there)', async () => {
     const res = await proxy(request('/api/admin/files'));
     expect(location(res)).toBeNull();
-    expect(unstable_doesMiddlewareMatch({ config, url: '/api/admin/files' })).toBe(false);
   });
 
   it('an over-long next is dropped, not passed through', async () => {
@@ -124,7 +133,8 @@ describe('proxy matcher is tight', () => {
     },
   );
 
-  it.each(['/', '/chat', '/chat/ABC123', '/share/t', '/send', '/receive', '/privacy', '/api/upload', '/api/admin/x', '/administrator'])(
+  // /api/** and server actions are matched for blocklist checks: tests/unit/proxy-blocklist.test.ts.
+  it.each(['/', '/chat', '/chat/ABC123', '/share/t', '/send', '/receive', '/privacy', '/administrator'])(
     'skips %s',
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);

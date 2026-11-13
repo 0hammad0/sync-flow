@@ -4,6 +4,7 @@ import { signedUploadUrl } from '@/shared/lib/r2';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { createUploadTicket } from '@/shared/lib/upload-ticket';
 import { planShareUpload } from '@/features/files/server/share-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * Step 1 of a direct-to-R2 share upload. Body (JSON):
@@ -14,6 +15,8 @@ import { planShareUpload } from '@/features/files/server/share-upload';
  * Returns { uploadUrl, contentType, ticket }.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     const rl = rateLimit(`upload:${clientKey(request)}`, 20, 60_000);
     if (!rl.allowed) {
