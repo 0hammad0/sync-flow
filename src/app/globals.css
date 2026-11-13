@@ -702,10 +702,6 @@ html:not(.js) [data-tablist] {
 @keyframes opacityIn { from { opacity: 0; } }
 .skeleton-delayed { animation: skeleton-loading 1.5s ease-in-out infinite, opacityIn var(--dur-2) var(--ease-enter) 200ms both; }
 
-/* Illustration draw-in (paths use pathLength="1") */
-@keyframes draw { to { stroke-dashoffset: 0; } }
-.draw-in path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 600ms var(--ease-enter) forwards; }
-
 /* Shimmer sweep across gradient progress bars */
 @keyframes progressShimmer {
   0% { transform: translateX(-100%); }
@@ -862,9 +858,6 @@ html:not(.js) [data-tablist] {
     background: var(--skeleton-a);
   }
 
-  .draw-in path {
-    stroke-dashoffset: 0;
-  }
 }
 
 /* Chat page: lock body scroll and hide the site footer so the fixed chat

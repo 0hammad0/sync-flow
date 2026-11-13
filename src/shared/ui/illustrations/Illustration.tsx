@@ -13,10 +13,10 @@ import type { ReactNode } from 'react';
  * Reduced motion: no animation, every path shows fully drawn.
  */
 const CSS = `.sf-illus *{vector-effect:non-scaling-stroke}
-.sf-illus .sf-draw{stroke-dasharray:1;stroke-dashoffset:1;animation:sf-draw 480ms var(--ease-out,cubic-bezier(.2,0,0,1)) forwards}
+.sf-illus .sf-draw{stroke-dasharray:1;stroke-dashoffset:1;animation:sf-draw 480ms var(--ease-enter,cubic-bezier(.2,0,0,1)) forwards}
 .sf-illus .sf-d1{animation-delay:60ms}.sf-illus .sf-d2{animation-delay:120ms}
-.sf-illus .sf-fade{animation:sf-fade 120ms var(--ease-out,cubic-bezier(.2,0,0,1)) 480ms both}
-.sf-illus .sf-breathe{animation:sf-fade 120ms var(--ease-out,cubic-bezier(.2,0,0,1)) 480ms both,sf-breathe 2.4s ease-in-out 600ms infinite}
+.sf-illus .sf-fade{animation:sf-fade 120ms var(--ease-enter,cubic-bezier(.2,0,0,1)) 480ms both}
+.sf-illus .sf-breathe{animation:sf-fade 120ms var(--ease-enter,cubic-bezier(.2,0,0,1)) 480ms both,sf-breathe 2.4s ease-in-out 600ms infinite}
 @keyframes sf-draw{to{stroke-dashoffset:0}}
 @keyframes sf-fade{from{opacity:0}}
 @keyframes sf-breathe{50%{opacity:.5}}
