@@ -75,6 +75,13 @@ export type AuditPage = { entries: AuditEntry[]; nextCursor: string | null };
 export interface AuditRepository {
   /** Writes one row and returns its id. Throws if the write fails. */
   append(entry: NewAuditEntry): Promise<string>;
+  /**
+   * Writes one row under a caller-chosen id, only if no row has that id yet.
+   * Never overwrites: returns `true` when written, `false` when the id was
+   * already taken (the stored row is left as it was). Throws on any other
+   * failure. Used for "once per X" rows such as `auth.sign_in` per session.
+   */
+  appendOnce(id: string, entry: NewAuditEntry): Promise<boolean>;
   /** Newest first (`at` desc, then id desc), cursor paged. */
   list(query: AuditListQuery): Promise<AuditPage>;
 }

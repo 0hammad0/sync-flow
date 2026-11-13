@@ -59,12 +59,37 @@ function decodeCursor(cursor: string | null | undefined): Cursor | null {
   return { at: new Timestamp(Number(match[1]), nanos), id: match[3] };
 }
 
+function toDoc(entry: NewAuditEntry) {
+  return {
+    at: FieldValue.serverTimestamp(),
+    actor_uid: entry.actorUid,
+    actor_email: entry.actorEmail,
+    actor_role: entry.actorRole,
+    action: entry.action,
+    target_type: entry.targetType,
+    target_id: entry.targetId,
+    before: entry.before,
+    after: entry.after,
+    reason: entry.reason,
+    ip: entry.ip,
+    user_agent: entry.userAgent,
+  };
+}
+
+/** gRPC status 6 (Admin SDK) or the string form. */
+function isAlreadyExists(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 6 || code === 'already-exists' || code === 'ALREADY_EXISTS';
+}
+
 /**
- * `admin_audit` on Firestore. Append-only: `append` and `list` are the only
- * methods (T-23); keep helpers as module functions so the type test and the
- * prototype check in tests/integration/firestore/admin-rules.test.ts hold.
+ * `admin_audit` on Firestore. Append-only: `append`, `appendOnce` and `list`
+ * are the only methods (T-23), and none of them can change or remove a stored
+ * row; keep helpers as module functions so the type test and the prototype
+ * check in tests/integration/firestore/admin-rules.test.ts hold.
  *
- * Quota: append = 1 write (always allowed, still counted). list = 1 read per
+ * Quota: append = 1 write (always allowed, still counted). appendOnce = 1
+ * write attempt, counted even when the id already exists. list = 1 read per
  * row returned, minimum 1, and refuses with QuotaExceededError at the read cap.
  */
 export class FirestoreAuditRepository implements AuditRepository {
@@ -76,26 +101,32 @@ export class FirestoreAuditRepository implements AuditRepository {
   async append(entry: NewAuditEntry): Promise<string> {
     const ref = this.db.collection(COLLECTIONS.adminAudit).doc();
     try {
-      await ref.set({
-        at: FieldValue.serverTimestamp(),
-        actor_uid: entry.actorUid,
-        actor_email: entry.actorEmail,
-        actor_role: entry.actorRole,
-        action: entry.action,
-        target_type: entry.targetType,
-        target_id: entry.targetId,
-        before: entry.before,
-        after: entry.after,
-        reason: entry.reason,
-        ip: entry.ip,
-        user_agent: entry.userAgent,
-      });
+      await ref.set(toDoc(entry));
     } catch (error) {
       this.quota.noteError(error);
       throw error;
     }
     this.quota.record('writes', 1);
     return ref.id;
+  }
+
+  async appendOnce(id: string, entry: NewAuditEntry): Promise<boolean> {
+    const ref = this.db.collection(COLLECTIONS.adminAudit).doc(id);
+    try {
+      // create() fails with ALREADY_EXISTS instead of overwriting: the
+      // "once" check costs no read.
+      await ref.create(toDoc(entry));
+    } catch (error) {
+      if (isAlreadyExists(error)) {
+        // Counted: whether Firestore bills a refused create is not verified.
+        this.quota.record('writes', 1);
+        return false;
+      }
+      this.quota.noteError(error);
+      throw error;
+    }
+    this.quota.record('writes', 1);
+    return true;
   }
 
   async list(query: AuditListQuery): Promise<AuditPage> {

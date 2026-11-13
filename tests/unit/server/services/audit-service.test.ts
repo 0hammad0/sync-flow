@@ -73,10 +73,26 @@ describe('AuditService.record', () => {
       append: async () => {
         throw new Error('write failed');
       },
+      appendOnce: async () => {
+        throw new Error('write failed');
+      },
       list: async () => ({ entries: [], nextCursor: null }),
     };
     const s = new AuditService(failing);
     await expect(s.record({ ctx: owner, action: 'file.delete' })).rejects.toThrow('write failed');
+    await expect(s.recordOnce('x', { ctx: owner, action: 'auth.sign_in' })).rejects.toThrow('write failed');
+  });
+
+  it('recordOnce writes a cleaned row under the id once', async () => {
+    const repo = new MemoryAuditRepository();
+    const s = new AuditService(repo);
+    const input = { ctx: owner, action: 'auth.sign_in' as const, after: { authTime: 1, idToken: 'secret' }, request: { ip: ' 203.0.113.7 ' } };
+    expect(await s.recordOnce('signin_x_1', input)).toBe(true);
+    expect(await s.recordOnce('signin_x_1', input)).toBe(false);
+    const { entries } = await repo.list({ limit: 10 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ id: 'signin_x_1', action: 'auth.sign_in', after: { authTime: 1 }, ip: '203.0.113.7' });
+    expect(entries[0].after).not.toHaveProperty('idToken');
   });
 
   it('never stores message text, tokens, cookies or URLs in before/after', async () => {
@@ -159,6 +175,7 @@ describe('AuditService.recordDenied', () => {
         appended.push(entry);
         return `id-${appended.length}`;
       },
+      appendOnce: async () => true,
       list: async () => ({ entries: [], nextCursor: null }),
     };
     service = new AuditService(repo, { now: () => clock, logger: { error: () => {} } });
@@ -212,6 +229,7 @@ describe('AuditService.recordDenied', () => {
         append: async () => {
           throw new Error('down');
         },
+        appendOnce: async () => true,
         list: async () => ({ entries: [], nextCursor: null }),
       },
       { logger: { error: () => {} } },

@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { AdminContext } from '@/server/auth/types';
-import type { AuditAction, AuditData, AuditRepository } from '@/server/repositories/interfaces';
+import type { AuditAction, AuditData, AuditRepository, NewAuditEntry } from '@/server/repositories/interfaces';
 
 export type AuditTarget = { type: string; id: string };
 
@@ -107,6 +107,22 @@ function cleanText(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+function toEntry(input: RecordAuditInput): NewAuditEntry {
+  return {
+    actorUid: input.ctx.uid,
+    actorEmail: input.ctx.email,
+    actorRole: input.ctx.role,
+    action: input.action,
+    targetType: input.target?.type ?? null,
+    targetId: input.target?.id ?? null,
+    before: sanitizeAuditData(input.before),
+    after: sanitizeAuditData(input.after),
+    reason: cleanText(input.reason),
+    ip: cleanText(input.request?.ip),
+    userAgent: cleanText(input.request?.userAgent),
+  };
+}
+
 /**
  * Writes the audit log (hard rule 4). `record` throws when the write fails,
  * so the calling action fails too ("Action cancelled: could not write the
@@ -127,19 +143,16 @@ export class AuditService {
 
   /** Appends one row and returns its id. Throws if the write fails. */
   async record(input: RecordAuditInput): Promise<string> {
-    return this.repo.append({
-      actorUid: input.ctx.uid,
-      actorEmail: input.ctx.email,
-      actorRole: input.ctx.role,
-      action: input.action,
-      targetType: input.target?.type ?? null,
-      targetId: input.target?.id ?? null,
-      before: sanitizeAuditData(input.before),
-      after: sanitizeAuditData(input.after),
-      reason: cleanText(input.reason),
-      ip: cleanText(input.request?.ip),
-      userAgent: cleanText(input.request?.userAgent),
-    });
+    return this.repo.append(toEntry(input));
+  }
+
+  /**
+   * Appends one row under `id` unless a row with that id exists (it is never
+   * overwritten). Returns true when written, false when already there.
+   * Throws if the write fails for any other reason.
+   */
+  async recordOnce(id: string, input: RecordAuditInput): Promise<boolean> {
+    return this.repo.appendOnce(id, toEntry(input));
   }
 
   /**

@@ -23,13 +23,15 @@ import {
 } from '../../support/firestore-emulator';
 
 describe('AuditRepository is append only', () => {
-  it('has exactly append and list (type test: tsc fails if a method is added)', () => {
-    expectTypeOf<keyof AuditRepository>().toEqualTypeOf<'append' | 'list'>();
+  // appendOnce uses Firestore create(): it fails on an existing id, so it can
+  // never change a stored row.
+  it('has exactly append, appendOnce and list (type test: tsc fails if a method is added)', () => {
+    expectTypeOf<keyof AuditRepository>().toEqualTypeOf<'append' | 'appendOnce' | 'list'>();
   });
 
   it('FirestoreAuditRepository has no other public method at runtime', () => {
     const methods = Object.getOwnPropertyNames(FirestoreAuditRepository.prototype).filter((m) => m !== 'constructor');
-    expect(methods.sort()).toEqual(['append', 'list']);
+    expect(methods.sort()).toEqual(['append', 'appendOnce', 'list']);
   });
 });
 

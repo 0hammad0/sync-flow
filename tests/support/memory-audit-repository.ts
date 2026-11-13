@@ -25,6 +25,12 @@ export class MemoryAuditRepository implements AuditRepository {
     return id;
   }
 
+  async appendOnce(id: string, entry: NewAuditEntry): Promise<boolean> {
+    if (this.rows.some((r) => r.id === id)) return false;
+    this.rows.push(structuredClone({ ...entry, id, at: new Date(this.now()) }));
+    return true;
+  }
+
   async list(query: AuditListQuery): Promise<AuditPage> {
     const limit = Math.min(Math.max(Math.floor(query.limit), 1), 100);
     const cursor = decodeCursor(query.cursor);

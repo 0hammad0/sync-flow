@@ -142,6 +142,17 @@ export function runAuditRepositoryContract(name: string, makeRepo: () => Promise
       expect(await list(undefined, new Date(now - hour))).toEqual([]);
     });
 
+    it('appendOnce writes a row under the given id once and never overwrites it', async () => {
+      const first = entry({ action: 'auth.sign_in', reason: 'first' });
+      expect(await repo.appendOnce('signin_u1_1700000000', first)).toBe(true);
+      expect(await repo.appendOnce('signin_u1_1700000000', entry({ action: 'auth.sign_in', reason: 'second' }))).toBe(false);
+      expect(await repo.appendOnce('signin_u1_1700000999', entry({ action: 'auth.sign_in' }))).toBe(true);
+
+      const { entries } = await repo.list({ limit: 10 });
+      expect(entries.map((e) => e.id).sort()).toEqual(['signin_u1_1700000000', 'signin_u1_1700000999']);
+      expect(entries.find((e) => e.id === 'signin_u1_1700000000')).toMatchObject({ ...first, id: 'signin_u1_1700000000' });
+    });
+
     it('does not let callers change stored rows through returned objects', async () => {
       await repo.append(entry());
       const first = await repo.list({ limit: 1 });
