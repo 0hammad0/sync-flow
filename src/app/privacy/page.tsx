@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/privacy' },
 };
 
-const LAST_UPDATED = 'November 13, 2026';
+const LAST_UPDATED = 'November 14, 2026';
 
 const SECTIONS = [
   { id: 'collect', title: 'What we collect' },
