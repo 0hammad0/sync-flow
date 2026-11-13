@@ -30,3 +30,30 @@ export function getContainer(): Container {
   }
   return container;
 }
+
+// ---------------------------------------------------------------------------
+// Blocks (phase 1.5, access control). Kept as one block, imports included, so
+// parallel phase-1 work merges cleanly. Shares the container's QuotaGuard.
+
+import { adminAuth } from '@/shared/lib/firebase/admin';
+import { FirebaseBlockUserLookup } from '@/server/blocklist/user-lookup';
+import { FirestoreBlockRepository } from '@/server/repositories/firestore/block-repository';
+import type { BlockRepository } from '@/server/repositories/interfaces';
+import { BlockService } from '@/server/services/block-service';
+
+export type BlockParts = {
+  /** Also the blocklist cache's source (lazy read + hit flush). */
+  repo: BlockRepository;
+  service: BlockService;
+};
+
+let blockParts: BlockParts | null = null;
+
+/** Built on first use: the first action request (cache) or the first admin access call. */
+export function getBlocks(): BlockParts {
+  if (!blockParts) {
+    const repo = new FirestoreBlockRepository(adminDb(), getContainer().quota);
+    blockParts = { repo, service: new BlockService(repo, new FirebaseBlockUserLookup(adminAuth())) };
+  }
+  return blockParts;
+}

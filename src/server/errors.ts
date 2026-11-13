@@ -126,11 +126,15 @@ export function err<E>(error: E): Err<E> {
 
 export type ActionFailure = {
   ok: false;
-  error: DomainErrorCode | 'internal';
+  /** `blocked`: the visitor blocklist stopped the action (T-27); `ref` is the support reference. */
+  error: DomainErrorCode | 'internal' | 'blocked';
   fields?: Record<string, string[]>;
   authAgeSec?: number;
   retryAfterSec?: number;
   errorId?: string;
+  ref?: string;
+  /** Human message for `conflict` / `not_found` (e.g. "Already unblocked."). */
+  message?: string;
 };
 export type ActionResult<T> = { ok: true; data: T } | ActionFailure;
 
@@ -143,6 +147,7 @@ export function toActionFailure(e: unknown): ActionFailure {
   if (e instanceof ValidationError) return { ok: false, error: e.code, fields: e.fields };
   if (e instanceof StepUpRequiredError) return { ok: false, error: e.code, authAgeSec: e.authAgeSec };
   if (e instanceof RateLimitedError) return { ok: false, error: e.code, retryAfterSec: e.retryAfterSec };
+  if (e instanceof ConflictError) return { ok: false, error: e.code, message: e.message };
   if (e instanceof DomainError) return { ok: false, error: e.code };
   const errorId = crypto.randomUUID();
   console.error(`[admin] unexpected error ${errorId}`, e);
