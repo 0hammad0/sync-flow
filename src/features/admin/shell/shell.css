@@ -1,0 +1,199 @@
+/*
+ * Admin shell layout. Loaded only by admin routes (imported from AdminShell).
+ * Spec: docs/admin/02-design/03-layout-and-sidebar.md, 04-responsive.md.
+ *
+ * Every sidebar state is decided here from `data-sidebar` (cookie, read on the
+ * server) and the viewport width, so first paint is final: no JS, no shift.
+ *
+ *   data-sidebar   < 768    768–1023   1024–1279   ≥ 1280
+ *   auto           drawer   rail       rail        pinned
+ *   rail           drawer   rail       rail        rail
+ *   pinned         drawer   rail       pinned      pinned
+ *
+ * Hover/focus/tap-open (`[data-open]` on the aside, set by Sidebar.tsx) only
+ * widens the panel as an overlay; the grid column stays the rail width.
+ */
+
+.admin-shell {
+  --sb-col: 0px;
+  display: grid;
+  grid-template-columns: var(--sb-col) minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--canvas);
+}
+
+/* Explicit tracks: under 768 px the sidebar is display:none and must not
+   pull the content column into the 0 px track. */
+.admin-main {
+  grid-column: 2;
+}
+
+@media (min-width: 768px) {
+  .admin-shell {
+    --sb-col: var(--admin-rail-w);
+  }
+}
+@media (min-width: 1024px) {
+  .admin-shell[data-sidebar="pinned"] {
+    --sb-col: var(--admin-sidebar-w);
+  }
+}
+@media (min-width: 1280px) {
+  .admin-shell[data-sidebar="auto"] {
+    --sb-col: var(--admin-sidebar-w);
+  }
+}
+
+/*
+ * Sidebar state as custom properties, read by the panel and its children:
+ *   --sb-w       visible panel width
+ *   --sb-label   1 when labels show (0 in the rail)
+ *   --sb-pinned  1 when pinned (not when only hover-open): picks the pin icon
+ *   --sb-bleed   room for the overlay shadow outside the clip
+ */
+.admin-sidebar {
+  --sb-w: var(--admin-rail-w);
+  --sb-label: 0;
+  --sb-pinned: 0;
+  --sb-bleed: 0px;
+  --sb-shadow: none;
+  --sb-item-w: calc(var(--sb-w) - 1rem);
+  display: none;
+  grid-column: 1;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: 100dvh;
+}
+
+@media (min-width: 768px) {
+  .admin-sidebar {
+    display: block;
+  }
+}
+
+.admin-sidebar[data-open] {
+  --sb-w: var(--admin-sidebar-w);
+  --sb-label: 1;
+  --sb-bleed: 4rem;
+  --sb-shadow: var(--shadow-float);
+}
+
+/* Pinned beats hover-open (higher specificity): no overlay shadow, no bleed. */
+@media (min-width: 1024px) {
+  .admin-shell[data-sidebar="pinned"] .admin-sidebar {
+    --sb-w: var(--admin-sidebar-w);
+    --sb-label: 1;
+    --sb-pinned: 1;
+    --sb-bleed: 0px;
+    --sb-shadow: none;
+  }
+}
+@media (min-width: 1280px) {
+  .admin-shell[data-sidebar="auto"] .admin-sidebar {
+    --sb-w: var(--admin-sidebar-w);
+    --sb-label: 1;
+    --sb-pinned: 1;
+    --sb-bleed: 0px;
+    --sb-shadow: none;
+  }
+}
+
+/*
+ * The panel is always the full sidebar width; the clip shows --sb-w of it.
+ * Opening animates clip-path (no layout), 180 ms enter / 120 ms exit.
+ * clip-path also clips hit testing, so the hidden part never blocks clicks.
+ */
+.admin-sidebar-panel {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  width: var(--admin-sidebar-w);
+  flex-direction: column;
+  background: var(--surface);
+  box-shadow: var(--sb-shadow);
+  clip-path: inset(0 calc(var(--admin-sidebar-w) - var(--sb-w) - var(--sb-bleed)) 0 0);
+  transition:
+    clip-path var(--dur-1) var(--ease-exit),
+    box-shadow var(--dur-1) var(--ease-exit);
+}
+
+/* The 1 px edge follows the visible width (transform only). */
+.admin-sidebar-panel::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 1px;
+  background: var(--edge);
+  transform: translateX(calc(var(--sb-w) - 1px));
+  transition: transform var(--dur-1) var(--ease-exit);
+  pointer-events: none;
+}
+
+.admin-sidebar[data-open] .admin-sidebar-panel,
+.admin-sidebar[data-open] .admin-sidebar-panel::after {
+  transition-duration: var(--dur-2);
+  transition-timing-function: var(--ease-enter);
+}
+
+/* Touch tap-open dims the page behind the overlay. */
+.admin-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+
+/* Nav rows: 48 px wide in the rail (icon centred in 64 px), full width open.
+   In the mobile drawer there is no --sb-item-w, so rows fill the sheet. */
+.admin-nav-item {
+  width: var(--sb-item-w, 100%);
+}
+
+.admin-sb-label {
+  opacity: var(--sb-label, 1);
+  transition: opacity var(--dur-1) var(--ease-exit);
+}
+
+/* Group label in the open sidebar; a 1 px divider in the rail. Same height. */
+.admin-sb-divider {
+  opacity: calc(1 - var(--sb-label, 1));
+}
+
+.admin-pin-icon-pinned {
+  opacity: var(--sb-pinned, 0);
+}
+.admin-pin-icon-rail {
+  opacity: calc(1 - var(--sb-pinned, 0));
+}
+
+/* Touch devices have no hover: the rail shows a ☰ (tap-open) instead of the logo. */
+.admin-sb-tap {
+  display: none;
+}
+@media (hover: none) {
+  .admin-sb-tap {
+    display: inline-flex;
+  }
+  .admin-sb-mark {
+    display: none;
+  }
+}
+@media (hover: none) and (min-width: 1024px) {
+  .admin-shell[data-sidebar="pinned"] .admin-sb-tap {
+    display: none;
+  }
+  .admin-shell[data-sidebar="pinned"] .admin-sb-mark {
+    display: block;
+  }
+}
+@media (hover: none) and (min-width: 1280px) {
+  .admin-shell[data-sidebar="auto"] .admin-sb-tap {
+    display: none;
+  }
+  .admin-shell[data-sidebar="auto"] .admin-sb-mark {
+    display: block;
+  }
+}

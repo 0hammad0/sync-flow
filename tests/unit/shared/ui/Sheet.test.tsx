@@ -12,7 +12,7 @@ function Harness() {
         Menu
       </button>
       <Sheet open={open} onOpenChange={setOpen} side="left" title="Navigation" hideTitle>
-        <a href="/admin">Overview</a>
+        <a href="#overview">Overview</a>
       </Sheet>
     </>
   );
