@@ -28,8 +28,9 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// Only the paths updateSession acts on, so public pages and /api/** never pay
+// for the proxy. /api/admin/** is deliberately absent: routes answer JSON 401/403.
+// Widen this (and keep it a constant) when phase 1 adds blocklist checks.
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/dashboard/:path*', '/login', '/admin/:path*'],
 };
