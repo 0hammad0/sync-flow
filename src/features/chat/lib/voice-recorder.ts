@@ -15,7 +15,69 @@ export interface VoiceRecording {
   peaks: number[];
 }
 
-export type RecorderError = 'unsupported' | 'denied' | 'no_device' | 'failed';
+export type RecorderError = 'unsupported' | 'denied' | 'no_device' | 'busy' | 'failed';
+
+/**
+ * What start() rejects with. `detail` is the browser's own error name (for
+ * example NotReadableError): several different causes all end up as
+ * 'failed', and without the name a bug report can't tell them apart.
+ */
+export interface RecorderFailure {
+  code: RecorderError;
+  detail: string | null;
+  /** The original error, for the console. */
+  cause?: unknown;
+}
+
+const RECORDER_ERRORS: readonly RecorderError[] = ['unsupported', 'denied', 'no_device', 'busy', 'failed'];
+
+/** The error's name, e.g. "NotReadableError". Old webviews reject with plain objects or strings. */
+function errorName(err: unknown): string | null {
+  if (typeof err === 'string') return err.slice(0, 40) || null;
+  if (err && typeof err === 'object' && 'name' in err && typeof err.name === 'string') return err.name || null;
+  return null;
+}
+
+function failure(code: RecorderError, cause?: unknown): RecorderFailure {
+  return { code, detail: cause === undefined ? null : errorName(cause), cause };
+}
+
+/** Turns anything start() threw into a RecorderFailure; unknown errors count as 'failed'. */
+export function toRecorderFailure(err: unknown): RecorderFailure {
+  if (
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (RECORDER_ERRORS as readonly unknown[]).includes(err.code)
+  ) {
+    return err as RecorderFailure;
+  }
+  return failure('failed', err);
+}
+
+/**
+ * getUserMedia error → what to tell the person. The old Chrome names
+ * (PermissionDeniedError, DevicesNotFoundError, TrackStartError) still turn
+ * up in some Android webviews. OverconstrainedError only means our audio
+ * settings were refused, not that there is no mic, so it stays 'failed'.
+ */
+function micErrorCode(err: unknown): RecorderError {
+  switch (errorName(err)) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+    case 'SecurityError':
+      return 'denied';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'no_device';
+    case 'NotReadableError':
+    case 'TrackStartError':
+    case 'AbortError':
+      return 'busy';
+    default:
+      return 'failed';
+  }
+}
 
 /**
  * Preferred containers, best first. Safari records MP4/AAC, which every
@@ -70,16 +132,59 @@ function micLive(stream: MediaStream | null): boolean {
   return !!stream && stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted);
 }
 
-async function openMic(): Promise<MediaStream> {
-  if (micTimer !== null) window.clearTimeout(micTimer);
-  micTimer = null;
-  if (micStream && micLive(micStream)) return micStream;
+/** The getUserMedia call in progress, shared so two quick taps don't open the mic twice (on iOS the second capture can end the first). */
+let micOpening: Promise<MediaStream> | null = null;
+
+/**
+ * Errors where asking again with plain `{ audio: true }` can work: our audio
+ * settings were refused (OverconstrainedError, TypeError in some webviews),
+ * or the mic was still being released by the last capture or another app
+ * (NotReadableError, AbortError).
+ */
+const MIC_RETRY_ERRORS = new Set(['OverconstrainedError', 'TypeError', 'NotReadableError', 'TrackStartError', 'AbortError']);
+/** Gives the OS a moment to free the mic before the one retry. */
+const MIC_RETRY_MS = 300;
+
+function stopMicTracks(): void {
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+}
+
+function openMic(): Promise<MediaStream> {
+  if (micTimer !== null) window.clearTimeout(micTimer);
+  micTimer = null;
+  // WebKit wants the session to allow recording before capture starts, not
+  // after: release() leaves it on 'playback', and opening the mic from there
+  // can fail. Set on reuse too, since the last note switched it back.
+  setAudioSession('play-and-record');
+  if (micStream && micLive(micStream)) return Promise.resolve(micStream);
+  micOpening ??= requestMic().finally(() => {
+    micOpening = null;
   });
-  return micStream;
+  return micOpening;
+}
+
+async function requestMic(): Promise<MediaStream> {
+  stopMicTracks();
+  try {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch (err) {
+      if (!MIC_RETRY_ERRORS.has(errorName(err) ?? '')) throw err;
+      stopMicTracks();
+      await new Promise((resolve) => window.setTimeout(resolve, MIC_RETRY_MS));
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    return micStream;
+  } catch (err) {
+    // Nothing is recording, and begin() paused the shared player before
+    // asking, so hand the session back to the browser. The player sets
+    // 'playback' itself each time it plays.
+    setAudioSession('auto');
+    throw err;
+  }
 }
 
 /** Stop the mic now (the OS mic indicator goes off). */
@@ -127,40 +232,45 @@ export class VoiceRecorder {
 
   /**
    * Ask for the mic and start recording. Must run inside the user's tap
-   * (iOS only unlocks audio there). Rejects with a RecorderError.
+   * (iOS only unlocks audio there). Rejects with a RecorderFailure.
    */
   async start(): Promise<void> {
-    if (!canRecordVoice()) throw 'unsupported' satisfies RecorderError;
+    if (!canRecordVoice()) throw failure('unsupported');
+    // A kept-open stream can look live and still refuse to record (iOS after
+    // an audio session change). Only then is reopening worth a second try.
+    const reused = micLive(micStream);
     try {
       this.stream = await openMic();
     } catch (err) {
-      const name = err instanceof DOMException ? err.name : '';
-      if (name === 'NotAllowedError' || name === 'SecurityError') throw 'denied' satisfies RecorderError;
-      if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-        throw 'no_device' satisfies RecorderError;
-      }
-      throw 'failed' satisfies RecorderError;
+      throw this.abandon(micErrorCode(err), err);
     }
     // The user may have cancelled while the permission prompt was open.
     if (this.finished) {
       this.release();
       return;
     }
-    setAudioSession('play-and-record');
 
-    const mime = pickMime();
     try {
-      this.recorder = new MediaRecorder(this.stream, {
-        ...(mime ? { mimeType: mime } : {}),
-        audioBitsPerSecond: 32_000,
-      });
-    } catch {
-      this.release();
-      throw 'failed' satisfies RecorderError;
+      this.recorder = this.startRecorder(this.stream);
+    } catch (err) {
+      if (!reused) throw this.abandon('failed', err);
+      this.stream = null;
+      closeMic();
+      try {
+        this.stream = await openMic();
+      } catch (err2) {
+        throw this.abandon(micErrorCode(err2), err2);
+      }
+      if (this.finished) {
+        this.release();
+        return;
+      }
+      try {
+        this.recorder = this.startRecorder(this.stream);
+      } catch (err2) {
+        throw this.abandon('failed', err2);
+      }
     }
-    this.recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) this.chunks.push(e.data);
-    };
 
     // Level meter. Not connected to the speakers, so there is no echo.
     try {
@@ -183,10 +293,46 @@ export class VoiceRecorder {
       track.onended = () => this.autoStop();
     }
 
-    this.recorder.start();
     this.state = 'recording';
     this.runStartedAt = performance.now();
     this.sampleTimer = window.setInterval(() => this.sample(), LEVEL_SAMPLE_MS);
+  }
+
+  /**
+   * Create and start the MediaRecorder. Some browsers and webviews say a
+   * type is supported and then refuse it (in the constructor or in start()),
+   * or refuse the bitrate, so fall back to a recorder with no options and let
+   * the browser pick. Throws when even that fails.
+   */
+  private startRecorder(stream: MediaStream): MediaRecorder {
+    const mime = pickMime();
+    const make = (options?: MediaRecorderOptions) => {
+      const rec = options ? new MediaRecorder(stream, options) : new MediaRecorder(stream);
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) this.chunks.push(e.data);
+      };
+      rec.start();
+      return rec;
+    };
+    try {
+      return make({ ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32_000 });
+    } catch {
+      return make();
+    }
+  }
+
+  /**
+   * start() failed: free this recording and close the mic now rather than in
+   * MIC_KEEP_MS, so the next tap asks for a fresh stream instead of reusing
+   * a broken one. Returns the error for start() to throw.
+   */
+  private abandon(code: RecorderError, cause: unknown): RecorderFailure {
+    this.finished = true;
+    this.state = 'stopped';
+    this.release();
+    closeMic();
+    setAudioSession('auto');
+    return failure(code, cause);
   }
 
   private sample(): void {
