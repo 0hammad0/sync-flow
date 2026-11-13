@@ -89,6 +89,23 @@
   --skeleton-a: #eceae3;
   --skeleton-b: #dfddd4;
 
+  /* Admin charts (09-charts-and-maps.md). Checked with the dataviz palette
+     validator against --surface in each theme; results in 02-tokens.md.
+     --chart-1 is the nearest passing step of the --brand hue (--brand itself
+     is just under the chroma floor). Fixed order, never cycled. */
+  --chart-1: #048b7b; /* teal */
+  --chart-2: #6250d6; /* violet */
+  --chart-3: #eb6834; /* orange */
+  --chart-4: #2a78d6; /* blue */
+  --chart-5: #e87ba4; /* magenta: 2.6:1, ships with labels or a table */
+  /* Sequential teal for the world map: few → many, light → dark */
+  --seq-1: #5dc4b3;
+  --seq-2: #2fad9b;
+  --seq-3: #0d9382;
+  --seq-4: #08786a;
+  --seq-5: #015f54;
+  --seq-6: #02463e;
+
   color-scheme: light;
 }
 
@@ -145,6 +162,19 @@
   --shadow-float: 0 1px 1px rgba(0, 0, 0, 0.3), 0 24px 60px -24px rgba(0, 0, 0, 0.7);
   --skeleton-a: #181d1b;
   --skeleton-b: #212725;
+
+  --chart-1: #06ab9a;
+  --chart-2: #9085e9;
+  --chart-3: #d95926;
+  --chart-4: #3987e5;
+  --chart-5: #d55181;
+  /* Dark flips the anchor: few = close to the surface, many = bright */
+  --seq-1: #10594f;
+  --seq-2: #017466;
+  --seq-3: #098e7e;
+  --seq-4: #07a996;
+  --seq-5: #37c3af;
+  --seq-6: #67dcc8;
 
   color-scheme: dark;
 }

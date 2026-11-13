@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { AdminRole } from '@/server/auth/types';
-import type { DailyDoc, Rollup, SessionDoc, SessionPatch, TrackingSettings } from '@/server/analytics/model';
+import type { DailyDoc, Device, Rollup, SessionDoc, SessionPatch, TrackingSettings } from '@/server/analytics/model';
 
 /** Every action the audit log knows. Catalogue: docs 03-features/11-audit-log.md. */
 export const AUDIT_ACTIONS = [
@@ -396,12 +396,61 @@ export interface CronRunRepository {
 /** Rollup increments for one `a_hourly` doc. */
 export type HourlyIncrement = { hour: string; delta: Rollup };
 
+/** The one indexed equality filter the sessions table may add to its date range. */
+export type SessionFilter =
+  | { field: 'country'; value: string }
+  | { field: 'device'; value: Device }
+  | { field: 'user_id'; value: string };
+
+/** `started_at` in [from, to), plus at most one indexed filter. */
+export type SessionRangeQuery = { from: Date; to: Date; filter?: SessionFilter | null };
+
+export type SessionListQuery = SessionRangeQuery & {
+  /** Rows per page, clamped to 1..100. */
+  limit: number;
+  /** Opaque cursor from a previous page's `nextCursor`. */
+  cursor?: string | null;
+};
+
+/** Newest first (`started_at` desc, then id desc). `nextCursor` is null on the last page. */
+export type SessionPage = { sessions: SessionDoc[]; nextCursor: string | null };
+
+/**
+ * Read side of the analytics data, for the admin screens. Every Firestore
+ * read asks QuotaGuard first and refuses with QuotaExceededError at the read
+ * cap; every read is counted. No method reads raw sessions to make a total.
+ */
+export interface EventReader {
+  /** The tracking fields of `admin_config/settings` (1 read). */
+  readTrackingSettings(): Promise<TrackingSettings>;
+  /** 1 read. */
+  getSession(id: string): Promise<SessionDoc | null>;
+  /** `a_daily` docs in the order asked, one batched `getAll`; `null` where missing. 1 read per day. */
+  readDaily(days: string[]): Promise<(DailyDoc | null)[]>;
+  /** `a_hourly` docs in the order asked, one batched `getAll`; `null` where missing. 1 read per hour. */
+  readHourly(hours: string[]): Promise<(Rollup | null)[]>;
+  /** One page of sessions. 1 read per row, minimum 1. */
+  listSessions(query: SessionListQuery): Promise<SessionPage>;
+  /** `count()` aggregation of the same query (1 read per 1,000 matches, minimum 1). */
+  countSessions(query: SessionRangeQuery): Promise<number>;
+  /** Exact `ip ==` match, any date, at most `limit` (unordered; sort in memory). 1 read per row, min 1. */
+  findSessionsByIp(ip: string, limit: number): Promise<SessionDoc[]>;
+  /** The newest `limit` sessions started in [from, to), newest first (flow and drill samples). */
+  listNewestSessions(query: { from: Date; to: Date; limit: number }): Promise<SessionDoc[]>;
+  /** `count()` of sessions with `last_seen_at > since` (Online now). */
+  countActiveSessions(since: Date): Promise<number>;
+  /** Sessions with `last_seen_at > since`, `last_seen_at` desc, at most `limit` (Live). */
+  listActiveSessions(since: Date, limit: number): Promise<SessionDoc[]>;
+}
+
 /**
  * Storage for visitor analytics. Firestore in production, in-memory in unit
  * tests; one contract test runs on both. The Firestore implementation reports
  * every read, write and delete to QuotaGuard; callers ask QuotaGuard first.
+ * The tracker and the crons use these methods; the admin screens use the
+ * EventReader side (same object).
  */
-export interface EventRepository {
+export interface EventRepository extends EventReader {
   /** The tracking fields of `admin_config/settings`. Missing doc or field = code defaults (tracking off). */
   readTrackingSettings(): Promise<TrackingSettings>;
   getSession(id: string): Promise<SessionDoc | null>;

@@ -199,5 +199,47 @@ export function runEventRepositoryContract(name: string, makeRepo: () => Promise
       if (first) first.pages.p1.engaged_ms = 99;
       expect((await repo.getSession(id))?.pages.p1.engaged_ms).toBe(1_000);
     });
+
+    // ----- EventReader (admin screens) -----
+
+    it('reads a_daily and a_hourly in the order asked, null where missing', async () => {
+      await repo.putDaily({ ...delta(3), day: '2026-11-12', built_at: t0 });
+      await repo.writeSession(patch('e'.repeat(32)), { hour: '2026-11-13-10', delta: delta(2) });
+      const daily = await repo.readDaily(['2026-11-11', '2026-11-12']);
+      expect(daily[0]).toBeNull();
+      expect(daily[1]).toMatchObject({ day: '2026-11-12', views: 3 });
+      const hourly = await repo.readHourly(['2026-11-13-10', '2026-11-13-11']);
+      expect(hourly[0]?.views).toBe(2);
+      expect(hourly[1]).toBeNull();
+      expect(await repo.readDaily([])).toEqual([]);
+    });
+
+    it('pages sessions newest first with a cursor, one filter, and counts them', async () => {
+      const ids = ['1', '2', '3', '4', '5'].map((c) => c.repeat(32));
+      for (const [i, id] of ids.entries()) {
+        const p = patch(id);
+        await repo.writeSession({ ...p, now: at(i), set: { ...p.set, started_at: at(i), country: i % 2 ? 'US' : 'PK' } });
+      }
+      const range = { from: at(0), to: at(10) };
+      const first = await repo.listSessions({ ...range, limit: 2 });
+      expect(first.sessions.map((s) => s.id)).toEqual([ids[4], ids[3]]);
+      const second = await repo.listSessions({ ...range, limit: 2, cursor: first.nextCursor });
+      expect(second.sessions.map((s) => s.id)).toEqual([ids[2], ids[1]]);
+      const pk = { ...range, filter: { field: 'country' as const, value: 'PK' } };
+      expect((await repo.listSessions({ ...pk, limit: 25 })).sessions.map((s) => s.id)).toEqual([ids[4], ids[2], ids[0]]);
+      expect(await repo.countSessions(pk)).toBe(3);
+      expect(await repo.countSessions({ from: at(1), to: at(3) })).toBe(2);
+      expect((await repo.listNewestSessions({ ...range, limit: 2 })).map((s) => s.id)).toEqual([ids[4], ids[3]]);
+      expect((await repo.findSessionsByIp('203.0.113.7', 10)).length).toBe(5);
+    });
+
+    it('counts and lists sessions seen after a time, newest first', async () => {
+      await repo.writeSession({ ...patch('6'.repeat(32)), now: at(0) });
+      await repo.writeSession({ ...patch('7'.repeat(32)), now: at(5) });
+      await repo.writeSession({ ...patch('8'.repeat(32)), now: at(3) });
+      expect(await repo.countActiveSessions(at(1))).toBe(2);
+      expect((await repo.listActiveSessions(at(1), 10)).map((s) => s.id)).toEqual(['7'.repeat(32), '8'.repeat(32)]);
+      expect((await repo.listActiveSessions(at(-1), 1)).map((s) => s.id)).toEqual(['7'.repeat(32)]);
+    });
   });
 }
