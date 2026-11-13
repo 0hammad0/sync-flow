@@ -17,6 +17,21 @@ const CANCEL_DX = 110;
 const LOCK_DY = 80;
 /** How long the "Hold to record" tip stays up. */
 const TIP_MS = 2_200;
+/** A touch shorter than this, moving less than TAP_SLOP px, is a tap: hands-free. */
+const TAP_MS = 300;
+const TAP_SLOP = 10;
+/**
+ * The mic took longer than this to open, so the browser showed its permission
+ * prompt (a person had to answer it). Opening without a prompt takes well under
+ * a second, even with a cold mic.
+ */
+const PROMPT_MS = 1_000;
+/**
+ * After a tap opens the locked bar, the browser's click for that same tap can
+ * land on the bar's Send button (it sits where the mic was). Ignore bar clicks
+ * this soon after.
+ */
+const GHOST_CLICK_MS = 500;
 
 type Phase = 'idle' | 'starting' | 'holding' | 'locked' | 'discarding';
 
@@ -180,8 +195,9 @@ function DraftPreview({ blob, durationMs }: { blob: Blob | null; durationMs: num
 /**
  * Voice recording for the chat composer, WhatsApp-style.
  *
- * Touch: hold the mic to record, release to send. Slide left to cancel,
- * slide up to lock (hands-free). Mouse/keyboard: click the mic to start
+ * Touch: tap the mic to record hands-free (Delete / Pause / Send bar), or
+ * hold it to record and release to send. While holding, slide left to cancel
+ * or slide up to lock (hands-free). Mouse/keyboard: click the mic to start
  * hands-free. Locked: pause/resume, preview the draft, delete, send.
  * Keys while recording: Esc = delete, Space = pause/resume, Enter = send.
  *
@@ -215,6 +231,11 @@ export function VoiceComposer({
   // Time of the last touch press. Safari's click after a touch carries no
   // pointerType, so without this a hold-to-send would start a new recording.
   const lastTouchAt = useRef(0);
+  // Current press: start time, whether the finger moved, whether it was a tap.
+  const pressAt = useRef(0);
+  const pressMoved = useRef(false);
+  const tapped = useRef(false);
+  const tapLockedAt = useRef(0);
   const supported = typeof window === 'undefined' ? true : canRecordVoice();
 
   const go = useCallback(
@@ -226,7 +247,7 @@ export function VoiceComposer({
     [onActiveChange]
   );
 
-  const showTip = useCallback((text = 'Hold to record, release to send') => {
+  const showTip = useCallback((text = 'Tap to record, or hold and release to send') => {
     setTip(text);
     if (tipTimer.current) window.clearTimeout(tipTimer.current);
     tipTimer.current = window.setTimeout(() => setTip(null), TIP_MS);
@@ -302,6 +323,7 @@ export function VoiceComposer({
       recRef.current = rec;
       rec.onAutoStop = () => void toPausedDraft();
       go('starting');
+      const startedAt = performance.now();
       try {
         await rec.start();
       } catch (err) {
@@ -314,17 +336,31 @@ export function VoiceComposer({
         rec.cancel();
         return;
       }
-      // First-time permission prompt: the finger is usually gone by now.
-      // The mic stays open for a few seconds, so the next hold starts at once.
+      let handsFree = !hold;
+      // Finger lifted before the mic was ready.
       if (hold && !pointerDown.current) {
-        rec.cancel();
-        reset();
-        showTip('Microphone ready. Now hold to record');
-        return;
+        if (performance.now() - startedAt > PROMPT_MS) {
+          // First-time permission prompt: the finger is usually gone by now.
+          // The mic stays open for a few seconds, so the next press starts at once.
+          rec.cancel();
+          reset();
+          showTip('Microphone ready. Now hold to record');
+          return;
+        }
+        if (!tapped.current) {
+          // A short hold (or a slide) that ended before recording began.
+          rec.cancel();
+          reset();
+          showTip();
+          return;
+        }
+        // A tap: record hands-free.
+        handsFree = true;
+        tapLockedAt.current = performance.now();
       }
       setRecorder(rec);
       vibrate(15);
-      go(hold ? 'holding' : 'locked');
+      go(handsFree ? 'locked' : 'holding');
     },
     [go, onError, reset, showTip, toPausedDraft]
   );
@@ -335,6 +371,9 @@ export function VoiceComposer({
     if (e.pointerType === 'mouse') return; // mouse = click to start hands-free
     e.preventDefault(); // keep focus (and the phone keyboard) where it is
     lastTouchAt.current = Date.now();
+    pressAt.current = performance.now();
+    pressMoved.current = false;
+    tapped.current = false;
     pointerDown.current = true;
     pointerId.current = e.pointerId;
     origin.current = { x: e.clientX, y: e.clientY };
@@ -348,6 +387,9 @@ export function VoiceComposer({
 
   const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!pointerDown.current || e.pointerId !== pointerId.current) return;
+    if (Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) >= TAP_SLOP) {
+      pressMoved.current = true;
+    }
     if (phaseRef.current !== 'holding') return;
     const dx = Math.min(0, e.clientX - origin.current.x);
     const dy = Math.min(0, e.clientY - origin.current.y);
@@ -371,8 +413,21 @@ export function VoiceComposer({
     const wasDown = pointerDown.current;
     pointerDown.current = false;
     if (!wasDown) return;
-    if (phaseRef.current === 'holding') void finish();
-    // 'starting': begin() sees pointerDown=false and shows the tip.
+    tapped.current =
+      performance.now() - pressAt.current < TAP_MS &&
+      !pressMoved.current &&
+      Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) < TAP_SLOP;
+    if (phaseRef.current === 'holding') {
+      if (tapped.current) {
+        // Tap: keep recording hands-free, with Delete / Pause / Send.
+        tapLockedAt.current = performance.now();
+        setDragNow({ dx: 0, dy: 0 });
+        go('locked');
+      } else {
+        void finish();
+      }
+    }
+    // 'starting': begin() sees pointerDown=false and locks (tap) or cancels.
   };
 
   // The browser took the touch (scroll, system gesture, call): never send.
@@ -392,6 +447,11 @@ export function VoiceComposer({
   };
 
   // ----- locked controls -----
+  /** Locked-bar click handler that ignores the tap's own ghost click. */
+  const barClick = (fn: () => void) => {
+    if (performance.now() - tapLockedAt.current < GHOST_CLICK_MS) return;
+    fn();
+  };
   const togglePause = useCallback(async () => {
     const rec = recRef.current;
     if (!rec) return;
@@ -495,7 +555,7 @@ export function VoiceComposer({
         <div className="absolute inset-0 z-20 flex items-center gap-1 sm:gap-2 bg-surface voice-bar-in" aria-live="polite">
           <button
             type="button"
-            onClick={discard}
+            onClick={() => barClick(discard)}
             className="shrink-0 h-11 w-11 flex items-center justify-center rounded-xl text-fg-muted hover:text-danger-text hover:bg-danger/10 cursor-pointer transition-colors touch-manipulation"
             aria-label="Delete voice note"
             title="Delete (Esc)"
@@ -521,7 +581,7 @@ export function VoiceComposer({
           {recorder?.canPause() && (
             <button
               type="button"
-              onClick={() => void togglePause()}
+              onClick={() => barClick(() => void togglePause())}
               className={`shrink-0 h-11 w-11 flex items-center justify-center rounded-xl cursor-pointer transition-colors touch-manipulation ${
                 paused ? 'text-danger hover:bg-danger/10' : 'text-fg-muted hover:bg-surface-2'
               }`}
@@ -533,7 +593,7 @@ export function VoiceComposer({
           )}
           <button
             type="button"
-            onClick={() => void finish()}
+            onClick={() => barClick(() => void finish())}
             className="shrink-0 h-11 w-11 flex items-center justify-center rounded-xl text-white bg-flow hover:brightness-110 hover:shadow-[var(--glow)] cursor-pointer transition-all active:scale-95 touch-manipulation"
             aria-label="Send voice note"
             title="Send (Enter)"
@@ -586,7 +646,11 @@ export function VoiceComposer({
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           disabled={disabled}
+          // Hidden while locked: it sits above the locked bar (z-30 > z-20) in
+          // the same spot as its Send button and would swallow the tap.
           className={`voice-hold relative z-30 h-11 w-11 flex items-center justify-center rounded-xl text-white duration-150 ${
+            locked ? 'invisible' : ''
+          } ${
             holding ? 'transition-colors' : 'transition-[transform,background-color]'
           } ${
             disabled
@@ -601,9 +665,9 @@ export function VoiceComposer({
               : undefined
           }
           aria-label="Record voice note"
-          title="Record voice note (hold on phones, click on computers)"
+          title="Record voice note (tap or hold on phones, click on computers)"
         >
-          <Mic className="w-5 h-5" />
+          {holding ? <Send className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
       </div>
     </>
