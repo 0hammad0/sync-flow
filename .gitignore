@@ -49,6 +49,8 @@ next-env.d.ts
 
 # local Claude Code permissions
 .claude/settings.local.json
+.claude/worktrees/
+.claude/qa-workspace/
 
 # Playwright MCP artifacts
 .playwright-mcp/
