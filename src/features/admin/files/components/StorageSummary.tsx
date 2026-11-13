@@ -77,8 +77,8 @@ export default function StorageSummary({ summary, isOwner }: { summary: StorageS
         <p className="flex items-start gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs text-fg-muted">
           <AlertTriangle aria-hidden="true" strokeWidth={1.75} className="mt-px size-3.5 shrink-0" />
           {notSwept.count.toLocaleString('en-US')} expired {notSwept.count === 1 ? 'file' : 'files'} from signed-in users{' '}
-          {notSwept.count === 1 ? 'is' : 'are'} still stored ({formatBytes(notSwept.bytes)}). Kept on purpose: the cleanup
-          job only removes guests&apos; files.
+          {notSwept.count === 1 ? 'is' : 'are'} still stored ({formatBytes(notSwept.bytes)}). The cleanup job deletes{' '}
+          {notSwept.count === 1 ? 'it' : 'them'} at its next run (03:00 UTC).
         </p>
       )}
     </section>

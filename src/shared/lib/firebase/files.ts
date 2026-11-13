@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { FieldValue, type Transaction } from 'firebase-admin/firestore';
+import { FieldValue, type CollectionReference, type Firestore, type Query, type Transaction } from 'firebase-admin/firestore';
 import { adminDb } from './admin';
 import type { FileRecord } from '@/types';
 import { SHORT_CODE_ALPHABET, SHORT_CODE_LENGTH } from '@/shared/lib/limits';
@@ -191,13 +191,44 @@ export async function deleteIfSpent(token: string, minAgeMs = 0): Promise<string
   });
 }
 
-export async function listExpiredAnonymousFiles(limit: number = 100): Promise<FileRecord[]> {
-  const nowIso = new Date().toISOString();
-  const snap = await filesRef()
-    .where('owner_id', '==', null)
-    .where('expires_at', '<', nowIso)
-    .limit(limit)
-    .get();
+/**
+ * Cleanup cron: re-read the file and delete its record only while it is still
+ * past `expires_at`. An owner can reshare (new expiry, or `null` = never)
+ * between the cron listing the file and deleting it; then it is kept.
+ * Returns the R2 key to delete after this, or null when the file is kept.
+ */
+export async function deleteIfExpiredIn(
+  db: Firestore,
+  files: CollectionReference,
+  token: string,
+  nowIso: string,
+): Promise<string | null> {
+  const ref = files.doc(token);
+  return await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const data = snap.data() as FileRecord;
+    if (typeof data.expires_at !== 'string' || data.expires_at >= nowIso) return null;
+    tx.delete(ref);
+    return data.file_path;
+  });
+}
+
+export function deleteIfExpired(token: string, nowIso: string = new Date().toISOString()): Promise<string | null> {
+  return deleteIfExpiredIn(adminDb(), filesRef(), token, nowIso);
+}
+
+/**
+ * Files past `expires_at`, guest or signed-in: an owner who picked an expiry
+ * gets it enforced too (phase 1 step 1.0). Files with no expiry store `null`,
+ * which never matches `<`, so they are never listed. Single-field index only.
+ */
+export function expiredFilesQuery(files: CollectionReference, nowIso: string, limit: number): Query {
+  return files.where('expires_at', '<', nowIso).limit(limit);
+}
+
+export async function listExpiredFiles(limit: number = 100): Promise<FileRecord[]> {
+  const snap = await expiredFilesQuery(filesRef(), new Date().toISOString(), limit).get();
   return snap.docs.map((d) => d.data() as FileRecord);
 }
 

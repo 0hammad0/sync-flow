@@ -11,8 +11,9 @@ const h = vi.hoisted(() => ({
   },
   recordCronRun: vi.fn(async () => 'run-id'),
   deleteExpiredRooms: vi.fn(async () => 0),
-  listExpiredAnonymousFiles: vi.fn(async (): Promise<{ token: string; file_path: string }[]> => []),
+  listExpiredFiles: vi.fn(async (): Promise<{ token: string; file_path: string }[]> => []),
   deleteObject: vi.fn(async () => undefined),
+  deleteIfExpired: vi.fn(async (token: string): Promise<string | null> => `${token}/a.pdf`),
   hooks: { beforeDelete: async () => null },
   sweepExpired: vi.fn(async (): Promise<{ removed: number } | { error: string }> => ({ removed: 4 })),
   sweepRoomHistory: vi.fn(
@@ -31,8 +32,8 @@ vi.mock('next/server', async (importOriginal) => ({
 }));
 vi.mock('@/shared/lib/firebase/files', () => ({
   deleteExpiredReceiveSessions: vi.fn(async () => 2),
-  deleteFile: vi.fn(async () => undefined),
-  listExpiredAnonymousFiles: h.listExpiredAnonymousFiles,
+  deleteIfExpired: h.deleteIfExpired,
+  listExpiredFiles: h.listExpiredFiles,
 }));
 vi.mock('@/shared/lib/firebase/chat', () => ({ deleteExpiredRooms: h.deleteExpiredRooms }));
 vi.mock('@/shared/lib/r2', () => ({ deleteObject: h.deleteObject }));
@@ -53,9 +54,10 @@ describe('/api/cleanup run record', () => {
       void task();
     };
     h.recordCronRun.mockClear();
-    h.listExpiredAnonymousFiles.mockReset();
-    h.listExpiredAnonymousFiles.mockResolvedValue([]);
+    h.listExpiredFiles.mockReset();
+    h.listExpiredFiles.mockResolvedValue([]);
     h.deleteObject.mockReset();
+    h.deleteIfExpired.mockClear();
     h.deleteExpiredRooms.mockClear();
   });
 
@@ -92,13 +94,39 @@ describe('/api/cleanup run record', () => {
   });
 
   it('a failed file makes the run partial and stores a count, never the share token', async () => {
-    h.listExpiredAnonymousFiles.mockResolvedValueOnce([{ token: 'secret-token', file_path: 'secret-token/a.pdf' }]).mockResolvedValue([]);
+    h.listExpiredFiles.mockResolvedValueOnce([{ token: 'secret-token', file_path: 'secret-token/a.pdf' }]).mockResolvedValue([]);
     h.deleteObject.mockRejectedValueOnce(new Error('R2 down'));
     const res = await call();
     expect(res.status).toBe(200);
     const run = (h.recordCronRun.mock.calls[0] as unknown[])[0];
     expect(run).toMatchObject({ status: 'partial', result: { filesFailed: 1 } });
     expect(JSON.stringify(run)).not.toContain('secret-token');
+  });
+
+  it('a file reshared after it was listed is kept: no R2 delete, not counted as failed', async () => {
+    h.listExpiredFiles.mockResolvedValueOnce([{ token: 'reshared', file_path: 'reshared/a.pdf' }]).mockResolvedValue([]);
+    h.deleteIfExpired.mockResolvedValueOnce(null);
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(h.deleteObject).not.toHaveBeenCalled();
+    expect(h.recordCronRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'ok', result: expect.objectContaining({ filesDeleted: 0, filesFailed: 0 }) }),
+    );
+  });
+
+  it('deletes the record before the R2 object, using the key the record returned', async () => {
+    h.listExpiredFiles.mockResolvedValueOnce([{ token: 'gone', file_path: 'stale/path.pdf' }]).mockResolvedValue([]);
+    const order: string[] = [];
+    h.deleteIfExpired.mockImplementationOnce(async () => {
+      order.push('record');
+      return 'gone/a.pdf';
+    });
+    h.deleteObject.mockImplementationOnce(async () => {
+      order.push('r2');
+    });
+    await call();
+    expect(order).toEqual(['record', 'r2']);
+    expect(h.deleteObject).toHaveBeenCalledWith('gone/a.pdf');
   });
 
   it('a failed block sweep makes the run partial but the cleanup still answers 200', async () => {
@@ -111,7 +139,7 @@ describe('/api/cleanup run record', () => {
   });
 
   it('an unexpected failure is recorded as error with an error id; the response stays 500', async () => {
-    h.listExpiredAnonymousFiles.mockRejectedValue(new Error('Firestore down'));
+    h.listExpiredFiles.mockRejectedValue(new Error('Firestore down'));
     const res = await call();
     expect(res.status).toBe(500);
     expect(h.recordCronRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'error', errorId: expect.any(String) }));

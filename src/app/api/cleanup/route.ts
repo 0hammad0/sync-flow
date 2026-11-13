@@ -2,8 +2,8 @@ import { timingSafeEqual } from 'crypto';
 import { after, NextRequest, NextResponse } from 'next/server';
 import {
   deleteExpiredReceiveSessions,
-  deleteFile as fsDeleteFile,
-  listExpiredAnonymousFiles,
+  deleteIfExpired,
+  listExpiredFiles,
 } from '@/shared/lib/firebase/files';
 import { deleteExpiredRooms } from '@/shared/lib/firebase/chat';
 import { deleteObject } from '@/shared/lib/r2';
@@ -76,13 +76,18 @@ async function runCleanup(request: NextRequest) {
       sessionsDeleted += n;
     } while (n === SESSION_BATCH && hasTime());
 
-    // Expired guest files: R2 object first, then the record. A file that
-    // fails is skipped for the rest of this run so it can't stall the loop.
+    // Expired files (guest and owned). The record goes first, in a transaction
+    // that checks the expiry again: an owner may have reshared the file since
+    // it was listed, and then it is kept. The R2 object goes after; if that
+    // fails the object is left without a record (logged, counted as failed),
+    // never a record without its file. A failed or kept file is skipped for the
+    // rest of this run so it can't stall the loop.
     let filesDeleted = 0;
     const seen = new Set<string>();
     const failed = new Set<string>();
+    const kept = new Set<string>();
     while (hasTime()) {
-      const batch = (await listExpiredAnonymousFiles(FILE_BATCH)).filter((f) => !failed.has(f.token));
+      const batch = (await listExpiredFiles(FILE_BATCH)).filter((f) => !failed.has(f.token) && !kept.has(f.token));
       if (batch.length === 0) break;
       for (let i = 0; i < batch.length && hasTime(); i += FILE_PARALLEL) {
         const chunk = batch.slice(i, i + FILE_PARALLEL);
@@ -90,8 +95,12 @@ async function runCleanup(request: NextRequest) {
           chunk.map(async (file) => {
             seen.add(file.token);
             try {
-              await deleteObject(file.file_path);
-              await fsDeleteFile(file.token);
+              const filePath = await deleteIfExpired(file.token);
+              if (filePath === null) {
+                kept.add(file.token);
+                return;
+              }
+              await deleteObject(filePath);
               filesDeleted++;
             } catch (err) {
               console.error(`Cleanup error for ${file.token}:`, err);

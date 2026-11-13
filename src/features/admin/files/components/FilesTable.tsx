@@ -224,7 +224,7 @@ function buildColumns(now: number): AdminColumnDef<FileRowDto>[] {
         if (row.kind === 'chat') return <span className="text-fg-muted">With room</span>;
         const expiry = formatFileExpiry(info.getValue(), now);
         const tone = expiry.tone === 'expired' ? 'text-danger-text' : expiry.tone === 'soon' ? 'text-warning-text' : '';
-        return <span className={`tabular-nums ${tone}`}>{expiry.tone === 'expired' ? `${expiry.text}, kept` : expiry.text}</span>;
+        return <span className={`tabular-nums ${tone}`}>{expiry.text}</span>;
       },
       meta: { priority: 3, kind: 'time', width: 152, card: 'hidden' },
     }),
