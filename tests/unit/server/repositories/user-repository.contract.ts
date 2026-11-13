@@ -57,5 +57,18 @@ export function runUserRepositoryContract(name: string, make: (seed: UserSeed) =
       await repo.setRole(b.uid, null, grant);
       expect((await repo.get(b.uid))?.role).toBeNull();
     });
+
+    it('lists admins from the roles index', async () => {
+      const grant = { email: null, grantedBy: a.uid, at: new Date('2026-11-13T00:00:00Z') };
+      expect(await repo.listAdmins()).toEqual([]);
+      await repo.setRole(b.uid, 'viewer', grant);
+      await repo.setRole(a.uid, 'owner', grant);
+      expect((await repo.listAdmins()).map((u) => [u.email, u.role])).toEqual([
+        [a.email, 'owner'],
+        [b.email, 'viewer'],
+      ]);
+      await repo.setRole(b.uid, null, grant);
+      expect((await repo.listAdmins()).map((u) => u.uid)).toEqual([a.uid]);
+    });
   });
 }

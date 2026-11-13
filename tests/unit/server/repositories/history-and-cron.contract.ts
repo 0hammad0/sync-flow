@@ -52,6 +52,38 @@ export function runRoomHistoryContract(name: string, make: () => Promise<RoomHis
       expect(third.nextCursor).toBeNull();
     });
 
+    it('peak_online: raised only when higher, only for a known room, never lowered by a close', async () => {
+      const room = opened('CCCCCCC1', 1);
+      expect(await repo.notePeakOnline(room.code, 3)).toBe(false); // no history doc yet
+      await repo.recordOpened(room);
+      expect(await repo.notePeakOnline(room.code, 0)).toBe(false);
+      expect(await repo.notePeakOnline(room.code, 3)).toBe(true);
+      expect(await repo.notePeakOnline(room.code, 2)).toBe(false);
+      expect(await repo.notePeakOnline(room.code, 3)).toBe(false);
+      const close = { ...room, closedAt: day(2), closedBy: 'cron', messageCount: 0, attachmentCount: 0, attachmentBytes: 0, voiceCount: 0 };
+      await repo.recordClosed({ ...close, onlineAtClose: 1 });
+      expect((await repo.listClosed({ limit: 10 })).rooms[0].peakOnline).toBe(3);
+      await repo.recordClosed({ ...close, onlineAtClose: 5 });
+      expect((await repo.listClosed({ limit: 10 })).rooms[0].peakOnline).toBe(5);
+
+      // A room never seen before gets its peak from the close write alone.
+      await repo.recordClosed({ ...opened('CCCCCCC2', 1), closedAt: day(1), closedBy: 'cron', messageCount: 0, attachmentCount: 0, attachmentBytes: 0, voiceCount: 0, onlineAtClose: 2 });
+      const rows = (await repo.listClosed({ limit: 10 })).rooms;
+      expect(rows.find((r) => r.code === 'CCCCCCC2')?.peakOnline).toBe(2);
+    });
+
+    it('retention deletes only docs created before the cutoff, oldest first, up to the limit', async () => {
+      for (const [code, d] of [['DDDDDDD1', 1], ['DDDDDDD2', 2], ['DDDDDDD3', 3], ['DDDDDDD4', 10]] as const) {
+        await repo.recordOpened(opened(code, d));
+        await repo.recordClosed({ ...opened(code, d), closedAt: day(d + 1), closedBy: 'cron', messageCount: 1, attachmentCount: 0, attachmentBytes: 0, voiceCount: 0 });
+      }
+      expect(await repo.deleteCreatedBefore(day(5), 2)).toBe(2);
+      expect((await repo.listClosed({ limit: 10 })).rooms.map((r) => r.code).sort()).toEqual(['DDDDDDD3', 'DDDDDDD4']);
+      expect(await repo.deleteCreatedBefore(day(5), 500)).toBe(1);
+      expect(await repo.deleteCreatedBefore(day(5), 500)).toBe(0);
+      expect((await repo.listClosed({ limit: 10 })).rooms.map((r) => r.code)).toEqual(['DDDDDDD4']);
+    });
+
     it('a late "opened" write never undoes a close', async () => {
       const room = opened('BBBBBBB1', 1);
       await repo.recordClosed({ ...room, closedAt: day(2), closedBy: 'uid-owner', messageCount: 1, attachmentCount: 0, attachmentBytes: 0, voiceCount: 0 });

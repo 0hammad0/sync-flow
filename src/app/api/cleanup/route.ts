@@ -9,7 +9,7 @@ import { deleteExpiredRooms } from '@/shared/lib/firebase/chat';
 import { deleteObject } from '@/shared/lib/r2';
 import { getBlocks } from '@/server/container';
 import { recordCronRun } from '@/server/cron/record-cron-run';
-import { cronRoomHooks } from '@/server/rooms/room-history';
+import { cronRoomHooks, sweepRoomHistory } from '@/server/rooms/room-history';
 import type { CronResultValue, CronRunStatus } from '@/server/repositories/interfaces';
 
 export const runtime = 'nodejs';
@@ -104,7 +104,8 @@ async function runCleanup(request: NextRequest) {
 
     // Expired chat rooms. The first batch always runs; more only while time
     // is left and the last batch deleted something.
-    // The hooks keep the admin's room history, which this cron never deletes.
+    // The hooks keep the admin's room history, which outlives the room (only
+    // the retention step below removes it, after 365 days).
     let roomsDeleted = 0;
     let roomsFailed = false;
     const roomHooks = cronRoomHooks();
@@ -121,11 +122,17 @@ async function runCleanup(request: NextRequest) {
     // Expired visitor blocks leave the enforcement list (never throws).
     const blocks = await getBlocks().service.sweepExpired();
 
+    // Room history retention: only history docs past the retention period
+    // (365 days), batches of 500, capped per run and by the delete budget.
+    // Never throws. Live rooms' history is never touched.
+    const history = await sweepRoomHistory(hasTime);
+    const historyFailed = 'error' in history;
+
     const errors = [...failed];
     const timeBudgetUsed = !hasTime();
     // Counts only: the failed file tokens are share links, never stored [D-4].
     const blocksFailed = 'error' in blocks;
-    reportRun(errors.length > 0 || roomsFailed || blocksFailed ? 'partial' : 'ok', startedAt, {
+    reportRun(errors.length > 0 || roomsFailed || blocksFailed || historyFailed ? 'partial' : 'ok', startedAt, {
       filesDeleted,
       filesTotal: seen.size,
       filesFailed: errors.length,
@@ -134,6 +141,10 @@ async function runCleanup(request: NextRequest) {
       roomsFailed,
       blocksSwept: 'removed' in blocks ? blocks.removed : null,
       blocksFailed,
+      roomHistoryDeleted: history.removed,
+      roomHistoryCapped: 'capped' in history ? history.capped : null,
+      roomHistoryQuotaStopped: 'quotaStopped' in history ? history.quotaStopped : null,
+      roomHistoryFailed: historyFailed,
       timeBudgetUsed,
     }, null);
     return NextResponse.json({
@@ -147,6 +158,7 @@ async function runCleanup(request: NextRequest) {
       sessionsDeleted,
       roomsDeleted,
       blocks,
+      roomHistoryDeleted: history.removed,
       // True when the time budget ran out; the next run continues.
       timeBudgetUsed,
       errors: errors.length > 0 ? errors : undefined,

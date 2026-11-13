@@ -9,14 +9,15 @@ import {
 } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
+import type { FileIdCodec, FileRef } from '@/server/files/file-id';
 import { readsForAggregation, type QuotaMeter } from '@/server/quota/quota-guard';
 import {
   CHAT_FILE_FIELDS,
+  SHARE_FILE_FIELDS,
   attachmentRemoval,
   attachmentsOf,
   chatMessageSchema,
   chatRows,
-  parseFileId,
   shareDocSchema,
   shareRow,
 } from '@/server/repositories/admin-files';
@@ -37,8 +38,10 @@ const MAX_LIMIT = 100;
 /** Fields a chat paging cursor needs from the last message (never `content`). */
 const CHAT_CURSOR_FIELDS = ['created_at', 'attachment', 'attachments'];
 
-const shareCursor = z.object({ v: z.string(), id: z.string() });
-const chatCursor = z.object({ p: z.string(), t: z.string() });
+// Cursors end up in admin URLs, so they hold opaque file ids, never a share
+// token, room code or message id in readable form.
+const shareCursor = z.object({ v: z.string(), f: z.string() });
+const chatCursor = z.object({ f: z.string(), t: z.string() });
 
 /**
  * Share files (`files`) and chat attachments (`rooms/{code}/messages`) as one
@@ -47,6 +50,10 @@ const chatCursor = z.object({ p: z.string(), t: z.string() });
  * D-4: chat messages are only ever read through `.select(CHAT_FILE_FIELDS)`
  * or `fieldMask`, so `content` never leaves Firestore. Long-text bodies and
  * removed attachments are not rows.
+ * D-6: share docs are read through `SHARE_FILE_FIELDS`, so `original_name`
+ * never leaves Firestore. Attachment maps hold a `name` that a projection
+ * cannot drop (Firestore cannot mask inside an array); the zod schemas drop it.
+ * Ids and cursors go through the FileIdCodec: no token in any output.
  *
  * Quota (all reads refuse with QuotaExceededError at the read cap):
  * - list: up to `limit` docs per source (share, chat album, chat single) +
@@ -62,6 +69,7 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
   constructor(
     private readonly db: Firestore,
     private readonly quota: QuotaMeter,
+    private readonly ids: FileIdCodec,
   ) {}
 
   async list(query: FileListQuery, now: Date): Promise<FilePage> {
@@ -80,18 +88,18 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
   }
 
   async get(id: string): Promise<AdminFile | null> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return null;
     await this.quota.assertCan('reads');
     if (parsed.kind === 'share') {
-      const snap = await this.read(() => this.db.collection(FILES_COLLECTION).doc(parsed.token).get());
+      const snap = await this.readShare(parsed.token, [...SHARE_FILE_FIELDS]);
       const doc = snap.exists ? shareDocSchema.safeParse(snap.data()) : null;
-      return doc?.success ? shareRow(parsed.token, doc.data) : null;
+      return doc?.success ? shareRow(id, doc.data) : null;
     }
     const snap = await this.readMessage(parsed.roomCode, parsed.messageId, [...CHAT_FILE_FIELDS]);
     const msg = snap.exists ? chatMessageSchema.safeParse(snap.data()) : null;
     if (!msg?.success) return null;
-    return chatRows(parsed.roomCode, parsed.messageId, msg.data).find((r) => r.id === id) ?? null;
+    return chatRows(parsed.roomCode, msg.data, this.chatIdOf(parsed.roomCode, parsed.messageId)).find((r) => r.id === id) ?? null;
   }
 
   shareTotals(): Promise<StoredBytes> {
@@ -112,11 +120,11 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
   }
 
   async storageKeyOf(id: string): Promise<string | null> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return null;
     await this.quota.assertCan('reads');
     if (parsed.kind === 'share') {
-      const snap = await this.read(() => this.db.collection(FILES_COLLECTION).doc(parsed.token).get());
+      const snap = await this.readShare(parsed.token, ['file_path']);
       const path = snap.exists ? (snap.get('file_path') as unknown) : null;
       return typeof path === 'string' && path ? path : null;
     }
@@ -128,7 +136,7 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
   }
 
   async removeRecord(id: string, removedAt: Date): Promise<boolean> {
-    const parsed = parseFileId(id);
+    const parsed = this.ids.decode(id);
     if (!parsed) return false;
     if (parsed.kind === 'share') {
       try {
@@ -171,7 +179,7 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
     cursor: string | null,
     limit: number,
   ): Promise<{ units: MergeUnit<AdminFile>[]; done: boolean }> {
-    let q: Query = this.db.collection(FILES_COLLECTION);
+    let q: Query = this.db.collection(FILES_COLLECTION).select(...SHARE_FILE_FIELDS);
     if (query.ownerUid) q = q.where('owner_id', '==', query.ownerUid);
     // Expired: oldest expiry first. Otherwise newest first.
     const field = query.expired ? 'expires_at' : 'created_at';
@@ -179,19 +187,21 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
     if (query.expired) q = q.where('expires_at', '<', now.toISOString());
     q = q.orderBy(field, dir).orderBy(FieldPath.documentId(), dir);
     const at = shareCursor.safeParse(decodeJsonCursor(cursor));
-    if (at.success) q = q.startAfter(at.data.v, at.data.id);
+    const atRef = at.success ? this.ids.decode(at.data.f) : null;
+    if (at.success && atRef?.kind === 'share') q = q.startAfter(at.data.v, atRef.token);
 
     const snap = await this.read(() => q.limit(limit).get(), true);
     const units: MergeUnit<AdminFile>[] = [];
     for (const doc of snap.docs) {
       const parsed = shareDocSchema.safeParse(doc.data());
       const raw = doc.get(field) as unknown;
-      const next = encodeJsonCursor({ v: typeof raw === 'string' ? raw : '', id: doc.id });
+      const fileId = this.ids.encode({ kind: 'share', token: doc.id });
+      const next = encodeJsonCursor({ v: typeof raw === 'string' ? raw : '', f: fileId });
       if (!parsed.success) {
         units.push({ sortKey: Number.NEGATIVE_INFINITY, rows: [], cursor: next });
         continue;
       }
-      const row = shareRow(doc.id, parsed.data);
+      const row = shareRow(fileId, parsed.data);
       const time = query.expired ? -(row.expiresAt?.getTime() ?? 0) : row.createdAt.getTime();
       units.push({ sortKey: time, rows: [row], cursor: next });
     }
@@ -220,31 +230,56 @@ export class FirestoreFileRepository implements FileReader, FileRemover {
 
     const at = chatCursor.safeParse(decodeJsonCursor(cursor));
     if (at.success) {
-      const [last] = await this.read(() =>
-        this.db.getAll(this.db.doc(at.data.p), { fieldMask: CHAT_CURSOR_FIELDS }),
-      );
+      const ref = this.ids.decode(at.data.f);
+      const [last] =
+        ref?.kind === 'chat'
+          ? await this.read(() =>
+              this.db.getAll(this.messageRef(ref.roomCode, ref.messageId), { fieldMask: CHAT_CURSOR_FIELDS }),
+            )
+          : [null];
       // The last message may be gone (room closed): resume by time instead.
-      q = last.exists ? q.startAfter(last) : q.startAfter(at.data.t);
+      q = last?.exists ? q.startAfter(last) : q.startAfter(at.data.t);
     }
 
     const snap = await this.read(() => q.limit(limit).get(), true);
     const units: MergeUnit<AdminFile>[] = [];
     for (const doc of snap.docs) {
       const createdAt = doc.get('created_at') as unknown;
-      const next = encodeJsonCursor({ p: doc.ref.path, t: typeof createdAt === 'string' ? createdAt : '' });
-      const parsed = chatMessageSchema.safeParse(doc.data());
       const code = doc.ref.parent.parent?.id;
+      const ref = code ? this.chatRef(code, doc.id, 0) : null;
+      const next = encodeJsonCursor({ f: ref ? this.ids.encode(ref) : '', t: typeof createdAt === 'string' ? createdAt : '' });
+      const parsed = chatMessageSchema.safeParse(doc.data());
       const inAlbum = source === 'single' && parsed.success && (parsed.data.attachments?.length ?? 0) > 0;
-      if (!parsed.success || !code || inAlbum) {
+      if (!parsed.success || !code || !ref || inAlbum) {
         units.push({ sortKey: parsed.success ? parsed.data.created_at.getTime() : Number.NEGATIVE_INFINITY, rows: [], cursor: next });
         continue;
       }
-      units.push({ sortKey: parsed.data.created_at.getTime(), rows: chatRows(code, doc.id, parsed.data), cursor: next });
+      units.push({
+        sortKey: parsed.data.created_at.getTime(),
+        rows: chatRows(code, parsed.data, this.chatIdOf(code, doc.id)),
+        cursor: next,
+      });
     }
     return { units, done: snap.size < limit };
   }
 
   // --- helpers -------------------------------------------------------------
+
+  /** A chat ref, or null for a room code / message id the codec cannot hold (never listed). */
+  private chatRef(roomCode: string, messageId: string, index: number): FileRef | null {
+    return /^[A-Z0-9]{8}$/.test(roomCode) && /^[A-Za-z0-9_-]{1,128}$/.test(messageId)
+      ? { kind: 'chat', roomCode, messageId, index }
+      : null;
+  }
+
+  private chatIdOf(roomCode: string, messageId: string) {
+    return (index: number) => this.ids.encode({ kind: 'chat', roomCode, messageId, index });
+  }
+
+  private async readShare(token: string, fields: string[]): Promise<DocumentSnapshot> {
+    const [snap] = await this.read(() => this.db.getAll(this.db.collection(FILES_COLLECTION).doc(token), { fieldMask: fields }));
+    return snap;
+  }
 
   private messageRef(roomCode: string, messageId: string) {
     return this.db.collection(ROOMS_COLLECTION).doc(roomCode).collection(MESSAGES_SUBCOLLECTION).doc(messageId);

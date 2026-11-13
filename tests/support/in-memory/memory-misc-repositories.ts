@@ -74,6 +74,14 @@ export class MemoryUserRepository implements UserReader, UserAdmin {
     return user ? structuredClone(user) : null;
   }
 
+  async listAdmins(): Promise<AdminUser[]> {
+    return [...this.roles.keys()]
+      .map((uid) => this.users.get(uid))
+      .filter((u): u is AdminUser => Boolean(u))
+      .map((u) => structuredClone(u))
+      .sort((a, b) => (a.email ?? a.uid).localeCompare(b.email ?? b.uid));
+  }
+
   async setDisabled(uid: string, disabled: boolean): Promise<void> {
     this.calls.push(`disabled:${uid}:${disabled}`);
     this.mustGet(uid).disabled = disabled;

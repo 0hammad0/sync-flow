@@ -80,6 +80,10 @@ export class MemoryRoomRepository implements RoomReader, RoomCloser {
     return { messageCount: msgs.filter((m) => m.kind !== 'system').length, voiceCount: voice.length };
   }
 
+  async messageCount(code: string): Promise<number> {
+    return (await this.counts(code)).messageCount;
+  }
+
   async attachmentStats(code: string): Promise<RoomAttachmentStats> {
     const stats: RoomAttachmentStats = { attachmentCount: 0, attachmentBytes: 0, voiceCount: 0, voiceBytes: 0 };
     for (const m of this.rooms.get(code)?.messages.values() ?? []) {

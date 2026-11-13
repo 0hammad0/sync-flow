@@ -15,6 +15,14 @@ const h = vi.hoisted(() => ({
   deleteObject: vi.fn(async () => undefined),
   hooks: { beforeDelete: async () => null },
   sweepExpired: vi.fn(async (): Promise<{ removed: number } | { error: string }> => ({ removed: 4 })),
+  sweepRoomHistory: vi.fn(
+    async (): Promise<{ removed: number; batches: number; capped: boolean; quotaStopped: boolean } | { error: string; removed: number }> => ({
+      removed: 500,
+      batches: 1,
+      capped: false,
+      quotaStopped: false,
+    }),
+  ),
 }));
 
 vi.mock('next/server', async (importOriginal) => ({
@@ -29,7 +37,7 @@ vi.mock('@/shared/lib/firebase/files', () => ({
 vi.mock('@/shared/lib/firebase/chat', () => ({ deleteExpiredRooms: h.deleteExpiredRooms }));
 vi.mock('@/shared/lib/r2', () => ({ deleteObject: h.deleteObject }));
 vi.mock('@/server/cron/record-cron-run', () => ({ recordCronRun: h.recordCronRun }));
-vi.mock('@/server/rooms/room-history', () => ({ cronRoomHooks: () => h.hooks }));
+vi.mock('@/server/rooms/room-history', () => ({ cronRoomHooks: () => h.hooks, sweepRoomHistory: h.sweepRoomHistory }));
 vi.mock('@/server/container', () => ({ getBlocks: () => ({ service: { sweepExpired: h.sweepExpired } }) }));
 
 async function call() {
@@ -74,6 +82,10 @@ describe('/api/cleanup run record', () => {
           filesFailed: 0,
           blocksSwept: 4,
           blocksFailed: false,
+          roomHistoryDeleted: 500,
+          roomHistoryCapped: false,
+          roomHistoryQuotaStopped: false,
+          roomHistoryFailed: false,
         }),
       }),
     );
@@ -113,7 +125,21 @@ describe('/api/cleanup run record', () => {
     expect(res.status).toBe(200);
   });
 
-  it('never deletes room history', () => {
-    expect(readFileSync('src/app/api/cleanup/route.ts', 'utf8')).not.toContain('a_rooms');
+  it('a failed room history retention makes the run partial; the cleanup still answers 200', async () => {
+    h.sweepRoomHistory.mockResolvedValueOnce({ error: 'history_retention_failed', removed: 0 });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(h.recordCronRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'partial',
+        result: expect.objectContaining({ roomHistoryDeleted: 0, roomHistoryCapped: null, roomHistoryFailed: true }),
+      }),
+    );
+  });
+
+  it('room history is removed only through the retention step (never by the room sweep itself)', () => {
+    const src = readFileSync('src/app/api/cleanup/route.ts', 'utf8');
+    expect(src).not.toContain('a_rooms');
+    expect(src).toContain('sweepRoomHistory(hasTime)');
   });
 });

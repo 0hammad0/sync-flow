@@ -12,6 +12,10 @@ import { guarded } from './quota-call';
 
 /** Firebase Auth's own cap for listUsers. */
 const MAX_LIMIT = 1_000;
+/** Firebase Auth's cap for getUsers. */
+const AUTH_BATCH = 100;
+/** Keys of `admin_config/roles` are uids; anything else is ignored. */
+const UID_SHAPE = /^[A-Za-z0-9]{1,128}$/;
 
 function isUserNotFound(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === 'auth/user-not-found';
@@ -40,7 +44,8 @@ export function toAdminUser(user: UserRecord): AdminUser {
  * Users live in Firebase Auth (docs/admin/03-features/13-users.md). Auth
  * calls do not touch the Firestore quota. The one Firestore write is the
  * `admin_config/roles` index on setRole (1 write, counted, never blocked:
- * role changes are admin actions). The `role` claim stays the source of truth.
+ * role changes are admin actions); listAdmins reads that index (1 read).
+ * The `role` claim stays the source of truth.
  */
 export class FirebaseUserRepository implements UserReader, UserAdmin {
   constructor(
@@ -71,6 +76,22 @@ export class FirebaseUserRepository implements UserReader, UserAdmin {
       if (isUserNotFound(error)) return null;
       throw error;
     }
+  }
+
+  async listAdmins(): Promise<AdminUser[]> {
+    await this.quota.assertCan('reads');
+    const snap = await guarded(this.quota, () =>
+      this.db.collection(COLLECTIONS.adminConfig).doc(ADMIN_CONFIG_DOCS.roles).get(),
+    );
+    this.quota.record('reads', 1);
+    const uids = Object.keys(snap.data() ?? {}).filter((uid) => UID_SHAPE.test(uid));
+    const users: AdminUser[] = [];
+    // Auth getUsers takes at most 100 identifiers per call. Auth calls are not Firestore reads.
+    for (let i = 0; i < uids.length; i += AUTH_BATCH) {
+      const res = await this.auth.getUsers(uids.slice(i, i + AUTH_BATCH).map((uid) => ({ uid })));
+      users.push(...res.users.map(toAdminUser));
+    }
+    return users.sort((a, b) => (a.email ?? a.uid).localeCompare(b.email ?? b.uid));
   }
 
   async setDisabled(uid: string, disabled: boolean): Promise<void> {

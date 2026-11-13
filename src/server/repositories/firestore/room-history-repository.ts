@@ -15,6 +15,10 @@ import type {
 import { decodeJsonCursor, encodeJsonCursor, guarded } from './quota-call';
 
 const MAX_LIMIT = 100;
+/** Firestore's cap on operations in one batch. */
+const RETENTION_BATCH_MAX = 500;
+
+const peakOf = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
 const nullableString = z.string().nullish().catch(null).transform((v) => v ?? null);
 const nullableCount = z.number().nonnegative().nullish().catch(null).transform((v) => v ?? null);
@@ -54,7 +58,12 @@ function openFields(room: RoomHistoryOpen) {
  * Quota: about 2 writes per room (open + close). Each write asks QuotaGuard
  * first and is skipped (returns false) when writes are stopped for the day,
  * so chat never waits on or fails because of it. listClosed = rows (min 1).
- * Nothing in the app deletes these docs; retention is a later decision.
+ *
+ * `peak_online` never costs a chat write: it is raised only by admin reads
+ * (notePeakOnline: 1 read + at most 1 write, in a transaction) and folded
+ * into the close write (+1 read, only when someone was online at close).
+ * Retention (deleteCreatedBefore) is the only delete: rows read + 1 delete
+ * each, in one batch of at most 500.
  */
 export class FirestoreRoomHistoryRepository implements RoomHistoryRepository {
   constructor(
@@ -68,7 +77,7 @@ export class FirestoreRoomHistoryRepository implements RoomHistoryRepository {
   }
 
   async recordClosed(room: RoomHistoryClose): Promise<boolean> {
-    return this.write(room.code, {
+    const data = {
       ...openFields(room),
       closed_at: Timestamp.fromDate(room.closedAt),
       closed_by: room.closedBy,
@@ -76,7 +85,62 @@ export class FirestoreRoomHistoryRepository implements RoomHistoryRepository {
       attachment_count: room.attachmentCount,
       attachment_bytes: room.attachmentBytes,
       voice_count: room.voiceCount,
-    });
+    };
+    const online = room.onlineAtClose ?? 0;
+    if (!(online > 0)) return this.write(room.code, data);
+
+    // Fold the online-at-close count into peak_online without lowering it:
+    // the same one write, plus one read inside a transaction.
+    if ((await this.quota.canWrite('writes')) === 'stop') return false;
+    const ref = this.db.collection(COLLECTIONS.aRooms).doc(room.code);
+    await guarded(this.quota, () =>
+      this.db.runTransaction(async (tx) => {
+        const prev = peakOf((await tx.get(ref)).get('peak_online'));
+        tx.set(ref, { ...data, peak_online: Math.max(prev, online) }, { merge: true });
+      }),
+    );
+    this.quota.record('reads', 1);
+    this.quota.record('writes', 1);
+    return true;
+  }
+
+  async notePeakOnline(code: string, online: number): Promise<boolean> {
+    if (!Number.isFinite(online) || online <= 0) return false;
+    if ((await this.quota.canWrite('writes')) === 'stop') return false;
+    const ref = this.db.collection(COLLECTIONS.aRooms).doc(code);
+    const wrote = await guarded(this.quota, () =>
+      this.db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        // No history doc (write 1 was skipped): do not create a partial one.
+        if (!snap.exists || peakOf(snap.get('peak_online')) >= online) return false;
+        tx.update(ref, { peak_online: online });
+        return true;
+      }),
+    );
+    this.quota.record('reads', 1);
+    if (wrote) this.quota.record('writes', 1);
+    return wrote;
+  }
+
+  async deleteCreatedBefore(cutoff: Date, limit: number): Promise<number> {
+    await this.quota.assertCan('deletes');
+    const max = Math.min(Math.max(Math.floor(limit), 1), RETENTION_BATCH_MAX);
+    const snap = await guarded(this.quota, () =>
+      this.db
+        .collection(COLLECTIONS.aRooms)
+        .where('created_at', '<', Timestamp.fromDate(cutoff))
+        .orderBy('created_at')
+        .select()
+        .limit(max)
+        .get(),
+    );
+    this.quota.record('reads', Math.max(1, snap.size));
+    if (snap.empty) return 0;
+    const batch = this.db.batch();
+    for (const doc of snap.docs) batch.delete(doc.ref);
+    await guarded(this.quota, () => batch.commit());
+    this.quota.record('deletes', snap.size);
+    return snap.size;
   }
 
   async listClosed(query: { cursor?: string | null; limit: number }): Promise<RoomHistoryPage> {
