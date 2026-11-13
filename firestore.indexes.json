@@ -23,7 +23,59 @@
         { "fieldPath": "created_by", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "actor_uid", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "target_id", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "actor_uid", "order": "ASCENDING" },
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "admin_cron_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "job", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "admin_audit",
+      "fieldPath": "before",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "admin_audit",
+      "fieldPath": "after",
+      "indexes": []
+    }
+  ]
 }

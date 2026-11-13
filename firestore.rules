@@ -10,6 +10,37 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Admin and analytics data: server only (Admin SDK), never clients.
+    // The default deny above already closes these. These blocks are a
+    // signpost, not a lock: Firestore ORs every matching rule, so an `allow`
+    // added elsewhere would still open a path. The lock is
+    // tests/integration/firestore/admin-rules.test.ts, which fails if any of
+    // these paths becomes readable or writable by a client.
+    match /admin_audit/{rest=**} {
+      allow read, write: if false;
+    }
+    match /admin_cron_runs/{rest=**} {
+      allow read, write: if false;
+    }
+    match /admin_config/{rest=**} {
+      allow read, write: if false;
+    }
+    match /blocks/{rest=**} {
+      allow read, write: if false;
+    }
+    match /a_sessions/{rest=**} {
+      allow read, write: if false;
+    }
+    match /a_hourly/{rest=**} {
+      allow read, write: if false;
+    }
+    match /a_daily/{rest=**} {
+      allow read, write: if false;
+    }
+    match /a_counters/{rest=**} {
+      allow read, write: if false;
+    }
+
     // Chat rooms: clients READ directly (so the real-time onSnapshot listener
     // works without a server hop), but all WRITES go through /api/chat/* on
     // the server. The 8-char room code is the capability: knowing it lets you

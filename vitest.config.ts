@@ -2,7 +2,12 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
-const alias = { '@': fileURLToPath(new URL('./src', import.meta.url)) };
+// `server-only` throws outside a React Server Components build. Tests import
+// src/server/** directly, so point it at the package's own empty module.
+const alias = {
+  '@': fileURLToPath(new URL('./src', import.meta.url)),
+  'server-only': fileURLToPath(new URL('./node_modules/server-only/empty.js', import.meta.url)),
+};
 
 /**
  * Three Vitest projects (Playwright runs e2e separately):

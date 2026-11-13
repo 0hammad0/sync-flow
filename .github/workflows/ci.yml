@@ -155,8 +155,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Vitest (integration)
-        run: npm run test:integration
+      # The Firestore emulator is a Java program. firebase-tools 15 needs JDK 21+.
+      - name: Set up Java 21 (Firestore emulator)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Emulator jars download on first run; cache them per firebase-tools version.
+      - name: Cache Firebase emulators
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-15.36.0
+
+      # Starts the Firestore + Auth emulators (project demo-syncflow, never a
+      # real project), runs the integration suite, then stops them. The
+      # REQUIRE flag makes an emulator suite fail instead of skip if the
+      # emulator did not start.
+      - name: Vitest (integration, on the Firestore emulator)
+        env:
+          REQUIRE_FIRESTORE_EMULATOR: '1'
+        run: npm run test:integration:emulator
 
   # ── Check 7: End-to-end (Playwright, 8 viewports, Chromium) ───────────────
   e2e:
