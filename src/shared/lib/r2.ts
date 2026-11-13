@@ -111,8 +111,14 @@ export async function deleteObject(key: string): Promise<void> {
  * ListObjectsV2 and batch-deletes 1000 at a time. Returns objects deleted.
  */
 export async function deletePrefix(prefix: string): Promise<number> {
+  return (await deletePrefixCounted(prefix)).objects;
+}
+
+/** Like deletePrefix, and also sums the deleted objects' sizes (from the same listing, no extra call). */
+export async function deletePrefixCounted(prefix: string): Promise<{ objects: number; bytes: number }> {
   if (!prefix || prefix === '/') throw new Error('deletePrefix: refusing empty prefix');
   let deleted = 0;
+  let bytes = 0;
   let continuationToken: string | undefined;
   do {
     const page = await r2().send(
@@ -122,21 +128,40 @@ export async function deletePrefix(prefix: string): Promise<number> {
         ContinuationToken: continuationToken,
       })
     );
-    const keys = (page.Contents ?? [])
-      .map((o) => o.Key)
-      .filter((k): k is string => !!k);
-    if (keys.length > 0) {
+    const objects = (page.Contents ?? []).filter((o): o is typeof o & { Key: string } => !!o.Key);
+    if (objects.length > 0) {
       await r2().send(
         new DeleteObjectsCommand({
           Bucket: R2_BUCKET,
-          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+          Delete: { Objects: objects.map(({ Key }) => ({ Key })), Quiet: true },
         })
       );
-      deleted += keys.length;
+      deleted += objects.length;
+      for (const o of objects) bytes += o.Size ?? 0;
     }
     continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (continuationToken);
-  return deleted;
+  return { objects: deleted, bytes };
+}
+
+/** Object count and summed size under a prefix. Read only (ListObjectsV2 pages). */
+export async function prefixUsage(prefix: string): Promise<{ objects: number; bytes: number }> {
+  if (!prefix || prefix === '/') throw new Error('prefixUsage: refusing empty prefix');
+  let objects = 0;
+  let bytes = 0;
+  let continuationToken: string | undefined;
+  do {
+    const page = await r2().send(
+      new ListObjectsV2Command({ Bucket: R2_BUCKET, Prefix: prefix, ContinuationToken: continuationToken })
+    );
+    for (const o of page.Contents ?? []) {
+      if (!o.Key) continue;
+      objects++;
+      bytes += o.Size ?? 0;
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return { objects, bytes };
 }
 
 export async function objectExists(key: string): Promise<boolean> {

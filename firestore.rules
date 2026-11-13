@@ -40,6 +40,10 @@ service cloud.firestore {
     match /a_counters/{rest=**} {
       allow read, write: if false;
     }
+    // Room history (metadata only, phase 1 step 1.8). Outlives the room.
+    match /a_rooms/{rest=**} {
+      allow read, write: if false;
+    }
 
     // Chat rooms: clients READ directly (so the real-time onSnapshot listener
     // works without a server hop), but all WRITES go through /api/chat/* on

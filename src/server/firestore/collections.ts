@@ -14,6 +14,8 @@ export const COLLECTIONS = {
   aHourly: 'a_hourly',
   aDaily: 'a_daily',
   aCounters: 'a_counters',
+  /** Room history (metadata only). The cleanup cron never deletes it. */
+  aRooms: 'a_rooms',
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
