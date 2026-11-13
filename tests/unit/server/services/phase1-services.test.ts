@@ -160,15 +160,15 @@ describe('RoomService', () => {
   it('cron hooks count before the delete and write history after it; failures are swallowed', async () => {
     const hooks = service.cronHooks();
     const chatRoom = { code, name: 'Team', created_at: '2026-11-13T00:00:00.000Z', expires_at: '2026-11-13T01:00:00.000Z', ttl_hours: 1 as const, created_by: null, creator_tz: null };
-    const counts = await hooks.beforeDelete?.(chatRoom);
-    expect(counts).toEqual({ messageCount: 1, voiceCount: 0 });
-    await hooks.afterDelete?.(chatRoom, { objects: 2, bytes: 50, docs: null }, counts ?? undefined);
+    const snapshot = await hooks.beforeDelete?.(chatRoom);
+    expect(snapshot).toEqual({ counts: { messageCount: 1, voiceCount: 0 }, online: 0 });
+    await hooks.afterDelete?.(chatRoom, { objects: 2, bytes: 50, docs: null }, snapshot);
     expect(history.docs.get(code)).toMatchObject({ closedBy: 'cron', messageCount: 1, attachmentCount: 2, attachmentBytes: 50 });
 
     rooms.counts = async () => {
       throw new Error('read cap');
     };
-    await expect(hooks.beforeDelete?.(chatRoom)).resolves.toBeNull();
+    await expect(hooks.beforeDelete?.(chatRoom)).resolves.toEqual({ counts: null, online: 0 });
   });
 });
 

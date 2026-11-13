@@ -260,6 +260,8 @@ export interface RoomReader {
   onlineCount(code: string, since: Date): Promise<number>;
   /** Non-system messages and voice notes (aggregates). */
   counts(code: string): Promise<RoomCounts>;
+  /** Non-system messages only (2 aggregates, no voice count). For list rows. */
+  messageCount(code: string): Promise<number>;
   attachmentStats(code: string): Promise<RoomAttachmentStats>;
 }
 
@@ -283,6 +285,11 @@ export type RoomHistoryClose = RoomHistoryOpen & {
   attachmentCount: number | null;
   attachmentBytes: number | null;
   voiceCount: number | null;
+  /**
+   * People online when it closed. When > 0 it is folded into `peak_online`
+   * (kept if already higher). Omitted or 0 = the peak is left as it is.
+   */
+  onlineAtClose?: number | null;
 };
 
 export type RoomHistoryEntry = RoomHistoryClose & { peakOnline: number | null };
@@ -296,6 +303,18 @@ export interface RoomHistoryRepository {
   recordClosed(room: RoomHistoryClose): Promise<boolean>;
   /** Closed rooms, newest close first. */
   listClosed(query: { cursor?: string | null; limit: number }): Promise<RoomHistoryPage>;
+  /**
+   * Raises `peak_online` to `online` when that is higher than the stored
+   * value. Only for a room that already has a history doc. true when written;
+   * false when not higher, no doc, or skipped (write budget used up).
+   */
+  notePeakOnline(code: string, online: number): Promise<boolean>;
+  /**
+   * Retention: deletes up to `limit` history docs created before `cutoff`,
+   * oldest first. Returns how many. Throws QuotaExceededError when deletes
+   * are stopped for the day.
+   */
+  deleteCreatedBefore(cutoff: Date, limit: number): Promise<number>;
 }
 
 /** Firebase Auth user, as the admin sees it. */
@@ -316,6 +335,8 @@ export interface UserReader {
   list(query: { pageToken?: string | null; limit: number }): Promise<UserPage>;
   get(uid: string): Promise<AdminUser | null>;
   findByEmail(email: string): Promise<AdminUser | null>;
+  /** Users listed in the `admin_config/roles` index (1 Firestore read + Auth lookups). */
+  listAdmins(): Promise<AdminUser[]>;
 }
 
 export type RoleGrant = { email: string | null; grantedBy: string; at: Date };

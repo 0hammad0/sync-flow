@@ -38,6 +38,11 @@ export class UserService {
     return this.deps.reader.get(uid);
   }
 
+  /** Users in the `admin_config/roles` index (1 Firestore read). */
+  listAdmins(): Promise<AdminUser[]> {
+    return this.deps.reader.listAdmins();
+  }
+
   /** Exact email, or a uid. Auth has no partial search. */
   async find(q: string): Promise<AdminUser | null> {
     const term = q.trim();
