@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
-import { signInHref } from '@/features/admin/shell/account';
+import { signOutAdmin } from '@/features/admin/auth/sign-out';
 import { blockedError } from '@/shared/lib/blocked';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import type { deleteFile, deleteFiles } from '../actions';
@@ -36,7 +35,7 @@ type DeleteFilesDialogProps = {
   actions: DeleteActions;
 };
 
-const STEP_UP = 'Deleting needs a sign-in from the last 15 minutes. Sign in again, then retry.';
+const STEP_UP = 'Deleting needs a sign-in from the last 15 minutes. Sign out, sign in again, then retry.';
 
 function failureMessage(result: { error: string; message?: string; errorId?: string }): string {
   switch (result.error) {
@@ -58,8 +57,6 @@ function failureMessage(result: { error: string; message?: string; errorId?: str
 /** Confirm, then delete. Type-to-confirm `DELETE` above 10 files (09-files-and-storage.md "Actions"). */
 export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDone, actions }: DeleteFilesDialogProps) {
   const { deleteFile, deleteFiles } = actions;
-  const pathname = usePathname();
-  const search = useSearchParams();
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const many = ids.length > 1;
 
@@ -94,7 +91,6 @@ export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDo
     return { ok: true };
   };
 
-  const query = search?.toString() ?? '';
   return (
     <ConfirmDialog
       open={open}
@@ -114,9 +110,15 @@ export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDo
       onConfirm={run}
     >
       {needsSignIn && (
-        <a href={signInHref(pathname ?? '/admin/files', query)} className="text-sm font-medium text-brand-text underline underline-offset-2">
-          Sign in again
-        </a>
+        // The sign-in page sends a signed-in admin straight on, so a fresh
+        // sign-in needs a sign-out first (no in-place step-up dialog yet).
+        <button
+          type="button"
+          onClick={() => void signOutAdmin()}
+          className="self-start text-sm font-medium text-brand-text underline underline-offset-2"
+        >
+          Sign out and sign in again
+        </button>
       )}
     </ConfirmDialog>
   );

@@ -18,6 +18,8 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/admin/files',
   useSearchParams: () => new URLSearchParams(),
 }));
+const signOut = vi.hoisted(() => ({ signOutAdmin: vi.fn(async () => ({ ok: true })) }));
+vi.mock('@/features/admin/auth/sign-out', () => signOut);
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const { default: FilesTable } = await import('@/features/admin/files/components/FilesTable');
@@ -123,6 +125,7 @@ describe('DeleteFilesDialog', () => {
     render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={[ID]} label="PDF file (2.5 MB)" onDone={vi.fn()} actions={actionProps} />);
     fireEvent.click(screen.getByRole('button', { name: 'Delete file' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/last 15 minutes/));
-    expect(screen.getByRole('link', { name: 'Sign in again' }).getAttribute('href')).toBe('/admin/sign-in?next=%2Fadmin%2Ffiles');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out and sign in again' }));
+    expect(signOut.signOutAdmin).toHaveBeenCalledTimes(1);
   });
 });
