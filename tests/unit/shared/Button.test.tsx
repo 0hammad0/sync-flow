@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 
 describe('Button', () => {
   it('calls onClick when pressed', async () => {

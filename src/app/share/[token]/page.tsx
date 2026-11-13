@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { getFileByToken } from '@/features/files/server/files';
 import DownloadCard from '@/features/files/components/DownloadCard';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import { Clock, FileQuestion, ShieldAlert } from 'lucide-react';
 
 interface SharePageProps {

@@ -6,7 +6,7 @@ import { formatFileSize } from '@/shared/lib/utils';
 import { directUpload } from '@/shared/lib/direct-upload';
 import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import {
   AlertCircle,
   CheckCircle2,

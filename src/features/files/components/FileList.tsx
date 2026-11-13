@@ -8,7 +8,7 @@ import { SHARE_EXPIRY_OPTIONS } from '@/shared/lib/limits';
 import { deleteFile, reshareFile } from '@/features/files/server/files';
 import CopyButton from '@/shared/components/CopyButton';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import QRModal from '@/features/files/components/QRModal';
 import { AlertTriangle, FolderOpen, Lock, QrCode } from 'lucide-react';
 
