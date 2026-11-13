@@ -1,12 +1,12 @@
 import { AlertTriangle, Info } from 'lucide-react';
 import Skeleton from '@/shared/ui/Skeleton';
+import UsageMeter from '@/shared/ui/UsageMeter';
 import { formatBytes, formatUtc, usageTone } from '../format';
 import type { StorageSummaryDto } from '../types';
 
 // R2 usage vs the free tier, the breakdown, and the not-swept note
 // (09-files-and-storage.md "Storage totals"). Server component: no JS.
 
-const BAR_TONES = { brand: 'bg-brand', warning: 'bg-warning', danger: 'bg-danger' } as const;
 const GB = 1e9;
 
 function gb(bytes: number): string {
@@ -54,20 +54,13 @@ export default function StorageSummary({ summary, isOwner }: { summary: StorageS
             </p>
             <p className="text-xs text-fg-muted">Measured {formatUtc(bucket.measuredAt)}</p>
           </div>
-          <div
-            role="meter"
-            aria-label="R2 storage used"
-            aria-valuemin={0}
-            aria-valuemax={bucket.limitBytes}
-            aria-valuenow={bucket.payloadBytes}
-            aria-valuetext={`${gb(bucket.payloadBytes)} GB of ${bucket.limitBytes / GB} GB`}
-            className="h-2 w-full overflow-hidden rounded-full bg-surface-3"
-          >
-            <div
-              className={`h-full rounded-full ${BAR_TONES[usageTone(bucket.payloadBytes / bucket.limitBytes)]}`}
-              style={{ width: `${Math.min(100, (bucket.payloadBytes / bucket.limitBytes) * 100).toFixed(1)}%` }}
-            />
-          </div>
+          <UsageMeter
+            label="R2 storage used"
+            value={bucket.payloadBytes}
+            max={bucket.limitBytes}
+            valueText={`${gb(bucket.payloadBytes)} GB of ${bucket.limitBytes / GB} GB`}
+            tone={usageTone(bucket.payloadBytes / bucket.limitBytes)}
+          />
         </>
       ) : (
         <p className="flex items-start gap-2 text-sm text-fg-muted">

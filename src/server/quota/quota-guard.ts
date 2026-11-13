@@ -289,6 +289,15 @@ export class QuotaGuard implements QuotaMeter {
     return this.flushing;
   }
 
+  /**
+   * Today's usage and caps for Health: the same numbers `canWrite` decides
+   * on. Reads `a_counters` at most once a minute per instance. Never throws.
+   */
+  async usage(): Promise<QuotaSnapshot> {
+    await this.refreshIfStale();
+    return this.snapshot();
+  }
+
   snapshot(): QuotaSnapshot {
     const day = utcDay(this.now());
     const used = zero();
