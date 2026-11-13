@@ -15,7 +15,7 @@ export function formatBytes(bytes: number | null): string {
     value /= 1024;
     unit++;
   }
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+  return `${value.toFixed(1)} ${units[unit]}`;
 }
 
 /** `1,204`, or `—` when unknown. */
