@@ -96,8 +96,10 @@ export const viewport: Viewport = {
 //    scripts actually run;
 //  - applies the saved theme (system preference otherwise) — no theme flash;
 //  - copies the signed-in hint onto <html data-auth> so the header and account
-//    prompts render the right variant on first paint (see auth-state.ts).
-const initScript = `(function(){var r=document.documentElement;r.classList.add('js');try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;r.classList.toggle('dark',d);if(localStorage.getItem('sf-auth')==='1')r.setAttribute('data-auth','in');}catch(e){r.classList.add('dark');}})();`;
+//    prompts render the right variant on first paint (see auth-state.ts);
+//  - marks Apple devices <html data-platform="mac"> so <Kbd> shows ⌘ vs Ctrl
+//    with CSS only (no hydration mismatch).
+const initScript = `(function(){var r=document.documentElement;r.classList.add('js');var n=navigator,p=(n.userAgentData&&n.userAgentData.platform)||n.platform||'';if(/mac|iphone|ipad|ipod/i.test(p))r.setAttribute('data-platform','mac');try{var t=localStorage.getItem('sf-theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;r.classList.toggle('dark',d);if(localStorage.getItem('sf-auth')==='1')r.setAttribute('data-auth','in');}catch(e){r.classList.add('dark');}})();`;
 
 export default function RootLayout({
   children,
