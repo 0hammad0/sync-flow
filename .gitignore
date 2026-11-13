@@ -54,3 +54,8 @@ next-env.d.ts
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Playwright
+/playwright-report/
+/test-results/
+/blob-report/
