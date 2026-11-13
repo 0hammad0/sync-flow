@@ -22,7 +22,7 @@ import {
 } from '../format';
 import { FILE_KINDS, MAX_FILES_PER_DELETE, type FileKindParam } from '../constants';
 import type { FileRowDto } from '../types';
-import DeleteFilesDialog, { type DeleteOutcome } from './DeleteFilesDialog';
+import DeleteFilesDialog, { type DeleteActions, type DeleteOutcome } from './DeleteFilesDialog';
 
 const KIND_LABELS: Record<FileKindParam, string> = { all: 'All', share: 'Share', chat: 'Chat' };
 const EXPIRY = ['any', 'expired'] as const;
@@ -39,6 +39,8 @@ type FilesTableProps = {
   expired: boolean;
   page: { prevCursor: string | null; nextCursor: string | null };
   canDelete: boolean;
+  /** From the server page (see DeleteActions). */
+  actions: DeleteActions;
   /** Epoch ms of the server render, so relative times match on hydration. */
   now: number;
   error?: { title: string; reason: string; errorId?: string };
@@ -46,7 +48,7 @@ type FilesTableProps = {
 
 type Pending = { ids: string[]; label: string; clear?: () => void };
 
-export default function FilesTable({ rows, kind, expired, page, canDelete, now, error }: FilesTableProps) {
+export default function FilesTable({ rows, kind, expired, page, canDelete, actions, now, error }: FilesTableProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [pending, setPending] = useState<Pending | null>(null);
@@ -152,6 +154,7 @@ export default function FilesTable({ rows, kind, expired, page, canDelete, now, 
           onOpenChange={(open) => !open && setPending(null)}
           ids={pending.ids}
           label={pending.label}
+          actions={actions}
           onDone={onDone}
         />
       )}

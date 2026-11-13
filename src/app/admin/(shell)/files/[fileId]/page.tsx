@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
+import { deleteFile, deleteFiles } from '@/features/admin/files/actions';
 import DeleteFileButton from '@/features/admin/files/components/DeleteFileButton';
 import FileDetail, { fileTitle } from '@/features/admin/files/components/FileDetail';
 import FilesQueryState from '@/features/admin/files/components/FilesQueryState';
@@ -35,7 +36,7 @@ export default async function FilePage({ params }: { params: Promise<{ fileId: s
             now={result.checkedAt}
             actions={
               can(ctx.role, 'files:delete') ? (
-                <DeleteFileButton id={result.file.id} label={`${fileTitle(result.file)} (${formatBytes(result.file.size)})`} inDrawer={false} />
+                <DeleteFileButton id={result.file.id} label={`${fileTitle(result.file)} (${formatBytes(result.file.size)})`} actions={{ deleteFile, deleteFiles }} inDrawer={false} />
               ) : undefined
             }
           />

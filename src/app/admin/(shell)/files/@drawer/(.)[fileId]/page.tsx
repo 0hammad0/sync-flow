@@ -1,3 +1,4 @@
+import { deleteFile, deleteFiles } from '@/features/admin/files/actions';
 import DeleteFileButton from '@/features/admin/files/components/DeleteFileButton';
 import FileDetail, { fileTitle } from '@/features/admin/files/components/FileDetail';
 import FileDrawer from '@/features/admin/files/components/FileDrawer';
@@ -34,7 +35,7 @@ export default async function FileDrawerPage({ params }: { params: Promise<{ fil
         now={result.checkedAt}
         actions={
           can(ctx.role, 'files:delete') ? (
-            <DeleteFileButton id={result.file.id} label={`${title} (${formatBytes(result.file.size)})`} inDrawer />
+            <DeleteFileButton id={result.file.id} label={`${title} (${formatBytes(result.file.size)})`} actions={{ deleteFile, deleteFiles }} inDrawer />
           ) : undefined
         }
       />

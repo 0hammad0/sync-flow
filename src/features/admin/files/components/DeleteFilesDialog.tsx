@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { signInHref } from '@/features/admin/shell/account';
 import { blockedError } from '@/shared/lib/blocked';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
-import { deleteFile, deleteFiles } from '../actions';
+import type { deleteFile, deleteFiles } from '../actions';
 import { MAX_FILES_PER_DELETE, TYPE_TO_CONFIRM_OVER } from '../constants';
 
 /** sonner loads lazily (LazyToaster), so import it on use. */
@@ -16,6 +16,14 @@ export async function toast(kind: 'success' | 'error', title: string, descriptio
 
 export type DeleteOutcome = { deleted: string[]; gone: string[]; failed: string[] };
 
+/**
+ * The delete server actions, passed down as props from the server page, not
+ * imported here: a client import of the actions module in the drawer's
+ * parallel-route chunk made Turbopack split the shared server-action runtime
+ * chunk, adding ~0.3 KiB gz to every public page.
+ */
+export type DeleteActions = { deleteFile: typeof deleteFile; deleteFiles: typeof deleteFiles };
+
 type DeleteFilesDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,6 +33,7 @@ type DeleteFilesDialogProps = {
   label: string;
   /** Called after the action returns, before the dialog closes. */
   onDone: (outcome: DeleteOutcome) => void;
+  actions: DeleteActions;
 };
 
 const STEP_UP = 'Deleting needs a sign-in from the last 15 minutes. Sign in again, then retry.';
@@ -47,7 +56,8 @@ function failureMessage(result: { error: string; message?: string; errorId?: str
 }
 
 /** Confirm, then delete. Type-to-confirm `DELETE` above 10 files (09-files-and-storage.md "Actions"). */
-export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDone }: DeleteFilesDialogProps) {
+export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDone, actions }: DeleteFilesDialogProps) {
+  const { deleteFile, deleteFiles } = actions;
   const pathname = usePathname();
   const search = useSearchParams();
   const [needsSignIn, setNeedsSignIn] = useState(false);

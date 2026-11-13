@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { deleteFile, deleteFiles } from '@/features/admin/files/actions';
 import FilesTable from '@/features/admin/files/components/FilesTable';
 import { failureText } from '@/features/admin/files/components/FilesQueryState';
 import StorageSummary, { StorageSummarySkeleton } from '@/features/admin/files/components/StorageSummary';
@@ -61,6 +62,7 @@ async function FilesPanel({ ctx, params }: { ctx: AdminContext; params: FilesPar
       expired={params.expired}
       page={{ prevCursor: params.cursor ? FIRST_PAGE_CURSOR : null, nextCursor: ok ? result.nextCursor : null }}
       canDelete={can(ctx.role, 'files:delete')}
+      actions={{ deleteFile, deleteFiles }}
       now={ok ? result.checkedAt : 0}
       error={ok ? undefined : failureText(result, ctx.role === 'owner')}
     />

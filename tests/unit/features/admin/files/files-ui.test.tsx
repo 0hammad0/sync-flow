@@ -5,10 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { AdminFile } from '@/server/repositories/interfaces';
 import { TooltipProvider } from '@/shared/ui/Tooltip';
+import type { DeleteActions } from '@/features/admin/files/components/DeleteFilesDialog';
 import type { FileRowDto } from '@/features/admin/files/types';
 
 const actions = vi.hoisted(() => ({ deleteFile: vi.fn(), deleteFiles: vi.fn() }));
-vi.mock('@/features/admin/files/actions', () => actions);
+// The server page passes the actions down as props; these stand in for them.
+const actionProps = actions as unknown as DeleteActions;
 vi.mock('next/cache', () => ({ unstable_cache: <T,>(fn: T) => fn, updateTag: vi.fn() }));
 vi.mock('@/server/container', () => ({ getContainer: () => ({}) }));
 vi.mock('next/navigation', () => ({
@@ -61,7 +63,7 @@ function Providers({ children }: { children: ReactNode }) {
 
 function renderTable(rows: FileRowDto[], canDelete: boolean) {
   return render(
-    <FilesTable rows={rows} kind="all" expired={false} page={{ prevCursor: null, nextCursor: null }} canDelete={canDelete} now={NOW} />,
+    <FilesTable rows={rows} kind="all" expired={false} page={{ prevCursor: null, nextCursor: null }} canDelete={canDelete} actions={actionProps} now={NOW} />,
     { wrapper: Providers },
   );
 }
@@ -107,7 +109,7 @@ describe('DeleteFilesDialog', () => {
     const ids = Array.from({ length: 11 }, (_, i) => `f_${String(i).padStart(30, 'B')}`);
     actions.deleteFiles.mockResolvedValue({ ok: true, data: { deleted: ids, missing: [], failed: [] } });
     const onDone = vi.fn();
-    render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={ids} label="11 files" onDone={onDone} />);
+    render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={ids} label="11 files" onDone={onDone} actions={actionProps} />);
     const confirm = screen.getByRole('button', { name: 'Delete 11 files' });
     expect(confirm.getAttribute('aria-disabled')).toBe('true');
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: 'DELETE' } });
@@ -118,7 +120,7 @@ describe('DeleteFilesDialog', () => {
 
   it('explains step-up and offers a sign-in link when the sign-in is too old', async () => {
     actions.deleteFile.mockResolvedValue({ ok: false, error: 'step_up_required', authAgeSec: 4000 });
-    render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={[ID]} label="PDF file (2.5 MB)" onDone={vi.fn()} />);
+    render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={[ID]} label="PDF file (2.5 MB)" onDone={vi.fn()} actions={actionProps} />);
     fireEvent.click(screen.getByRole('button', { name: 'Delete file' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/last 15 minutes/));
     expect(screen.getByRole('link', { name: 'Sign in again' }).getAttribute('href')).toBe('/admin/sign-in?next=%2Fadmin%2Ffiles');
