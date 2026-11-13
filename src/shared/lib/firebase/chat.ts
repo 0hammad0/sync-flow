@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { adminDb } from './admin';
 import { generateRoomCode, normalizeReactors, sanitizeDeviceId } from '@/shared/lib/utils';
-import { deletePrefix } from '@/shared/lib/r2';
+import { deletePrefixCounted } from '@/shared/lib/r2';
 import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
 import type {
   ChatAttachment,
@@ -458,14 +458,68 @@ export async function listRoomsByOwner(uid: string): Promise<ChatRoom[]> {
   return snap.docs.map((d) => toPublicRoom(d.data() as StoredRoom));
 }
 
+/** What deleting one room removed. `docs` is null unless `countDocs` was asked for. */
+export type RoomDeleteResult = { objects: number; bytes: number; docs: number | null };
+
 /**
- * Delete every expired room: its R2 attachments (by prefix), then its
- * messages subcollection + room doc via Firestore's `recursiveDelete`.
- * Storage goes first so a partial failure can be retried on the next cron
- * tick (the room doc still exists to be found again). Capped at 50 rooms
- * per tick to stay well within a single Vercel function execution.
+ * Delete one room: its R2 attachments (by prefix) first, then its messages
+ * and other subcollections + the room doc via Firestore's `recursiveDelete`.
+ * Storage goes first so a partial failure can be retried (the room doc still
+ * exists to be found again). Shared by the cleanup cron and the admin
+ * "Close room". `countDocs` routes the deletes through a BulkWriter that
+ * counts them (the admin reports them to its Firestore budget).
  */
-export async function deleteExpiredRooms(): Promise<number> {
+export async function deleteRoom(
+  code: string,
+  opts: { db?: Firestore; countDocs?: boolean } = {}
+): Promise<RoomDeleteResult> {
+  const db = opts.db ?? adminDb();
+  const storage = await deletePrefixCounted(roomStoragePrefix(code));
+  const ref = db.collection(ROOMS_COLLECTION).doc(code);
+  // recursiveDelete is on the Firestore instance, not on the doc ref.
+  if (!opts.countDocs) {
+    await db.recursiveDelete(ref);
+    return { ...storage, docs: null };
+  }
+  let docs = 0;
+  const writer = db.bulkWriter();
+  writer.onWriteResult(() => {
+    docs++;
+  });
+  try {
+    await db.recursiveDelete(ref, writer);
+  } finally {
+    await writer.close();
+  }
+  return { ...storage, docs };
+}
+
+/**
+ * Optional side work around each expired room's delete (the admin's room
+ * history, phase 1 step 1.8). A hook that throws is logged and ignored: it
+ * can never stop or fail the cleanup.
+ */
+export type ExpiredRoomHooks<T = unknown> = {
+  /** Before the room is deleted, e.g. to count what it holds. */
+  beforeDelete?: (room: ChatRoom) => Promise<T>;
+  /** After a successful delete. `before` is undefined when beforeDelete failed or is absent. */
+  afterDelete?: (room: ChatRoom, deleted: RoomDeleteResult, before: T | undefined) => Promise<void>;
+};
+
+async function runHook<R>(name: string, code: string, fn: () => Promise<R> | undefined): Promise<R | undefined> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`room ${name} hook failed for ${code}:`, err);
+    return undefined;
+  }
+}
+
+/**
+ * Delete every expired room (see deleteRoom). Capped at 50 rooms per tick to
+ * stay well within a single Vercel function execution.
+ */
+export async function deleteExpiredRooms<T = unknown>(hooks: ExpiredRoomHooks<T> = {}): Promise<number> {
   const nowIso = new Date().toISOString();
   const snap = await adminDb()
     .collection(ROOMS_COLLECTION)
@@ -473,16 +527,22 @@ export async function deleteExpiredRooms(): Promise<number> {
     .limit(50)
     .get();
   if (snap.empty) return 0;
-  // recursiveDelete is on the Firestore instance, not on the doc ref.
-  const db = adminDb();
   let deleted = 0;
   for (const doc of snap.docs) {
+    const room = toPublicRoom(doc.data() as StoredRoom);
+    const before = hooks.beforeDelete
+      ? await runHook('beforeDelete', doc.id, () => hooks.beforeDelete?.(room))
+      : undefined;
+    let result: RoomDeleteResult;
     try {
-      await deletePrefix(roomStoragePrefix(doc.id));
-      await db.recursiveDelete(doc.ref);
+      result = await deleteRoom(doc.id);
       deleted++;
     } catch (err) {
       console.error(`cleanup failed for room ${doc.id}:`, err);
+      continue;
+    }
+    if (hooks.afterDelete) {
+      await runHook('afterDelete', doc.id, () => hooks.afterDelete?.(room, result, before));
     }
   }
   return deleted;

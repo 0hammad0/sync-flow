@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { cookies } from 'next/headers';
+import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import Forbidden from '@/features/admin/auth/Forbidden';
 import AdminShell from '@/features/admin/shell/AdminShell';
 import LazyToaster from '@/features/admin/shell/LazyToaster';
@@ -29,11 +30,14 @@ export default async function AdminShellLayout({ children }: { children: ReactNo
   const sidebarMode = parseSidebarCookie((await cookies()).get(SIDEBAR_COOKIE)?.value);
 
   return (
-    <TooltipProvider>
-      <AdminShell ctx={ctx} sidebarMode={sidebarMode}>
-        {children}
-      </AdminShell>
-      <LazyToaster />
-    </TooltipProvider>
+    // NuqsAdapter: URL state for the DataTable kit (sort, cursor, filters).
+    <NuqsAdapter>
+      <TooltipProvider>
+        <AdminShell ctx={ctx} sidebarMode={sidebarMode}>
+          {children}
+        </AdminShell>
+        <LazyToaster />
+      </TooltipProvider>
+    </NuqsAdapter>
   );
 }

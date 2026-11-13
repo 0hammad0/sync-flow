@@ -45,6 +45,7 @@ const CLOSED_COLLECTIONS = [
   'a_hourly',
   'a_daily',
   'a_counters',
+  'a_rooms',
   'a_not_yet_created',
 ];
 
