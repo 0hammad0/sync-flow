@@ -19,6 +19,11 @@ import RoomLinkPending from '@/features/chat/components/RoomLinkPending';
 import { MessageSquare } from 'lucide-react';
 import type { ChatRoom } from '@/types';
 
+// A failed read (for example while the database is still preparing) is tried
+// again on its own. After about 5 minutes the user is asked to refresh.
+const RETRY_MS = 20_000;
+const MAX_FAILURES = 15;
+
 /**
  * Live-updating list of the signed-in user's chat rooms. Subscribes via
  * Firestore onSnapshot so newly created rooms appear instantly and expired
@@ -29,7 +34,10 @@ export default function MyChatRooms() {
   const [authReady, setAuthReady] = useState(false);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
-  const [indexError, setIndexError] = useState(false);
+  // Failed reads in a row. The user sees a plain message, never the technical one.
+  const [failures, setFailures] = useState(0);
+  // Bumped to subscribe again after a failed read.
+  const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   // Auth listener.
@@ -57,16 +65,23 @@ export default function MyChatRooms() {
       (snap) => {
         setRooms(snap.docs.map((d) => d.data() as ChatRoom));
         setLoading(false);
-        setIndexError(false);
+        setFailures(0);
       },
       (err) => {
         console.error('MyChatRooms snapshot error:', err);
         setLoading(false);
-        if (/requires an index/i.test(err.message)) setIndexError(true);
+        setFailures((n) => n + 1);
       }
     );
     return () => unsub();
-  }, [user]);
+  }, [user, attempt]);
+
+  // After a failed read, try again in a moment, up to MAX_FAILURES times.
+  useEffect(() => {
+    if (failures === 0 || failures >= MAX_FAILURES) return;
+    const id = setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
+    return () => clearTimeout(id);
+  }, [failures]);
 
   // Re-render every 30s so the "expires in" countdown updates and expired
   // rooms drop out of the active list.
@@ -96,18 +111,22 @@ export default function MyChatRooms() {
         </Button>
       </div>
 
-      {indexError && (
-        <div className="mb-3 p-3 bg-warning/10 border border-warning/20 rounded-2xl">
-          <p className="text-xs text-warning-text">
-            Firestore composite index is still building for the rooms list. This list will
-            populate once it finishes (1–3 min).
-          </p>
-        </div>
-      )}
-
       {loading ? (
         <div className="flex justify-center py-8">
           <LoadingSpinner size="md" className="text-fg-faint" />
+        </div>
+      ) : failures > 0 && failures < MAX_FAILURES ? (
+        // Not the empty state: the rooms may exist, they just did not load yet.
+        <div role="status" className="flex flex-col items-center gap-2 py-8 border border-dashed border-edge-strong rounded-2xl">
+          <LoadingSpinner size="md" className="text-fg-faint" />
+          <p className="text-sm text-fg-muted">Getting your rooms ready…</p>
+          <p className="text-xs text-fg-faint">This can take a minute. No need to refresh.</p>
+        </div>
+      ) : failures > 0 ? (
+        <div role="alert" className="p-3 bg-warning/10 border border-warning/20 rounded-2xl">
+          <p className="text-xs text-warning-text">
+            We couldn&apos;t load your rooms right now. Please refresh the page in a minute.
+          </p>
         </div>
       ) : active.length === 0 ? (
         <div className="text-center py-8 border border-dashed border-edge-strong rounded-2xl">
