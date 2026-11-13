@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import { SECONDARY_BUTTON } from '@/shared/ui/data-table/styles';
+import AdminButton from '@/shared/ui/AdminButton';
 
 type StepUpNoticeProps = {
   /** The signed-in admin's own email: the link goes there (not editable). */
@@ -59,9 +59,9 @@ export default function StepUpNotice({ email, authAgeSec, what }: StepUpNoticePr
         </p>
       ) : email ? (
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={SECONDARY_BUTTON} onClick={send} disabled={state === 'sending'}>
-            {state === 'sending' ? 'Sending…' : 'Send sign-in link'}
-          </button>
+          <AdminButton size="sm" onClick={send} loading={state === 'sending'} loadingText="Sending…">
+            Send sign-in link
+          </AdminButton>
           {state === 'error' && <span className="text-xs text-danger-text">Could not send the link. Try again.</span>}
         </div>
       ) : (

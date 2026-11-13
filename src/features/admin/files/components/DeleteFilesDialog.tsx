@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { signOutAdmin } from '@/features/admin/auth/sign-out';
 import { blockedError } from '@/shared/lib/blocked';
+import AdminButton from '@/shared/ui/AdminButton';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import type { deleteFile, deleteFiles } from '../actions';
 import { MAX_FILES_PER_DELETE, TYPE_TO_CONFIRM_OVER } from '../constants';
@@ -112,13 +113,9 @@ export default function DeleteFilesDialog({ open, onOpenChange, ids, label, onDo
       {needsSignIn && (
         // The sign-in page sends a signed-in admin straight on, so a fresh
         // sign-in needs a sign-out first (no in-place step-up dialog yet).
-        <button
-          type="button"
-          onClick={() => void signOutAdmin()}
-          className="self-start text-sm font-medium text-brand-text underline underline-offset-2"
-        >
+        <AdminButton variant="link" onClick={() => void signOutAdmin()} className="self-start">
           Sign out and sign in again
-        </button>
+        </AdminButton>
       )}
     </ConfirmDialog>
   );

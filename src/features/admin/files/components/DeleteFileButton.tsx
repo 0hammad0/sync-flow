@@ -3,10 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
+import AdminButton from '@/shared/ui/AdminButton';
 import DeleteFilesDialog, { type DeleteActions } from './DeleteFilesDialog';
-
-const DANGER_BUTTON =
-  'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-danger px-3 text-sm font-medium text-on-danger pointer-coarse:h-11 pointer-fine:hover:brightness-95';
 
 /**
  * Delete from the drawer or the full page. In the drawer (`inDrawer`) it goes
@@ -19,10 +17,9 @@ export default function DeleteFileButton({ id, label, inDrawer, actions }: Delet
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className={DANGER_BUTTON} onClick={() => setOpen(true)}>
-        <Trash2 aria-hidden="true" strokeWidth={1.75} className="size-4" />
+      <AdminButton variant="danger-solid" icon={Trash2} onClick={() => setOpen(true)}>
         Delete file
-      </button>
+      </AdminButton>
       {open && (
         <DeleteFilesDialog
           open

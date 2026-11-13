@@ -7,7 +7,8 @@ import type { ActionResult } from '@/server/errors';
 import { blockedError } from '@/shared/lib/blocked';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import DropdownMenu from '@/shared/ui/DropdownMenu';
-import { SECONDARY_BUTTON } from '@/shared/ui/data-table/styles';
+import AdminButton from '@/shared/ui/AdminButton';
+import { buttonClass } from '@/shared/ui/button-styles';
 import StepUpNotice from '@/features/admin/shell/StepUpNotice';
 import { disableUser, enableUser, revokeUserSessions, setUserRole, type UserActionData } from '../actions';
 import { OWNER_CONFIRM, ROLE_CHOICES, type RoleChoice } from '../constants';
@@ -108,18 +109,18 @@ export default function UserActions({ user, can, adminEmail }: UserActionsProps)
     <div className="flex flex-wrap gap-2">
       {can.disable &&
         (user.disabled ? (
-          <button type="button" className={SECONDARY_BUTTON} onClick={enable} disabled={enabling}>
-            {enabling ? 'Enabling…' : 'Enable'}
-          </button>
+          <AdminButton size="sm" onClick={enable} loading={enabling} loadingText="Enabling…">
+            Enable
+          </AdminButton>
         ) : (
-          <button type="button" className={SECONDARY_BUTTON} onClick={() => setPending({ kind: 'disable' })}>
+          <AdminButton size="sm" onClick={() => setPending({ kind: 'disable' })}>
             Disable
-          </button>
+          </AdminButton>
         ))}
       {can.revoke && (
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => setPending({ kind: 'revoke' })}>
+        <AdminButton size="sm" onClick={() => setPending({ kind: 'revoke' })}>
           Sign out everywhere
-        </button>
+        </AdminButton>
       )}
       {can.roles && (
         <DropdownMenu
@@ -131,7 +132,7 @@ export default function UserActions({ user, can, adminEmail }: UserActionsProps)
             onSelect: () => setPending({ kind: 'role', role }),
           }))}
           trigger={
-            <button type="button" className={SECONDARY_BUTTON}>
+            <button type="button" className={buttonClass({ size: 'sm' })}>
               Set role
               <ChevronDown aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
             </button>

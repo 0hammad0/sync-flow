@@ -3,7 +3,7 @@
 import { DropdownMenu as MenuPrimitive } from 'radix-ui';
 import { Check, Columns3, Rows2, Rows3, Rows4, type LucideIcon } from 'lucide-react';
 import type { Density } from './types';
-import { ICON_BUTTON } from './styles';
+import IconButton from '@/shared/ui/IconButton';
 
 export type ColumnMenuItem = { id: string; label: string; visible: boolean; /** P1 columns cannot be hidden. */ locked: boolean };
 
@@ -34,9 +34,7 @@ export default function ColumnMenu({ columns, onToggle, density, onDensityChange
   return (
     <MenuPrimitive.Root>
       <MenuPrimitive.Trigger asChild>
-        <button type="button" aria-label="Columns" className={ICON_BUTTON}>
-          <Columns3 aria-hidden="true" strokeWidth={1.75} className="size-4" />
-        </button>
+        <IconButton icon={Columns3} aria-label="Columns" />
       </MenuPrimitive.Trigger>
       <MenuPrimitive.Portal>
         <MenuPrimitive.Content

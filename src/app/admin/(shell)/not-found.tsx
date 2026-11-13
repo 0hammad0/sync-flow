@@ -2,7 +2,7 @@ import Link from 'next/link';
 import EmptyState from '@/shared/ui/EmptyState';
 import NotFound from '@/shared/ui/illustrations/NotFound';
 import CurrentPath from '@/features/admin/shell/CurrentPath';
-import { BUTTON_SECONDARY } from '@/features/admin/shell/styles';
+import { buttonClass } from '@/shared/ui/button-styles';
 
 /** Unknown admin URL or a notFound() inside the shell. The shell and sidebar stay. */
 export default function AdminNotFound() {
@@ -18,7 +18,7 @@ export default function AdminNotFound() {
         </>
       }
       action={
-        <Link href="/admin" className={BUTTON_SECONDARY}>
+        <Link href="/admin" className={buttonClass()}>
           Go to overview
         </Link>
       }

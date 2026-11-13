@@ -33,6 +33,24 @@ describe('EmptyState', () => {
     expect(screen.queryByRole('heading')).toBeNull();
     expect(screen.getByText('No results for "203.0.113"')).toBeTruthy();
   });
+
+  it('table size: centred column with the picture, title, body and action', () => {
+    const { container } = render(
+      <EmptyState
+        size="table"
+        illustration={<NoResults />}
+        title="No blocks yet"
+        body="Block an IP, range, country, user or device."
+        action={<button type="button">New block</button>}
+      />
+    );
+    const root = container.firstElementChild!;
+    expect(root.className).toContain('text-center');
+    expect(root.className).toContain('flex-col');
+    expect(container.querySelector('svg.sf-illus')).not.toBeNull();
+    expect(screen.getByText('No blocks yet')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New block' })).toBeTruthy();
+  });
 });
 
 describe('ErrorState', () => {

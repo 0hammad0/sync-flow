@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ListFilter, Search, X } from 'lucide-react';
 import Input from '@/shared/ui/Input';
 import Sheet from '@/shared/ui/Sheet';
-import { formatCount, GHOST_BUTTON, SECONDARY_BUTTON } from './styles';
+import AdminButton from '@/shared/ui/AdminButton';
+import { formatCount } from './styles';
 
 type ToolbarProps = {
   /** Omit for tables without search. */
@@ -93,30 +94,24 @@ export default function Toolbar({
       {filters && (
         <>
           <div className="hidden flex-wrap items-center gap-2 @[640px]:flex">{filters}</div>
-          <button type="button" onClick={() => setSheetOpen(true)} className={`${SECONDARY_BUTTON} @[640px]:hidden`}>
-            <ListFilter aria-hidden="true" strokeWidth={1.75} className="size-4" />
+          <AdminButton size="sm" icon={ListFilter} onClick={() => setSheetOpen(true)} className="@[640px]:hidden">
             {activeFilters > 0 ? `Filters (${activeFilters})` : 'Filters'}
-          </button>
+          </AdminButton>
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen} side="bottom" title="Filters">
             <div className="flex flex-col gap-3">
               {filters}
-              <button
-                type="button"
-                onClick={() => setSheetOpen(false)}
-                className={`${SECONDARY_BUTTON} w-full justify-center`}
-              >
+              <AdminButton variant="primary" fullWidth onClick={() => setSheetOpen(false)}>
                 {resultCount == null ? 'Show results' : `Show ${formatCount(resultCount)} results`}
-              </button>
+              </AdminButton>
             </div>
           </Sheet>
         </>
       )}
 
       {canClear && (
-        <button type="button" onClick={clearAll} className={GHOST_BUTTON}>
-          <X aria-hidden="true" strokeWidth={1.75} className="size-3.5" />
+        <AdminButton variant="ghost" size="sm" icon={X} onClick={clearAll}>
           Clear filters
-        </button>
+        </AdminButton>
       )}
 
       {(columnMenu || actions) && (

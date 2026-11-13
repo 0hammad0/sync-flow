@@ -24,10 +24,13 @@ import {
   type RowSelectionState,
   type SortingState,
 } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ArrowUpDown, Inbox, SearchX } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, RotateCcw } from 'lucide-react';
+import AdminButton from '@/shared/ui/AdminButton';
 import Checkbox from '@/shared/ui/Checkbox';
 import EmptyState from '@/shared/ui/EmptyState';
 import ErrorState from '@/shared/ui/ErrorState';
+import NoDataYet from '@/shared/ui/illustrations/NoDataYet';
+import NoResults from '@/shared/ui/illustrations/NoResults';
 import BulkBar from './BulkBar';
 import ColumnMenu from './ColumnMenu';
 import MobileCardList from './MobileCardList';
@@ -46,7 +49,7 @@ import {
 } from './types';
 import { createTableParsers, nextSort, parseSort, type SortConfig } from './url-state';
 import { useTableUrlState } from './useTableUrlState';
-import { PRIORITY_CELL, SECONDARY_BUTTON } from './styles';
+import { PRIORITY_CELL } from './styles';
 
 export type DataTableProps<TData extends RowData> = {
   /** What the rows are, plural: "Sessions". Table caption (sr-only) and list name. */
@@ -303,19 +306,19 @@ export default function DataTable<TData extends RowData>({
       </td>
     </tr>
   );
+  // Every table shows the same centred state: picture, title, one line, action.
   const emptyView = isFiltered ? (
     <EmptyState
-      size="inline"
-      icon={<SearchX aria-hidden="true" strokeWidth={1.75} className="size-4" />}
+      size="table"
+      illustration={<NoResults />}
       title={noResults?.title ?? `No ${label.toLowerCase()} match`}
       body={noResults?.body ?? 'Try a different search or clear the filters.'}
       role="status"
     />
   ) : (
     <EmptyState
-      size="inline"
-      illustration={empty.illustration}
-      icon={empty.illustration ? undefined : <Inbox aria-hidden="true" strokeWidth={1.75} className="size-4" />}
+      size="table"
+      illustration={empty.illustration ?? <NoDataYet />}
       title={empty.title}
       body={empty.body}
       action={empty.action}
@@ -323,15 +326,15 @@ export default function DataTable<TData extends RowData>({
   );
   const errorView = error ? (
     <ErrorState
-      size="inline"
+      size="table"
       title={error.title}
       reason={error.reason}
       errorId={error.errorId}
       action={
         error.onRetry && (
-          <button type="button" onClick={error.onRetry} className={SECONDARY_BUTTON}>
+          <AdminButton icon={RotateCcw} onClick={error.onRetry}>
             Retry
-          </button>
+          </AdminButton>
         )
       }
     />

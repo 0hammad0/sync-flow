@@ -2,7 +2,10 @@
 
 import type { MouseEvent, ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { formatCount, GHOST_BUTTON } from './styles';
+import { buttonClass } from '@/shared/ui/button-styles';
+import { formatCount } from './styles';
+
+const PAGE_LINK = buttonClass({ variant: 'ghost', size: 'sm' });
 
 export type PaginationProps = {
   /** `cursor`: Newer / Older (Firestore). `load-more`: one "Load more" link (Auth page tokens, no total). */
@@ -77,7 +80,7 @@ function PageLink({
   if (cursor === null) {
     // No href: not focusable, announced as a disabled link.
     return (
-      <a aria-disabled="true" role="link" className={`${GHOST_BUTTON} cursor-not-allowed opacity-50`}>
+      <a aria-disabled="true" role="link" className={PAGE_LINK}>
         {children}
       </a>
     );
@@ -88,7 +91,7 @@ function PageLink({
     onNavigate(cursor);
   };
   return (
-    <a href={hrefFor(cursor)} onClick={onClick} className={GHOST_BUTTON}>
+    <a href={hrefFor(cursor)} onClick={onClick} className={PAGE_LINK}>
       {children}
     </a>
   );
