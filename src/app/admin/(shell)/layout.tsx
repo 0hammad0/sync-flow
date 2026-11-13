@@ -5,6 +5,9 @@ import Forbidden from '@/features/admin/auth/Forbidden';
 import AdminShell from '@/features/admin/shell/AdminShell';
 import LazyToaster from '@/features/admin/shell/LazyToaster';
 import SignInRedirect from '@/features/admin/shell/SignInRedirect';
+import QuotaBanner from '@/features/admin/health/components/QuotaBanner';
+import { getQuotaUsage } from '@/features/admin/health/queries';
+import { quotaBanner } from '@/features/admin/health/tracking-status';
 import { noticeFor } from '@/features/admin/shell/account';
 import { SIDEBAR_COOKIE, parseSidebarCookie } from '@/features/admin/shell/sidebar-state';
 import { requireAdmin } from '@/server/auth/require-admin';
@@ -28,12 +31,17 @@ export default async function AdminShellLayout({ children }: { children: ReactNo
   recordSignInOnce(ctx);
 
   const sidebarMode = parseSidebarCookie((await cookies()).get(SIDEBAR_COOKIE)?.value);
+  // Amber/red Firestore budget strip on every admin page (14-health.md). From
+  // QuotaGuard's in-memory copy: at most 1–2 reads a minute per instance.
+  const banner = await getQuotaUsage()
+    .then(quotaBanner)
+    .catch(() => null);
 
   return (
     // NuqsAdapter: URL state for the DataTable kit (sort, cursor, filters).
     <NuqsAdapter>
       <TooltipProvider>
-        <AdminShell ctx={ctx} sidebarMode={sidebarMode}>
+        <AdminShell ctx={ctx} sidebarMode={sidebarMode} notice={banner && <QuotaBanner banner={banner} variant="bar" />}>
           {children}
         </AdminShell>
         <LazyToaster />

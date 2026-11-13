@@ -18,6 +18,8 @@ type AdminShellProps = {
   ctx: AdminContext;
   /** From the `sf_admin_sidebar` cookie: sets `data-sidebar` for first paint (T-16). */
   sidebarMode: SidebarMode;
+  /** Thin site-wide notice under the top bar, e.g. the Firestore budget bar. */
+  notice?: ReactNode;
   children: ReactNode;
 };
 
@@ -26,7 +28,7 @@ type AdminShellProps = {
  * content column. Server Component; only the interactive leaves are client.
  * Spec: docs/admin/02-design/03-layout-and-sidebar.md.
  */
-export default function AdminShell({ ctx, sidebarMode, children }: AdminShellProps) {
+export default function AdminShell({ ctx, sidebarMode, notice, children }: AdminShellProps) {
   // Items the role cannot use are hidden, not disabled. The pages still check.
   const groups = filterNav(NAV_GROUPS, (permission) => can(ctx.role, permission));
 
@@ -59,6 +61,7 @@ export default function AdminShell({ ctx, sidebarMode, children }: AdminShellPro
           drawerFooter={<ThemeToggle />}
         />
         <OfflineBanner />
+        {notice}
         <div id="admin-content" className="@container/main w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 xl:px-8">
           {children}
         </div>

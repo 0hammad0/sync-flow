@@ -58,6 +58,34 @@ describe('QuotaGuard', () => {
     guard = new QuotaGuard(store, { now: () => clock, logger: silent });
   });
 
+  describe('usage (Health meters)', () => {
+    it('reads the store once, then serves the cached numbers for a minute', async () => {
+      store.setUsed('2026-11-13', { reads: 120, writes: 3_600, deletes: 4 });
+      store.caps = { writes: 4_000 };
+      const first = await guard.usage();
+      expect(first.day).toBe('2026-11-13');
+      // +2 reads: the guard counts its own counters + settings read.
+      expect(first.used).toEqual({ reads: 122, writes: 3_600, deletes: 4 });
+      expect(first.caps).toEqual({ ...DEFAULT_QUOTA_CAPS, writes: 4_000 });
+      expect(first.stoppedUntil).toBeNull();
+      await guard.usage();
+      expect(store.reads).toHaveLength(1);
+      clock += USAGE_REFRESH_MS;
+      await guard.usage();
+      expect(store.reads).toHaveLength(2);
+    });
+
+    it('never throws when the read fails', async () => {
+      store.failReads = new Error('offline');
+      await expect(guard.usage()).resolves.toMatchObject({ used: { reads: 0, writes: 0, deletes: 0 } });
+    });
+
+    it('shows the RESOURCE_EXHAUSTED stop', async () => {
+      guard.noteError(EXHAUSTED);
+      expect((await guard.usage()).stoppedUntil).toBe(nextPacificMidnight(T0));
+    });
+  });
+
   describe('caps and decisions', () => {
     it('uses the default caps when settings have none', async () => {
       expect(DEFAULT_QUOTA_CAPS).toEqual({ reads: 10_000, writes: 5_000, deletes: 5_000 });

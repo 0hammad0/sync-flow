@@ -100,6 +100,9 @@ describe('cronCheck (Health)', () => {
     sessionsDeleted: 0,
     filesFailed: 0,
     timeBudgetUsed: false,
+    sessionsRolledUp: null,
+    ipsNulled: null,
+    stoppedAtCap: false,
     errorId: null,
     ...extra,
   });
