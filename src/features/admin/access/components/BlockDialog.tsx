@@ -63,14 +63,16 @@ type BlockDialogProps = {
   onOpenChange: (open: boolean) => void;
   actor: AccessActorDto;
   onCreated: (row: BlockRowDto) => void;
+  /** Pre-filled type and value, e.g. "Block this IP" on a session. Read on mount: key the dialog by it. */
+  initial?: { type: BlockType; value: string };
 };
 
 /** "New block". Validates and warns as the admin types; the server checks everything again. */
-export default function BlockDialog({ open, onOpenChange, actor, onCreated }: BlockDialogProps) {
+export default function BlockDialog({ open, onOpenChange, actor, onCreated, initial }: BlockDialogProps) {
   const ids = useId();
-  const [type, setType] = useState<BlockType>('ip');
-  const [value, setValue] = useState('');
-  const [touched, setTouched] = useState(false);
+  const [type, setType] = useState<BlockType>(initial?.type ?? 'ip');
+  const [value, setValue] = useState(initial?.value ?? '');
+  const [touched, setTouched] = useState(Boolean(initial?.value));
   const [reason, setReason] = useState('');
   const [duration, setDuration] = useState<BlockDuration>(DEFAULT_BLOCK_DURATION);
   // The "Ends …" preview is from when the length was last picked.

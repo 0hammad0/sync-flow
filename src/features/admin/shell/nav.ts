@@ -132,3 +132,24 @@ export function breadcrumbsFor(pathname: string, groups: readonly NavGroup[] = N
   }
   return crumbs;
 }
+
+/**
+ * Analytics screens that take the shared `?range=` (02-overview.md "Range
+ * handling"). Live ignores it, detail pages have none, and non-analytics
+ * pages never show the picker.
+ */
+export const DATE_RANGE_ROUTES: readonly string[] = [
+  ADMIN_HOME,
+  '/admin/sessions',
+  '/admin/pages',
+  '/admin/clicks',
+  '/admin/geography',
+  '/admin/sources',
+];
+
+/** True where the top bar shows the date range picker (exact route, trailing slash ignored). */
+export function usesDateRange(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return DATE_RANGE_ROUTES.includes(path);
+}

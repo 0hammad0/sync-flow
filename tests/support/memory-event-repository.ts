@@ -8,7 +8,14 @@ import {
   type SessionPatch,
   type TrackingSettings,
 } from '@/server/analytics/model';
-import type { EventRepository, HourlyIncrement } from '@/server/repositories/interfaces';
+import { readsForAggregation } from '@/server/quota/quota-guard';
+import type {
+  EventRepository,
+  HourlyIncrement,
+  SessionListQuery,
+  SessionPage,
+  SessionRangeQuery,
+} from '@/server/repositories/interfaces';
 
 /**
  * In-memory EventRepository for unit tests. Same behaviour as the Firestore
@@ -124,6 +131,90 @@ export class MemoryEventRepository implements EventRepository {
   async getCounters(day: string, group: string): Promise<Record<string, number>> {
     this.reads += 1;
     return { ...(this.counters.get(day)?.[group] ?? {}) };
+  }
+
+  // ----- EventReader (admin screens) -----
+
+  async readDaily(days: string[]): Promise<(DailyDoc | null)[]> {
+    return Promise.all(days.map((d) => this.getDaily(d)));
+  }
+
+  async readHourly(hours: string[]): Promise<(Rollup | null)[]> {
+    return this.getHourly(hours);
+  }
+
+  private inRange(query: SessionRangeQuery): SessionDoc[] {
+    const from = query.from.getTime();
+    const to = query.to.getTime();
+    return [...this.sessions.values()].filter((s) => {
+      const t = s.started_at?.getTime();
+      if (t === undefined || t < from || t >= to) return false;
+      if (!query.filter) return true;
+      const { field, value } = query.filter;
+      return s[field] === value;
+    });
+  }
+
+  private newestFirst(rows: SessionDoc[]): SessionDoc[] {
+    return rows.sort(
+      (a, b) => (b.started_at?.getTime() ?? 0) - (a.started_at?.getTime() ?? 0) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+    );
+  }
+
+  private returned(rows: SessionDoc[]): SessionDoc[] {
+    this.reads += Math.max(1, rows.length);
+    return structuredClone(rows);
+  }
+
+  async listSessions(query: SessionListQuery): Promise<SessionPage> {
+    const limit = Math.min(Math.max(Math.floor(query.limit) || 1, 1), 100);
+    let rows = this.newestFirst(this.inRange(query));
+    const cursor = query.cursor ? /^(\d+)\.(.+)$/.exec(Buffer.from(query.cursor, 'base64url').toString()) : null;
+    if (cursor) {
+      const ms = Number(cursor[1]);
+      const id = cursor[2];
+      rows = rows.filter((s) => {
+        const t = s.started_at?.getTime() ?? 0;
+        return t < ms || (t === ms && s.id < id);
+      });
+    }
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    const nextCursor =
+      page.length === limit && last?.started_at
+        ? Buffer.from(`${last.started_at.getTime()}.${last.id}`).toString('base64url')
+        : null;
+    return { sessions: this.returned(page), nextCursor };
+  }
+
+  async countSessions(query: SessionRangeQuery): Promise<number> {
+    const n = this.inRange(query).length;
+    this.reads += readsForAggregation(n);
+    return n;
+  }
+
+  async findSessionsByIp(ip: string, limit: number): Promise<SessionDoc[]> {
+    return this.returned([...this.sessions.values()].filter((s) => s.ip === ip).slice(0, Math.max(1, limit)));
+  }
+
+  async listNewestSessions(query: { from: Date; to: Date; limit: number }): Promise<SessionDoc[]> {
+    return this.returned(this.newestFirst(this.inRange(query)).slice(0, Math.max(1, query.limit)));
+  }
+
+  private activeSince(since: Date): SessionDoc[] {
+    return [...this.sessions.values()]
+      .filter((s) => s.last_seen_at.getTime() > since.getTime())
+      .sort((a, b) => b.last_seen_at.getTime() - a.last_seen_at.getTime());
+  }
+
+  async countActiveSessions(since: Date): Promise<number> {
+    const n = this.activeSince(since).length;
+    this.reads += readsForAggregation(n);
+    return n;
+  }
+
+  async listActiveSessions(since: Date, limit: number): Promise<SessionDoc[]> {
+    return this.returned(this.activeSince(since).slice(0, Math.max(1, limit)));
   }
 
   /** Session writes only (writeSession calls), for "one write per flush" checks. */
