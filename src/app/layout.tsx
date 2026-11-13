@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/shared/components/Header";
 import SiteFooter from "@/shared/components/SiteFooter";
 import { siteUrl } from "@/shared/lib/site";
+import { TrackerLoader } from "@/features/tracking/client/loader";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -125,6 +126,8 @@ export default function RootLayout({
           {children}
         </main>
         <SiteFooter />
+        {/* Visit statistics: ~300 B loader, tracker fetched after idle; skips /admin, GPC, DNT. */}
+        <TrackerLoader />
       </body>
     </html>
   );

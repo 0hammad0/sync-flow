@@ -55,6 +55,7 @@
     "server-only": "0.0.1",
     "sonner": "2.0.8",
     "ua-parser-js": "1.0.41",
+    "web-vitals": "6.2.3",
     "zod": "4.6.7"
   },
   "devDependencies": {

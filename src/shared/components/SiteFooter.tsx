@@ -3,7 +3,12 @@ import { ArrowUpRight, Github } from 'lucide-react';
 import Logo from '@/shared/components/Logo';
 import { ISSUES_URL, LICENSE_URL, REPO_URL } from '@/shared/lib/site';
 
-type FooterLink = { label: string; href: string; external?: boolean };
+/**
+ * `choices`: reopens the visit-statistics consent banner. A plain link with
+ * `data-privacy-choices`; the tracker loader handles the click, so the footer
+ * stays a server component. Without JS it opens the privacy page.
+ */
+type FooterLink = { label: string; href: string; external?: boolean; choices?: boolean };
 
 const COLUMNS: { title: string; links: FooterLink[] }[] = [
   {
@@ -27,6 +32,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     title: 'Legal',
     links: [
       { label: 'Privacy Policy', href: '/privacy' },
+      { label: 'Privacy choices', href: '/privacy#rights', choices: true },
       { label: 'Terms of Service', href: '/terms' },
       { label: 'Contact (GitHub Issues)', href: ISSUES_URL, external: true },
     ],
@@ -73,6 +79,10 @@ export default function SiteFooter() {
                         {l.label}
                         <ArrowUpRight className="w-3.5 h-3.5 text-fg-faint" aria-hidden="true" />
                         <span className="sr-only">(opens in a new tab)</span>
+                      </a>
+                    ) : l.choices ? (
+                      <a href={l.href} data-privacy-choices="" className={linkClass}>
+                        {l.label}
                       </a>
                     ) : (
                       <Link href={l.href} className={linkClass}>
