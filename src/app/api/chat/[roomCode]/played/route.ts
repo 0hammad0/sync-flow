@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deviceKey, getRoom, isRoomExpired, markVoicePlayed } from '@/shared/lib/firebase/chat';
+import { getRoom, isRoomExpired, markVoicePlayed } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import { isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';

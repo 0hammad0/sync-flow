@@ -3,7 +3,6 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   clearPresence,
-  deviceKey,
   getRoom,
   hasFreshPresence,
   isRoomExpired,
@@ -11,6 +10,7 @@ import {
   sanitizeSenderName,
   upsertPresence,
 } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import { isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';

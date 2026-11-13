@@ -12,8 +12,8 @@ vi.mock('next/server', async (importOriginal) => ({
 }));
 
 // No Firebase in this test: the route must not touch the container before after().
-vi.mock('@/server/container', () => ({
-  getTrackingContainer: () => ({ ingest: { ingest } }),
+vi.mock('@/server/container-light', () => ({
+  getIngest: () => ({ ingest }),
 }));
 
 const SID = '0123456789abcdef0123456789abcdef';

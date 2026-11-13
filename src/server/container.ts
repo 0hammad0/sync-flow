@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { adminAuth, adminDb } from '@/shared/lib/firebase/admin';
-import { FirestoreQuotaStore, QuotaGuard } from '@/server/quota/quota-guard';
+import type { QuotaGuard } from '@/server/quota/quota-guard';
 import { FirestoreAuditRepository } from '@/server/repositories/firestore/audit-repository';
 import { AuditService } from '@/server/services/audit-service';
 // --- phase 1 core ---
@@ -16,13 +16,11 @@ import { FileService } from '@/server/services/file-service';
 import { RoomService } from '@/server/services/room-service';
 import { UserService } from '@/server/services/user-service';
 // --- end phase 1 core ---
-import { IngestService } from '@/features/tracking/server/ingest';
+import type { IngestService } from '@/features/tracking/server/ingest';
 import { RollupService, type CronRun as RollupCronRun } from '@/features/tracking/server/rollup';
-import { findBlock } from '@/server/blocklist/find-block';
 import { recordCronRun } from '@/server/cron/record-cron-run';
-import { FirestoreEventRepository } from '@/server/repositories/firestore/event-repository';
 import type { EventRepository } from '@/server/repositories/interfaces';
-import { deviceKey } from '@/shared/lib/firebase/chat';
+import { getEventRepository, getIngest, getQuota } from '@/server/container-light';
 
 /**
  * Composition root (no DI container). Built lazily on first use and kept for
@@ -30,6 +28,10 @@ import { deviceKey } from '@/shared/lib/firebase/chat';
  * audit service's rate limit survive across requests on that instance.
  * Nothing here runs at import time: importing this file costs no Firestore
  * call and needs no credentials.
+ *
+ * The QuotaGuard, blocklist parts and tracker ingest live in
+ * `container-light.ts` (no R2 imports), so light routes like `/api/e` can use
+ * them without bundling the AWS SDK. This file builds on the same instances.
  */
 export type Container = {
   audit: AuditService;
@@ -47,7 +49,7 @@ let container: Container | null = null;
 export function getContainer(): Container {
   if (!container) {
     const db = adminDb();
-    const quota = new QuotaGuard(new FirestoreQuotaStore(db));
+    const quota = getQuota();
     const audit = new AuditService(new FirestoreAuditRepository(db, quota));
     container = {
       quota,
@@ -58,31 +60,10 @@ export function getContainer(): Container {
   return container;
 }
 
-// ---------------------------------------------------------------------------
-// Blocks (phase 1.5, access control). Kept as one block, imports included, so
-// parallel phase-1 work merges cleanly. Shares the container's QuotaGuard.
+// Blocks (phase 1.5, access control): built in container-light.ts, re-exported
+// here so existing imports keep working.
+export { getBlocks, type BlockParts } from '@/server/container-light';
 
-import { FirebaseBlockUserLookup } from '@/server/blocklist/user-lookup';
-import { FirestoreBlockRepository } from '@/server/repositories/firestore/block-repository';
-import type { BlockRepository } from '@/server/repositories/interfaces';
-import { BlockService } from '@/server/services/block-service';
-
-export type BlockParts = {
-  /** Also the blocklist cache's source (lazy read + hit flush). */
-  repo: BlockRepository;
-  service: BlockService;
-};
-
-let blockParts: BlockParts | null = null;
-
-/** Built on first use: the first action request (cache) or the first admin access call. */
-export function getBlocks(): BlockParts {
-  if (!blockParts) {
-    const repo = new FirestoreBlockRepository(adminDb(), getContainer().quota);
-    blockParts = { repo, service: new BlockService(repo, new FirebaseBlockUserLookup(adminAuth())) };
-  }
-  return blockParts;
-}
 // --- phase 1 core ---
 function phase1Core(db: ReturnType<typeof adminDb>, quota: QuotaGuard, audit: AuditService) {
   const fileRepo = new FirestoreFileRepository(db, quota);
@@ -103,6 +84,7 @@ function phase1Core(db: ReturnType<typeof adminDb>, quota: QuotaGuard, audit: Au
 // --- end phase 1 core ---
 // Tracking (phase 2). Built on first use, like the container above, and
 // shares its QuotaGuard so tracker writes count against the same daily caps.
+// `/api/e` uses `getIngest()` from container-light.ts directly.
 // ---------------------------------------------------------------------------
 
 export type TrackingContainer = {
@@ -113,30 +95,13 @@ export type TrackingContainer = {
 
 let tracking: TrackingContainer | null = null;
 
-/** Firebase uid for a session cookie, or null. No revocation check: no network call per flush. */
-async function uidFromSessionCookie(cookie: string): Promise<string | null> {
-  try {
-    return (await adminAuth().verifySessionCookie(cookie, false)).uid;
-  } catch {
-    return null;
-  }
-}
-
 export function getTrackingContainer(): TrackingContainer {
   if (!tracking) {
-    const { quota } = getContainer();
-    const events = new FirestoreEventRepository(adminDb(), quota);
+    const events = getEventRepository();
     tracking = {
       events,
-      ingest: new IngestService({
-        events,
-        quota,
-        findBlock,
-        resolveUid: uidFromSessionCookie,
-        hashDevice: deviceKey,
-        mode: 'full',
-      }),
-      rollup: new RollupService({ events, quota, recordCronRun: recordRollupRun }),
+      ingest: getIngest(),
+      rollup: new RollupService({ events, quota: getQuota(), recordCronRun: recordRollupRun }),
     };
   }
   return tracking;

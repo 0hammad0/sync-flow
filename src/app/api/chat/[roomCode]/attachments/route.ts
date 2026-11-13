@@ -4,7 +4,6 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import {
   addMessage,
   buildReplyRef,
-  deviceKey,
   getMessage,
   getRoom,
   isAlreadyExistsError,
@@ -13,6 +12,7 @@ import {
   sanitizeSenderName,
   roomStoragePrefix,
 } from '@/shared/lib/firebase/chat';
+import { deviceKey } from '@/server/device-key';
 import type { ChatReplyRef } from '@/types';
 import { isValidMessageId, isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
 import { deleteObject, objectExists, putObject, signedDownloadUrl } from '@/shared/lib/r2';

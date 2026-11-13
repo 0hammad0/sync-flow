@@ -2,7 +2,7 @@ import { after, type NextRequest } from 'next/server';
 
 import { readRequestMeta } from '@/features/tracking/server/enrich';
 import { acceptBeacon } from '@/features/tracking/server/ingest';
-import { getTrackingContainer } from '@/server/container';
+import { getIngest } from '@/server/container-light';
 import { siteUrl } from '@/shared/lib/site';
 
 /**
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const beacon = await acceptBeacon(request, { allowedHosts: allowedHosts(request), ip: meta.ip });
     if (beacon) {
       const host = request.nextUrl.host;
-      after(() => getTrackingContainer().ingest.ingest(beacon, { ...meta, host }).then(() => undefined));
+      after(() => getIngest().ingest(beacon, { ...meta, host }).then(() => undefined));
     }
   } catch (error) {
     console.error('[ingest] request rejected', error);

@@ -96,7 +96,7 @@ export function getDeviceId(): string {
 // Public form of the device id: the first 32 hex chars of sha256(raw id).
 // The raw id stays secret in this browser and is sent only to our server;
 // messages, presence and reactions store this hash, so "is this mine"
-// compares against it. Must match deviceKey() in shared/lib/firebase/chat.ts.
+// compares against it. Must match deviceKey() in server/device-key.ts.
 // Plain JS (not crypto.subtle) so it is synchronous and also works on
 // non-HTTPS origins such as a LAN IP.
 const SHA256_K = new Uint32Array([
