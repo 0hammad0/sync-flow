@@ -20,7 +20,7 @@ import {
   formatFileExpiry,
   formatUtc,
 } from '../format';
-import { FILE_KINDS, MAX_FILES_PER_DELETE, type FileKindParam } from '../schemas';
+import { FILE_KINDS, MAX_FILES_PER_DELETE, type FileKindParam } from '../constants';
 import type { FileRowDto } from '../types';
 import DeleteFilesDialog, { type DeleteOutcome } from './DeleteFilesDialog';
 

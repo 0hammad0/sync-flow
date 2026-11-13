@@ -1,24 +1,13 @@
 import { z } from 'zod';
+import { FILE_ID_RE, FILE_KINDS, MAX_FILES_PER_DELETE } from './constants';
 
-// Shared by the files table (client) and the files actions/queries (server).
-// No name search, ever (D-6): the screen filters by kind and expiry only, and
+// Server-side input and URL schemas for Files & storage (client components
+// import ./constants instead, to keep zod out of the bundle). No name search, ever (D-6): the screen filters by kind and expiry only, and
 // sorts by created date (newest first) only, the one order every source has
 // an index for.
 
-export const FILE_KINDS = ['all', 'share', 'chat'] as const;
-export type FileKindParam = (typeof FILE_KINDS)[number];
+export { FILE_ID_RE, FILE_KINDS, MAX_FILES_PER_DELETE, TYPE_TO_CONFIRM_OVER, type FileKindParam } from './constants';
 
-/** Bulk delete cap (09-files-and-storage.md "Delete many (≤ 100)"). Same as FileService.MAX_BULK_DELETE. */
-export const MAX_FILES_PER_DELETE = 100;
-/** Above this many files the dialog asks to type DELETE. */
-export const TYPE_TO_CONFIRM_OVER = 10;
-
-/**
- * Opaque admin file id (`f_` + base64url). Same pattern as FILE_ID_PATTERN in
- * src/server/files/file-id.ts (a unit test keeps them equal); repeated here
- * because this file is also bundled for the client.
- */
-export const FILE_ID_RE = /^f_[A-Za-z0-9_-]{24,400}$/;
 export const fileIdSchema = z.string().regex(FILE_ID_RE, 'Unknown file.');
 
 const reasonSchema = z.string().trim().max(200, 'Keep the reason under 200 characters.').optional();

@@ -12,7 +12,7 @@ import { GHOST_BUTTON } from '@/shared/ui/data-table/styles';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
 import { AUDIT_ACTION_LABELS, AUDIT_ACTION_LIST, isDangerAction, type AuditActionName } from '../catalog';
 import { formatAuditTime, middleTruncate } from '../format';
-import { AUDIT_RANGES, AUDIT_RANGE_LABELS, type AuditRange } from '../schemas';
+import { AUDIT_RANGES, AUDIT_RANGE_LABELS, type AuditRange } from '../ranges';
 import type { AuditRowDto } from '../types';
 import AuditDetailSheet from './AuditDetailSheet';
 

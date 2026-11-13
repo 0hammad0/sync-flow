@@ -6,7 +6,7 @@ import { signInHref } from '@/features/admin/shell/account';
 import { blockedError } from '@/shared/lib/blocked';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import { deleteFile, deleteFiles } from '../actions';
-import { MAX_FILES_PER_DELETE, TYPE_TO_CONFIRM_OVER } from '../schemas';
+import { MAX_FILES_PER_DELETE, TYPE_TO_CONFIRM_OVER } from '../constants';
 
 /** sonner loads lazily (LazyToaster), so import it on use. */
 export async function toast(kind: 'success' | 'error', title: string, description?: string) {

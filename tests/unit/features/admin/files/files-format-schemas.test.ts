@@ -116,4 +116,14 @@ describe('admin code never reaches file content or names', () => {
       expect(src, file).not.toMatch(/original_name|originalName\b/);
     }
   });
+
+  it('client components of these screens never import a zod schema file (~30 KiB gz first load)', () => {
+    const screens = [...walk(join(ROOT, 'src/features/admin/files')), ...walk(join(ROOT, 'src/features/admin/audit'))];
+    const clients = screens.filter((f) => /^'use client'/.test(readFileSync(f, 'utf8')));
+    expect(clients.length).toBeGreaterThan(4);
+    for (const file of clients) {
+      const src = readFileSync(file, 'utf8');
+      expect(src, file).not.toMatch(/from '(zod|\.\.?\/schemas|@\/features\/admin\/(files|audit)\/schemas)'/);
+    }
+  });
 });
