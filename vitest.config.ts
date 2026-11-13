@@ -36,7 +36,14 @@ export default defineConfig({
       },
       {
         extends: true,
-        test: { name: 'integration', environment: 'node', include: ['tests/integration/**/*.test.ts'] },
+        test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['tests/integration/**/*.test.ts'],
+          // One file at a time: the emulator suites share one Firestore and
+          // Auth emulator, and each clears all of it before its tests.
+          fileParallelism: false,
+        },
       },
     ],
   },

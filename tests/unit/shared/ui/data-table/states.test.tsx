@@ -70,12 +70,20 @@ describe('DataTable search', () => {
     await user.type(box, '203');
     expect(box.value).toBe('203');
     expect(onUrlUpdate).not.toHaveBeenCalled();
-    await waitFor(() => expect(lastUrl()?.get('q')).toBe('203'), { timeout: 1000 });
-    expect(lastUrl()?.has('cursor')).toBe(false);
+    await waitFor(
+      () => {
+        expect(lastUrl()?.get('q')).toBe('203');
+        expect(lastUrl()?.has('cursor')).toBe(false);
+      },
+      { timeout: 1000 },
+    );
+    // The URL write can land before React commits the new value (the update
+    // runs in a transition). Esc reads the committed value, so wait for it.
+    await waitFor(() => expect(box.getAttribute('value')).toBe('203'));
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(lastUrl()?.has('q')).toBe(false));
-    expect(box.value).toBe('');
+    await waitFor(() => expect(box.value).toBe(''));
   });
 
   it('"/" focuses the search unless the user is typing in a field', async () => {
