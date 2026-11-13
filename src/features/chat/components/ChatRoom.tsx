@@ -790,48 +790,68 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
     [displayName, room.code, replyTo, deviceId]
   );
 
-  // Phone keyboard (iOS): Safari does not shrink the page for the keyboard,
-  // it slides the view up instead — the header scrolls away and the fixed
-  // panel ends up partly under the keyboard. Lift the panel's bottom edge to
-  // the keyboard top and undo the slide. Android resizes the page itself
-  // (interactive-widget=resizes-content), so the gap below is 0 there.
+  // Phone keyboard (iOS): Safari does not shrink the page for the keyboard.
+  // It keeps the layout and slides the visible area up (visualViewport
+  // offsetTop), so the fixed panel ends up partly under the keyboard.
+  // Pin the panel to the visible area instead: bottom edge on the keyboard,
+  // top edge at the top of the screen once the site header has slid away.
+  // We never scroll the page back while typing — that fights Safari's own
+  // scroll and makes the view jump. Updates run once per frame.
+  // Android resizes the page itself (interactive-widget=resizes-content),
+  // so offsetTop and the gap are 0 there and nothing changes.
   useEffect(() => {
     const vv = window.visualViewport;
     const panel = panelRef.current;
     if (!vv || !panel) return;
+    // The panel's normal top (below the site header), from the CSS.
+    const baseTop = parseFloat(getComputedStyle(panel).top) || 0;
+    let frame: number | null = null;
     let settle: number | null = null;
     const apply = () => {
+      frame = null;
       // Pinch-zoomed: the viewport is small because of the zoom, not a
       // keyboard — leave the user's zoom alone.
       if (vv.scale > 1.01) return;
+      const slid = Math.max(0, Math.round(vv.offsetTop));
       const gap = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
-      const next = gap > 1 ? `${gap}px` : '';
-      if (panel.style.bottom !== next) {
-        const list = scrollRef.current;
-        const nearBottom = !!list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-        panel.style.bottom = next;
-        if (list && nearBottom) list.scrollTop = list.scrollHeight;
-      }
-      // The panel already sits above the keyboard: put the page back so the
-      // header stays visible. Also clears iOS 26's leftover offset after
-      // the keyboard closes.
-      if (vv.offsetTop > 0 || window.scrollY > 0) window.scrollTo(0, 0);
+      const nextTop = slid > baseTop ? `${slid}px` : '';
+      const nextBottom = gap > 1 ? `${gap}px` : '';
+      if (panel.style.top === nextTop && panel.style.bottom === nextBottom) return;
+      const list = scrollRef.current;
+      const nearBottom = !!list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+      panel.style.top = nextTop;
+      panel.style.bottom = nextBottom;
+      if (list && nearBottom) list.scrollTop = list.scrollHeight;
     };
-    const later = () => {
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(apply);
+    };
+    // Keyboard closed: iOS 26 can leave the page slid up (offsetTop stays
+    // above 0). Put it back, but only when no text field has focus.
+    const settleLater = () => {
       if (settle) window.clearTimeout(settle);
-      settle = window.setTimeout(apply, 300);
+      settle = window.setTimeout(() => {
+        const el = document.activeElement;
+        const typing =
+          el instanceof HTMLTextAreaElement ||
+          (el instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'file'].includes(el.type));
+        if (!typing && (vv.offsetTop > 0 || window.scrollY > 0)) window.scrollTo(0, 0);
+        schedule();
+      }, 300);
     };
-    vv.addEventListener('resize', apply);
-    vv.addEventListener('scroll', apply);
-    window.addEventListener('focusout', later);
-    window.addEventListener('orientationchange', later);
-    apply();
+    vv.addEventListener('resize', schedule);
+    vv.addEventListener('scroll', schedule);
+    window.addEventListener('focusout', settleLater);
+    window.addEventListener('orientationchange', settleLater);
+    schedule();
     return () => {
-      vv.removeEventListener('resize', apply);
-      vv.removeEventListener('scroll', apply);
-      window.removeEventListener('focusout', later);
-      window.removeEventListener('orientationchange', later);
+      vv.removeEventListener('resize', schedule);
+      vv.removeEventListener('scroll', schedule);
+      window.removeEventListener('focusout', settleLater);
+      window.removeEventListener('orientationchange', settleLater);
+      if (frame !== null) cancelAnimationFrame(frame);
       if (settle) window.clearTimeout(settle);
+      panel.style.top = '';
       panel.style.bottom = '';
     };
   }, [askingName]);
@@ -1797,7 +1817,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         {/* "Catch me up" offer for people arriving in a busy room */}
         {catchUpOffer && aiTasks.has('summary') && summary === null && (
           <div className="relative">
-            <div className="absolute -top-px left-1/2 -translate-x-1/2 z-10 flex items-center bg-surface border border-brand/30 rounded-full shadow-lg animate-fade-in-scale">
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center bg-surface border border-brand/30 rounded-full shadow-lg animate-fade-in-scale">
               <button
                 type="button"
                 onClick={() => void catchMeUp()}

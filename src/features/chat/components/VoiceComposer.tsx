@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronUp, Lock, Mic, Pause, Play, Send, Trash2 } from 'lucide-react';
 import { formatVoiceTime, VOICE_MIN_MS } from '../lib/voice';
-import { canRecordVoice, VoiceRecorder, type RecorderError, type VoiceRecording } from '../lib/voice-recorder';
+import {
+  canRecordVoice,
+  closeMic,
+  VoiceRecorder,
+  type RecorderError,
+  type VoiceRecording,
+} from '../lib/voice-recorder';
 import { voicePlayer } from '../lib/voice-player';
 
 /** Finger travel (px) that cancels / locks while holding. */
@@ -197,7 +203,7 @@ export function VoiceComposer({
   const [phase, setPhase] = useState<Phase>('idle');
   const [paused, setPaused] = useState(false);
   const [drag, setDrag] = useState({ dx: 0, dy: 0 });
-  const [tip, setTip] = useState(false);
+  const [tip, setTip] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ blob: Blob | null; ms: number } | null>(null);
   const [recorder, setRecorder] = useState<VoiceRecorder | null>(null);
   const recRef = useRef<VoiceRecorder | null>(null);
@@ -220,10 +226,27 @@ export function VoiceComposer({
     [onActiveChange]
   );
 
-  const showTip = useCallback(() => {
-    setTip(true);
+  const showTip = useCallback((text = 'Hold to record, release to send') => {
+    setTip(text);
     if (tipTimer.current) window.clearTimeout(tipTimer.current);
-    tipTimer.current = window.setTimeout(() => setTip(false), TIP_MS);
+    tipTimer.current = window.setTimeout(() => setTip(null), TIP_MS);
+  }, []);
+  // Finger position while holding. Pointer events can fire faster than the
+  // screen draws; render at most once per frame.
+  const dragFrame = useRef<number | null>(null);
+  const pendingDrag = useRef({ dx: 0, dy: 0 });
+  const setDragNow = useCallback((d: { dx: number; dy: number }) => {
+    if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+    dragFrame.current = null;
+    setDrag(d);
+  }, []);
+  const setDragSoon = useCallback((d: { dx: number; dy: number }) => {
+    pendingDrag.current = d;
+    if (dragFrame.current !== null) return;
+    dragFrame.current = requestAnimationFrame(() => {
+      dragFrame.current = null;
+      setDrag(pendingDrag.current);
+    });
   }, []);
 
   const reset = useCallback(() => {
@@ -231,11 +254,11 @@ export function VoiceComposer({
     setRecorder(null);
     setPaused(false);
     setPreview(null);
-    setDrag({ dx: 0, dy: 0 });
+    setDragNow({ dx: 0, dy: 0 });
     pointerDown.current = false;
     pointerId.current = null;
     go('idle');
-  }, [go]);
+  }, [go, setDragNow]);
 
   const discard = useCallback(() => {
     recRef.current?.cancel();
@@ -267,9 +290,9 @@ export function VoiceComposer({
     rec.pause();
     setPaused(true);
     go('locked');
-    setDrag({ dx: 0, dy: 0 });
+    setDragNow({ dx: 0, dy: 0 });
     setPreview({ blob: await rec.snapshot(), ms: rec.elapsedMs() });
-  }, [go]);
+  }, [go, setDragNow]);
 
   const begin = useCallback(
     async (hold: boolean) => {
@@ -292,10 +315,11 @@ export function VoiceComposer({
         return;
       }
       // First-time permission prompt: the finger is usually gone by now.
+      // The mic stays open for a few seconds, so the next hold starts at once.
       if (hold && !pointerDown.current) {
         rec.cancel();
         reset();
-        showTip();
+        showTip('Microphone ready. Now hold to record');
         return;
       }
       setRecorder(rec);
@@ -335,11 +359,11 @@ export function VoiceComposer({
     if (-dy >= LOCK_DY && -dx < CANCEL_DX / 2) {
       pointerDown.current = false;
       vibrate(10);
-      setDrag({ dx: 0, dy: 0 });
+      setDragNow({ dx: 0, dy: 0 });
       go('locked');
       return;
     }
-    setDrag({ dx, dy });
+    setDragSoon({ dx, dy });
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -416,11 +440,13 @@ export function VoiceComposer({
     return () => document.removeEventListener('visibilitychange', onHide);
   }, [phase, toPausedDraft]);
 
-  // Leaving the room mid-recording frees the mic.
+  // Leaving the room frees the mic right away.
   useEffect(
     () => () => {
       recRef.current?.cancel();
+      closeMic();
       if (tipTimer.current) window.clearTimeout(tipTimer.current);
+      if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
     },
     []
   );
@@ -541,7 +567,7 @@ export function VoiceComposer({
             role="status"
             className="absolute bottom-full right-0 mb-2 whitespace-nowrap px-3 py-1.5 rounded-lg bg-fg text-canvas text-xs font-medium shadow-lg animate-fade-in z-30"
           >
-            Hold to record, release to send
+            {tip}
           </div>
         )}
         {holding && (
@@ -560,7 +586,9 @@ export function VoiceComposer({
           onContextMenu={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           disabled={disabled}
-          className={`voice-hold relative z-30 h-11 w-11 flex items-center justify-center rounded-xl text-white transition-[transform,background-color] duration-150 ${
+          className={`voice-hold relative z-30 h-11 w-11 flex items-center justify-center rounded-xl text-white duration-150 ${
+            holding ? 'transition-colors' : 'transition-[transform,background-color]'
+          } ${
             disabled
               ? 'bg-surface-3 text-fg-faint cursor-not-allowed'
               : holding
