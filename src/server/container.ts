@@ -81,13 +81,15 @@ function phase1Core(db: ReturnType<typeof adminDb>, quota: QuotaGuard, audit: Au
   const fileRepo = new FirestoreFileRepository(db, quota);
   const roomRepo = new FirestoreRoomRepository(db, quota);
   const userRepo = new FirebaseUserRepository(adminAuth(), db, quota);
+  const storage = new R2StorageRepository();
   return {
-    files: new FileService({ reader: fileRepo, remover: fileRepo, storage: new R2StorageRepository(), audit }),
+    files: new FileService({ reader: fileRepo, remover: fileRepo, storage, audit }),
     rooms: new RoomService({
       reader: roomRepo,
       closer: roomRepo,
       history: new FirestoreRoomHistoryRepository(db, quota),
       audit,
+      storage,
     }),
     users: new UserService({ reader: userRepo, admin: userRepo, audit }),
     cronRuns: new FirestoreCronRunRepository(db, quota),
