@@ -14,7 +14,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { clientAuth, clientDb } from '@/shared/lib/firebase/client';
 import { formatTimeUntil } from '@/shared/lib/time';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import RoomLinkPending from '@/features/chat/components/RoomLinkPending';
 import { MessageSquare } from 'lucide-react';
 import type { ChatRoom } from '@/types';

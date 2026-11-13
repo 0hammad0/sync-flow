@@ -22,7 +22,7 @@ import {
 import CopyButton from '@/shared/components/CopyButton';
 import ProgressBar from '@/features/files/components/ProgressBar';
 import QRModal from '@/features/files/components/QRModal';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import {
   AlertCircle,
   Check,

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { getUserFiles } from '@/features/files/server/files';
 import FileList from '@/features/files/components/FileList';
 import MyChatRooms from '@/features/chat/components/MyChatRooms';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import { Lightbulb } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';

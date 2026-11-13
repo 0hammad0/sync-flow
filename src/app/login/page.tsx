@@ -10,7 +10,7 @@ import {
   STORED_EMAIL_KEY,
 } from '@/shared/lib/firebase/client';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import Button from '@/shared/components/ui/Button';
+import Button from '@/shared/ui/Button';
 import Link from 'next/link';
 import { Check, MailCheck } from 'lucide-react';
 
