@@ -1,7 +1,14 @@
 import 'server-only';
 
 import type { AdminContext } from '@/server/auth/types';
-import type { AuditAction, AuditData, AuditRepository, NewAuditEntry } from '@/server/repositories/interfaces';
+import type {
+  AuditAction,
+  AuditData,
+  AuditListQuery,
+  AuditPage,
+  AuditRepository,
+  NewAuditEntry,
+} from '@/server/repositories/interfaces';
 
 export type AuditTarget = { type: string; id: string };
 
@@ -145,6 +152,14 @@ export class AuditService {
   /** Appends one row and returns its id. Throws if the write fails. */
   async record(input: RecordAuditInput): Promise<string> {
     return this.repo.append(buildAuditEntry(input));
+  }
+
+  /**
+   * One page, newest first (Audit log screen). Read only. Scoping (a
+   * moderator sees own rows only) is the caller's job, in the query it builds.
+   */
+  list(query: AuditListQuery): Promise<AuditPage> {
+    return this.repo.list(query);
   }
 
   /**
