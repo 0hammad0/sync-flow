@@ -6,6 +6,7 @@ import type { User } from 'firebase/auth';
 import type { ChatAttachment, ChatMessage, ChatReactor } from '@/types';
 import { normalizeReactors } from '@/shared/lib/utils';
 import { MAX_UPLOAD_BYTES } from '@/shared/lib/limits';
+import { blockedError } from '@/shared/lib/blocked';
 
 // Album limit lives in shared utils (server enforces the same value); re-export
 // so chat components can keep importing it from one place.
@@ -301,6 +302,9 @@ const ERROR_COPY: Record<string, string> = {
  * sentences pass through unchanged.
  */
 export function friendlyError(raw: unknown, status?: number): string {
+  // Visitor block: pass a response body ({ error: 'blocked', ref }) to keep the ref.
+  const blocked = blockedError(raw);
+  if (blocked) return blocked;
   if (status === 429) return 'You\'re going too fast. Wait a moment and try again.';
   const text =
     raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : '';

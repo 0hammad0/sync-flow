@@ -1,6 +1,8 @@
 // Browser side of direct-to-R2 uploads: presign → PUT to R2 → complete.
 // See src/shared/lib/upload-ticket.ts for the server side.
 
+import { blockedError } from './blocked';
+
 export type JsonResult = { success: boolean; error?: string; [key: string]: unknown };
 
 /** Error text for an upload stopped through its AbortSignal. */
@@ -28,6 +30,8 @@ export async function postJson(url: string, body: unknown): Promise<JsonResult> 
   }
   try {
     const data = (await res.json()) as JsonResult;
+    const blocked = blockedError(data);
+    if (blocked) return { success: false, error: blocked };
     if (!res.ok && data.success !== false) return { success: false, error: statusMessage(res.status) };
     return data;
   } catch {

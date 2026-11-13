@@ -14,6 +14,8 @@ import { AlertCircle, Check, Download, Loader2 } from 'lucide-react';
 import { downloadAllAsZip } from '@/shared/lib/zip';
 import { attachmentDownloadUrl, attachmentViewUrl } from '@/features/chat/lib/chat-helpers';
 import type { ChatAttachment } from '@/types';
+import ActionError from '@/shared/components/ActionError';
+import { blockedError } from '@/shared/lib/blocked';
 
 export type DownloadStatus = 'idle' | 'loading' | 'done' | 'error';
 
@@ -40,7 +42,7 @@ export async function downloadAttachment(roomCode: string, att: ChatAttachment):
     | { success?: boolean; url?: unknown; error?: unknown }
     | null;
   if (!res.ok || !body?.success || typeof body.url !== 'string') {
-    throw new Error(downloadErrorText(res.status, body?.error));
+    throw new Error(blockedError(body) ?? downloadErrorText(res.status, body?.error));
   }
   const link = document.createElement('a');
   link.href = body.url;
@@ -216,7 +218,7 @@ export function MediaDownloadOverlay({
           role="alert"
           className="absolute inset-x-1.5 bottom-1.5 z-[1] px-2 py-1 rounded-md bg-black/75 text-white text-[11px] leading-tight text-center pointer-events-none"
         >
-          {error}
+          <ActionError text={error} />
         </span>
       )}
     </>
@@ -278,7 +280,7 @@ export function DownloadErrorText({ error, mine }: { error: string | null; mine:
   if (!error) return null;
   return (
     <span role="alert" className={`block text-[10px] ${mine ? 'text-red-100' : 'text-danger-text'}`}>
-      {error}
+      <ActionError text={error} />
     </span>
   );
 }

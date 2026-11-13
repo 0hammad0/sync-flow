@@ -49,6 +49,7 @@ import {
 import { clientAuth, clientDb } from '@/shared/lib/firebase/client';
 import { clientTimezone, formatTimeUntil } from '@/shared/lib/time';
 import { directUpload } from '@/shared/lib/direct-upload';
+import ActionError from '@/shared/components/ActionError';
 import {
   cleanAiOutput,
   getAiAvailability,
@@ -612,7 +613,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         body: JSON.stringify({ action: 'extend' }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) throw new Error(friendlyError(data.error, res.status));
+      if (!res.ok || !data.success) throw new Error(friendlyError(data.error === 'blocked' ? data : data.error, res.status));
       setExpiresAt(data.expiresAt);
       setWarningDismissed(false);
       setExtendNote(`Extended. Now expires in ${formatTimeUntil(data.expiresAt)}.`);
@@ -1059,7 +1060,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.success) {
-            setSendError(friendlyError(data.error || `HTTP ${res.status}`, res.status));
+            setSendError(friendlyError(data.error === 'blocked' ? data : data.error || `HTTP ${res.status}`, res.status));
             return;
           }
           // Keep anything typed while the send was in flight.
@@ -1110,7 +1111,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) {
-          setSendError(friendlyError(data.error || `HTTP ${res.status}`, res.status));
+          setSendError(friendlyError(data.error === 'blocked' ? data : data.error || `HTTP ${res.status}`, res.status));
           return;
         }
         // Keep anything typed while the send was in flight.
@@ -1873,7 +1874,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
         >
           {sendError && (
             <p className="text-xs text-danger-text px-1 flex items-center gap-2 flex-wrap">
-              <span>{sendError}</span>
+              <span><ActionError text={sendError} /></span>
               {failedVoice && (
                 <>
                   <button

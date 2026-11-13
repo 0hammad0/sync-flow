@@ -70,7 +70,7 @@ export type DataTableProps<TData extends RowData> = {
   status?: 'ready' | 'loading' | 'error';
   error?: { title: string; reason: string; errorId?: string; onRetry?: () => void };
   /** Nothing exists yet. */
-  empty: { title: string; body?: ReactNode; action?: ReactNode };
+  empty: { title: string; body?: ReactNode; action?: ReactNode; illustration?: ReactNode };
   /** Search or filters match nothing. */
   noResults?: { title: string; body?: ReactNode };
   search?: { placeholder: string };
@@ -314,7 +314,8 @@ export default function DataTable<TData extends RowData>({
   ) : (
     <EmptyState
       size="inline"
-      icon={<Inbox aria-hidden="true" strokeWidth={1.75} className="size-4" />}
+      illustration={empty.illustration}
+      icon={empty.illustration ? undefined : <Inbox aria-hidden="true" strokeWidth={1.75} className="size-4" />}
       title={empty.title}
       body={empty.body}
       action={empty.action}

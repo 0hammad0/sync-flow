@@ -5,6 +5,8 @@ import { formatFileSize } from '@/shared/lib/utils';
 import { importKey, decryptFile, isEncryptionSupported } from '@/shared/lib/crypto';
 import { requestDownload, finishDownload, requestPreview } from '@/features/files/server/files';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import ActionError from '@/shared/components/ActionError';
+import { blockedError } from '@/shared/lib/blocked';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -261,12 +263,14 @@ export default function DownloadCard({
     try {
       const grant = await requestPreview(token);
       if (!grant.success || !grant.signedUrl) {
-        setPreviewError(grant.error === 'expired' ? 'This link has expired.' : "Couldn't load the preview.");
+        setPreviewError(
+          blockedError(grant) ?? (grant.error === 'expired' ? 'This link has expired.' : "Couldn't load the preview.")
+        );
         return;
       }
       await showPreview(await fetchFile(grant.signedUrl));
     } catch (error) {
-      setPreviewError(error instanceof KeyError ? KEY_WRONG_MSG : "Couldn't load the preview.");
+      setPreviewError(blockedError(error) ?? (error instanceof KeyError ? KEY_WRONG_MSG : "Couldn't load the preview."));
     } finally {
       setPreviewLoading(false);
     }
@@ -319,9 +323,20 @@ export default function DownloadCard({
         }
       }
       // The server counts the download first, then hands out a 5-minute URL.
-      const grant = await requestDownload(token);
+      let grant: Awaited<ReturnType<typeof requestDownload>>;
+      try {
+        grant = await requestDownload(token);
+      } catch (error) {
+        // A blocked visitor's action is stopped by the proxy (403); the Next client throws.
+        setDownloadError(blockedError(error) ?? 'Something went wrong. Please try again.');
+        setIsDownloading(false);
+        return;
+      }
       if (!grant.success || !grant.signedUrl) {
-        if (grant.error === 'expired') {
+        const blocked = blockedError(grant);
+        if (blocked) {
+          setDownloadError(blocked);
+        } else if (grant.error === 'expired') {
           setServerExpired(true);
           setDownloadError('This link has expired.');
         } else if (grant.error === 'download_limit_reached') {
@@ -469,7 +484,7 @@ export default function DownloadCard({
         </p>
       )}
       {previewError && !preview && (
-        <p className="mb-4 text-xs text-fg-faint text-center" role="status">{previewError}</p>
+        <p className="mb-4 text-xs text-fg-faint text-center" role="status"><ActionError text={previewError} /></p>
       )}
 
       {/* Key problems replace the button: there is nothing to download with. */}
@@ -488,7 +503,7 @@ export default function DownloadCard({
               <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-2xl" role="alert">
                 <p className="text-xs text-danger-text inline-flex items-start gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                  {downloadError}
+                  <span><ActionError text={downloadError} /></span>
                 </p>
                 {retryGrant && (
                   <p className="text-xs text-fg-muted mt-1">
