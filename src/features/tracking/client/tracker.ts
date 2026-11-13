@@ -295,7 +295,9 @@ export function start(): void {
   phase = STARTING;
   decide()
     .then((ok) => {
-      if (phase === STARTING) ok ? begin(loadSession()) : (phase = OFF);
+      if (phase !== STARTING) return;
+      if (ok) begin(loadSession());
+      else phase = OFF;
     })
     .catch(() => {
       if (phase === STARTING) phase = OFF;
