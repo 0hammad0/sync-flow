@@ -51,7 +51,7 @@ const defaultDeleter: RoomDeleter = (code, db) => deleteRoom(code, { db, countDo
  * only counts (aggregates) and projected attachment fields.
  *
  * Quota: list = docs returned (min 1); get = 1; each aggregate = 1 read per
- * 1,000 entries; attachmentStats = messages with files (≤ 2,000);
+ * 1,000 entries (counts = 3, messageCount = 2, onlineCount = 1); attachmentStats = messages with files (≤ 2,000);
  * close = 1 read + every deleted doc (counted by a BulkWriter).
  */
 export class FirestoreRoomRepository implements RoomReader, RoomCloser {
@@ -114,6 +114,12 @@ export class FirestoreRoomRepository implements RoomReader, RoomCloser {
       this.count(messages.where('attachment.voice.duration_ms', '>', 0)),
     ]);
     return { messageCount: Math.max(0, all - system), voiceCount: voice };
+  }
+
+  async messageCount(code: string): Promise<number> {
+    const messages = this.messages(code);
+    const [all, system] = await Promise.all([this.count(messages), this.count(messages.where('kind', '==', 'system'))]);
+    return Math.max(0, all - system);
   }
 
   async attachmentStats(code: string): Promise<RoomAttachmentStats> {

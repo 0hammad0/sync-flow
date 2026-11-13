@@ -104,6 +104,8 @@ export function runRoomRepositoryContract(name: string, make: (seed: RoomSeed) =
       expect(await repo.onlineCount('RRRRRRR1', new Date(NOW.getTime() - 3 * 60_000))).toBe(1);
       expect(await repo.counts('RRRRRRR1')).toEqual({ messageCount: 4, voiceCount: 1 });
       expect(await repo.counts('RRRRRRR2')).toEqual({ messageCount: 0, voiceCount: 0 });
+      expect(await repo.messageCount('RRRRRRR1')).toBe(4);
+      expect(await repo.messageCount('RRRRRRR2')).toBe(0);
     });
 
     it('sums attachments, skipping long-text bodies', async () => {
