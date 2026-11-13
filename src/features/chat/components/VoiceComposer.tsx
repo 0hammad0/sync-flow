@@ -6,6 +6,7 @@ import { formatVoiceTime, VOICE_MIN_MS } from '../lib/voice';
 import {
   canRecordVoice,
   closeMic,
+  toRecorderFailure,
   VoiceRecorder,
   type RecorderError,
   type VoiceRecording,
@@ -39,8 +40,18 @@ const ERROR_TEXT: Record<RecorderError, string> = {
   unsupported: "This browser can't record audio.",
   denied: 'Microphone access is blocked. Allow it in your browser settings to send voice notes.',
   no_device: 'No microphone found.',
+  busy: 'The microphone is in use by another app or tab. Close it and try again.',
   failed: "Couldn't start the microphone. Please try again.",
 };
+
+/**
+ * 'failed' covers several causes, so it carries the browser's error name:
+ * a screenshot of the message is then enough to tell which one happened.
+ */
+function errorText(code: RecorderError, detail: string | null): string {
+  if (code === 'failed' && detail) return `Couldn't start the microphone (${detail}). Please try again.`;
+  return ERROR_TEXT[code];
+}
 
 function vibrate(ms: number) {
   try {
@@ -328,7 +339,9 @@ export function VoiceComposer({
         await rec.start();
       } catch (err) {
         reset();
-        onError(ERROR_TEXT[(err as RecorderError) in ERROR_TEXT ? (err as RecorderError) : 'failed']);
+        const { code, detail, cause } = toRecorderFailure(err);
+        console.warn('Voice note: could not start recording', code, cause ?? err);
+        onError(errorText(code, detail));
         return;
       }
       // Cancelled (or a different recording started) while the permission prompt was up.
