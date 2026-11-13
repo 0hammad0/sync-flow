@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { currentUser } from '@/shared/lib/firebase/session';
 import { ALLOWED_TTL_HOURS, createRoom, MAX_ROOM_NAME_LENGTH } from '@/shared/lib/firebase/chat';
 import { getRequestOrigin, sanitizeIanaTz } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { recordRoomOpened } from '@/server/rooms/room-history';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
       created_by: user?.uid ?? null,
       creator_tz: tz,
     });
+    // Admin room history (metadata only). Runs after the response is sent,
+    // so the visitor never waits, and it never throws.
+    after(() => recordRoomOpened(room));
     return NextResponse.json({
       success: true,
       code: room.code,
