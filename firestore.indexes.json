@@ -121,7 +121,7 @@
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "created_at", "order": "DESCENDING" },
-        { "fieldPath": "attachments", "order": "ASCENDING" }
+        { "fieldPath": "attachments", "order": "DESCENDING" }
       ]
     },
     {
@@ -129,7 +129,7 @@
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "created_at", "order": "DESCENDING" },
-        { "fieldPath": "attachment", "order": "ASCENDING" }
+        { "fieldPath": "attachment", "order": "DESCENDING" }
       ]
     },
     {
@@ -137,7 +137,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "created_at", "order": "DESCENDING" },
-        { "fieldPath": "attachments", "order": "ASCENDING" }
+        { "fieldPath": "attachments", "order": "DESCENDING" }
       ]
     },
     {
@@ -145,7 +145,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "created_at", "order": "DESCENDING" },
-        { "fieldPath": "attachment", "order": "ASCENDING" }
+        { "fieldPath": "attachment", "order": "DESCENDING" }
       ]
     },
     {
