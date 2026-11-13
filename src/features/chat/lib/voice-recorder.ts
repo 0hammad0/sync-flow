@@ -55,6 +55,52 @@ export function canRecordVoice(): boolean {
   );
 }
 
+/**
+ * The mic stream is kept open for a short while after a note, then closed.
+ * iOS Safari is slow to open the mic, and opening it again can fail or mute
+ * the previous stream, so back-to-back notes reuse one stream. It always
+ * closes when the tab is hidden.
+ */
+const MIC_KEEP_MS = 20_000;
+let micStream: MediaStream | null = null;
+let micTimer: number | null = null;
+
+function micLive(stream: MediaStream | null): boolean {
+  // A muted track (audio session change, call) records silence: open a new one.
+  return !!stream && stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted);
+}
+
+async function openMic(): Promise<MediaStream> {
+  if (micTimer !== null) window.clearTimeout(micTimer);
+  micTimer = null;
+  if (micStream && micLive(micStream)) return micStream;
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  return micStream;
+}
+
+/** Stop the mic now (the OS mic indicator goes off). */
+export function closeMic(): void {
+  if (micTimer !== null) window.clearTimeout(micTimer);
+  micTimer = null;
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+}
+
+function closeMicSoon(): void {
+  if (micTimer !== null) window.clearTimeout(micTimer);
+  micTimer = window.setTimeout(closeMic, MIC_KEEP_MS);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') closeMic();
+  });
+}
+
 function pickMime(): string | undefined {
   if (typeof MediaRecorder.isTypeSupported !== 'function') return undefined;
   return MIME_PREFERENCE.find((m) => MediaRecorder.isTypeSupported(m));
@@ -86,9 +132,7 @@ export class VoiceRecorder {
   async start(): Promise<void> {
     if (!canRecordVoice()) throw 'unsupported' satisfies RecorderError;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      this.stream = await openMic();
     } catch (err) {
       const name = err instanceof DOMException ? err.name : '';
       if (name === 'NotAllowedError' || name === 'SecurityError') throw 'denied' satisfies RecorderError;
@@ -272,14 +316,14 @@ export class VoiceRecorder {
     this.release();
   }
 
-  /** Stop every track right away so the OS mic indicator goes off. */
+  /** Free this recording. The mic itself closes a few seconds later (see MIC_KEEP_MS). */
   private release(): void {
     if (this.sampleTimer !== null) window.clearInterval(this.sampleTimer);
     this.sampleTimer = null;
     this.stream?.getTracks().forEach((t) => {
       t.onended = null;
-      t.stop();
     });
+    if (this.stream) closeMicSoon();
     this.stream = null;
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
