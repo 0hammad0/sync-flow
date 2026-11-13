@@ -98,7 +98,7 @@ export default function SiteFooter() {
 
         <div className="mt-12 flex flex-col gap-3 border-t border-edge pt-6 text-xs text-fg-faint sm:flex-row sm:items-center sm:justify-between">
           <p>© {new Date().getFullYear()} SyncFlow contributors. Released under the MIT licence.</p>
-          <p>No ads, no trackers, no paid tiers.</p>
+          <p>No ads, no ad trackers, no paid tiers.</p>
         </div>
       </div>
     </footer>
