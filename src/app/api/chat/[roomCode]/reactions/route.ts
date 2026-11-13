@@ -8,6 +8,7 @@ import {
 } from '@/shared/lib/firebase/chat';
 import { isReactionEmoji, isValidMessageId, isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 
@@ -50,6 +53,8 @@ export async function POST(
   // Identity = hashed per-device id; clients without one (old tabs) key by name.
   const deviceId = deviceKey(body.deviceId);
   const reactor = { id: deviceId ?? `legacy:${senderName}`, name: senderName };
+  const blockedDevice = await assertNotBlocked({ device: deviceId });
+  if (blockedDevice) return blockedApiResponse(blockedDevice);
 
   try {
     const room = await getRoom(code);

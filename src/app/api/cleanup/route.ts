@@ -7,6 +7,7 @@ import {
 } from '@/shared/lib/firebase/files';
 import { deleteExpiredRooms } from '@/shared/lib/firebase/chat';
 import { deleteObject } from '@/shared/lib/r2';
+import { getBlocks } from '@/server/container';
 
 export const runtime = 'nodejs';
 // Never cache: every cron call must run the cleanup.
@@ -95,6 +96,9 @@ async function runCleanup(request: NextRequest) {
       console.error('Chat-room cleanup error:', err);
     }
 
+    // Expired visitor blocks leave the enforcement list (never throws).
+    const blocks = await getBlocks().service.sweepExpired();
+
     const errors = [...failed];
     return NextResponse.json({
       success: true,
@@ -106,6 +110,7 @@ async function runCleanup(request: NextRequest) {
       filesTotal: seen.size,
       sessionsDeleted,
       roomsDeleted,
+      blocks,
       // True when the time budget ran out; the next run continues.
       timeBudgetUsed: !hasTime(),
       errors: errors.length > 0 ? errors : undefined,

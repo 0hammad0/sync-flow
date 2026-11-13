@@ -32,6 +32,8 @@ export interface DownloadInfo {
   expiresAt?: string | null;
   downloadsRemaining?: number | null;
   token?: string;
+  /** Support reference when `error` is `blocked` (visitor blocks, actions only). */
+  ref?: string;
 }
 
 export interface FileWithUrl extends FileRecord {

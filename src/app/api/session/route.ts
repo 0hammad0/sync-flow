@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth } from '@/shared/lib/firebase/admin';
 import { mintSessionCookie, SESSION_COOKIE } from '@/shared/lib/firebase/session';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
 // POST — exchange a fresh Firebase ID token for an httpOnly session cookie.
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   // Login CSRF guard: a cross-site <form> could otherwise post an attacker's
   // token (text/plain bodies still parse as JSON) and sign the victim into
   // the attacker's account. Only our own pages, sending real JSON, may call this.

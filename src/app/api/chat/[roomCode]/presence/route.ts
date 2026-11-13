@@ -13,6 +13,7 @@ import {
 } from '@/shared/lib/firebase/chat';
 import { isValidRoomCode, sanitizeIanaTz } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -26,6 +27,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 
@@ -75,6 +78,8 @@ export async function POST(
     // Hashed: only the real device (which holds the raw id) maps to its
     // presence doc, so nobody else can clear it or post "left" as it.
     const deviceId = deviceKey(body.deviceId);
+    const blockedDevice = await assertNotBlocked({ device: deviceId });
+    if (blockedDevice) return blockedApiResponse(blockedDevice);
 
     // Already online from this device (a reload, a second tab) — refresh
     // presence but don't announce a second "joined".

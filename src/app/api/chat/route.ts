@@ -3,10 +3,13 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import { ALLOWED_TTL_HOURS, createRoom, MAX_ROOM_NAME_LENGTH } from '@/shared/lib/firebase/chat';
 import { getRequestOrigin, sanitizeIanaTz } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const rl = rateLimit(`chat:create:${clientKey(request)}`, 10, 60_000);
   if (!rl.allowed) return tooManyRequests('Too many room creations, slow down.', rl.retryAfterMs);
 

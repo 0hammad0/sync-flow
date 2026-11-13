@@ -59,7 +59,8 @@ function decodeCursor(cursor: string | null | undefined): Cursor | null {
   return { at: new Timestamp(Number(match[1]), nanos), id: match[3] };
 }
 
-function toDoc(entry: NewAuditEntry) {
+/** The stored `admin_audit` shape. Exported for repositories that write the row inside their own transaction. */
+export function toAuditDoc(entry: NewAuditEntry) {
   return {
     at: FieldValue.serverTimestamp(),
     actor_uid: entry.actorUid,
@@ -101,7 +102,7 @@ export class FirestoreAuditRepository implements AuditRepository {
   async append(entry: NewAuditEntry): Promise<string> {
     const ref = this.db.collection(COLLECTIONS.adminAudit).doc();
     try {
-      await ref.set(toDoc(entry));
+      await ref.set(toAuditDoc(entry));
     } catch (error) {
       this.quota.noteError(error);
       throw error;
@@ -115,7 +116,7 @@ export class FirestoreAuditRepository implements AuditRepository {
     try {
       // create() fails with ALREADY_EXISTS instead of overwriting: the
       // "once" check costs no read.
-      await ref.create(toDoc(entry));
+      await ref.create(toAuditDoc(entry));
     } catch (error) {
       if (isAlreadyExists(error)) {
         // Counted: whether Firestore bills a refused create is not verified.

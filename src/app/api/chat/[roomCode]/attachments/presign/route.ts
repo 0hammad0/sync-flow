@@ -5,6 +5,7 @@ import { signedUploadUrl } from '@/shared/lib/r2';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { createUploadTicket } from '@/shared/lib/upload-ticket';
 import { planAttachment } from '@/features/chat/server/attachment-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
   if (!isValidRoomCode(code)) {

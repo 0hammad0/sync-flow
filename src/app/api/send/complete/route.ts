@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readUploadTicket, verifyUploadedObject } from '@/shared/lib/upload-ticket';
 import { finishSendUpload, type SendUploadPlan } from '@/features/files/server/send-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * Step 3 of a direct-to-R2 phone → PC upload. Body (JSON): { ticket }.
@@ -10,6 +11,8 @@ import { finishSendUpload, type SendUploadPlan } from '@/features/files/server/s
  * are re-checked in finishSendUpload, since tickets are stateless.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     const body = await request.json().catch(() => null);
     const data = readUploadTicket<{ kind: string; plan: SendUploadPlan }>(body?.ticket);

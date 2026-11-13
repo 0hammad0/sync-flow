@@ -3,6 +3,7 @@ import { extendRoom, getRoom, isRoomExpired } from '@/shared/lib/firebase/chat';
 import { currentUser } from '@/shared/lib/firebase/session';
 import { isValidRoomCode } from '@/shared/lib/utils';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 export const runtime = 'nodejs';
 
@@ -61,6 +62,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   const { roomCode } = await params;
   const code = (roomCode || '').toUpperCase();
 

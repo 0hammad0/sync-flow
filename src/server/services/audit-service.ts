@@ -107,7 +107,8 @@ function cleanText(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function toEntry(input: RecordAuditInput): NewAuditEntry {
+/** The sanitised row `record` would write. For services that write it inside their own transaction. */
+export function buildAuditEntry(input: RecordAuditInput): NewAuditEntry {
   return {
     actorUid: input.ctx.uid,
     actorEmail: input.ctx.email,
@@ -143,7 +144,7 @@ export class AuditService {
 
   /** Appends one row and returns its id. Throws if the write fails. */
   async record(input: RecordAuditInput): Promise<string> {
-    return this.repo.append(toEntry(input));
+    return this.repo.append(buildAuditEntry(input));
   }
 
   /**
@@ -152,7 +153,7 @@ export class AuditService {
    * Throws if the write fails for any other reason.
    */
   async recordOnce(id: string, input: RecordAuditInput): Promise<boolean> {
-    return this.repo.appendOnce(id, toEntry(input));
+    return this.repo.appendOnce(id, buildAuditEntry(input));
   }
 
   /**

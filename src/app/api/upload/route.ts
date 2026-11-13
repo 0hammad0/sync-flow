@@ -4,6 +4,7 @@ import { currentUser } from '@/shared/lib/firebase/session';
 import { putObject } from '@/shared/lib/r2';
 import { clientKey, rateLimit, tooManyRequests } from '@/shared/lib/rate-limit';
 import { finishShareUpload, planShareUpload } from '@/features/files/server/share-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * LEGACY multipart upload — the app's own UI does not call this. The browser
@@ -14,6 +15,8 @@ import { finishShareUpload, planShareUpload } from '@/features/files/server/shar
  * sending small files. Same rules as the direct flow via share-upload.ts.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     // Public upload endpoint — throttle to blunt abuse (20 per minute per IP).
     const rl = rateLimit(`upload:${clientKey(request)}`, 20, 60_000);

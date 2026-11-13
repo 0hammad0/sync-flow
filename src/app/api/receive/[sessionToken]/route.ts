@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFile, getReceiveSession } from '@/shared/lib/firebase/files';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * GET — the PC polls this for files sent to its session. An expired session
@@ -11,6 +12,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ sessionToken: string }> }
 ) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     const { sessionToken } = await params;
     const session = await getReceiveSession(sessionToken);

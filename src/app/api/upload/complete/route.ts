@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getRequestOrigin } from '@/shared/lib/utils';
 import { readUploadTicket, verifyUploadedObject } from '@/shared/lib/upload-ticket';
 import { finishShareUpload, type ShareUploadPlan } from '@/features/files/server/share-upload';
+import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-not-blocked';
 
 /**
  * Step 3 of a direct-to-R2 share upload. Body (JSON): { ticket }.
@@ -9,6 +10,8 @@ import { finishShareUpload, type ShareUploadPlan } from '@/features/files/server
  * writes the file record. Returns { shareUrl, token }.
  */
 export async function POST(request: NextRequest) {
+  const blocked = await assertNotBlocked();
+  if (blocked) return blockedApiResponse(blocked);
   try {
     const body = await request.json().catch(() => null);
     const data = readUploadTicket<{ kind: string; plan: ShareUploadPlan }>(body?.ticket);
