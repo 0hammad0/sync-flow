@@ -160,15 +160,17 @@ export interface BlockRepository extends BlocklistSource {
 // No type below carries message text, a signed URL or file bytes. The only
 // R2 key is returned by FileRemover.storageKeyOf, for deletion on the server.
 
-/** `s_<token>` (share file) or `c_<roomCode>_<messageId>_<index>` (chat attachment). */
+/**
+ * Opaque `f_…` id from FileIdCodec (src/server/files/file-id.ts). It never
+ * contains a share token, room code or message id in readable form.
+ */
 export type AdminFileId = string;
 export type AdminFileKind = 'share' | 'chat';
 
-/** One stored file as metadata only. No storage key, no URL, no content. */
+/** One stored file as metadata only. No name [D-6], no storage key, no URL, no content [D-4]. */
 export type AdminFile = {
   id: AdminFileId;
   kind: AdminFileKind;
-  name: string;
   mimeType: string;
   size: number;
   createdAt: Date;

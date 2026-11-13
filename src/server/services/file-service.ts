@@ -31,11 +31,14 @@ export type FileServiceDeps = {
   logger?: Pick<Console, 'error'>;
 };
 
-/** What the audit row keeps about a file: metadata only, never content or keys [D-4]. */
-function auditBefore(file: AdminFile) {
+/**
+ * What the audit row keeps about a file: metadata only. Never the file name
+ * (D-6, overrides the spec's "before = name, …"), content or keys [D-4].
+ * The target id is the opaque file id, never a share token.
+ */
+export function fileAuditBefore(file: AdminFile) {
   return {
     kind: file.kind,
-    name: file.name,
     size: file.size,
     mime: file.mimeType,
     owner: file.uploaderUid,
@@ -100,7 +103,7 @@ export class FileService {
       ctx,
       action: 'file.delete',
       target: { type: file.kind === 'share' ? 'share_file' : 'chat_attachment', id },
-      before: auditBefore(file),
+      before: fileAuditBefore(file),
       after: opts.batchId ? { batchId: opts.batchId } : null,
       reason: opts.reason ?? null,
       request: opts.request,

@@ -7,6 +7,7 @@ import { FileService } from '@/server/services/file-service';
 import { RoomService } from '@/server/services/room-service';
 import { UserService } from '@/server/services/user-service';
 import { MemoryAuditRepository } from '../../../support/memory-audit-repository';
+import { chatId, shareId, testFileIds } from '../../../support/file-ids';
 import { MemoryFileRepository } from '../../../support/in-memory/memory-file-repository';
 import { MemoryStorage, MemoryUserRepository } from '../../../support/in-memory/memory-misc-repositories';
 import { MemoryRoomHistoryRepository } from '../../../support/in-memory/memory-room-history-repository';
@@ -28,7 +29,7 @@ describe('FileService', () => {
   let service: FileService;
 
   beforeEach(() => {
-    files = new MemoryFileRepository();
+    files = new MemoryFileRepository(testFileIds);
     for (const s of FILE_SEED.shares) files.addShare(s.token, s.doc);
     for (const m of FILE_SEED.messages) files.addMessage(m.code, m.id, m.doc);
     storage = new MemoryStorage();
@@ -37,7 +38,8 @@ describe('FileService', () => {
   });
 
   it('deletes the R2 object first, then the record, then writes file.delete with metadata only', async () => {
-    const result = await service.deleteFile(owner, 's_tok1', { reason: 'spam' });
+    const id = shareId('tok1');
+    const result = await service.deleteFile(owner, id, { reason: 'spam' });
     expect(result.ok).toBe(true);
     expect(storage.deleted).toEqual(['tok/1.pdf']);
     expect(files.shares.has('tok1')).toBe(false);
@@ -45,22 +47,39 @@ describe('FileService', () => {
     expect(row).toMatchObject({
       action: 'file.delete',
       targetType: 'share_file',
-      targetId: 's_tok1',
+      targetId: id,
       reason: 'spam',
-      before: { kind: 'share', name: 'file-1.pdf', size: 100, mime: 'application/pdf', owner: 'u1', room: null },
+      before: { kind: 'share', size: 100, mime: 'application/pdf', owner: 'u1', room: null },
     });
-    expect(JSON.stringify(row)).not.toContain('tok/1.pdf');
+    // D-6 and D-4: no file name, no storage key, no share token anywhere in the row.
+    expect(row.before).not.toHaveProperty('name');
+    const json = JSON.stringify(row);
+    expect(json).not.toContain('file-1.pdf');
+    expect(json).not.toContain('tok/1.pdf');
+    expect(json).not.toContain('tok1');
+  });
+
+  it('never writes a chat attachment name, key, room-scoped id or message text to the audit row', async () => {
+    const id = chatId(ROOM_A, 'm1', 1);
+    expect((await service.deleteFile(owner, id)).ok).toBe(true);
+    const [row] = await auditRows(auditRepo);
+    expect(row.targetId).toBe(id);
+    expect(row.before).toEqual({ kind: 'chat', size: 20, mime: 'image/png', owner: null, room: ROOM_A });
+    const json = JSON.stringify(row);
+    expect(json).not.toContain('.bin');
+    expect(json).not.toContain('chat/AAAAAAAA/b');
+    expect(json).not.toContain(SECRET);
   });
 
   it('changes nothing when R2 refuses the delete', async () => {
     storage.failKeys.add('tok/1.pdf');
-    await expect(service.deleteFile(owner, 's_tok1')).rejects.toThrow('R2 refused');
+    await expect(service.deleteFile(owner, shareId('tok1'))).rejects.toThrow('R2 refused');
     expect(files.shares.has('tok1')).toBe(true);
     expect(await auditRows(auditRepo)).toEqual([]);
   });
 
   it('returns NotFound for unknown, malformed and long-text ids, with no R2 call', async () => {
-    for (const id of ['s_missing', 'garbage', `c_${ROOM_A}_m3_0`]) {
+    for (const id of [shareId('missing'), 'garbage', 's_tok1', chatId(ROOM_A, 'm3', 0)]) {
       const result = await service.deleteFile(owner, id);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toBeInstanceOf(NotFoundError);
@@ -69,7 +88,7 @@ describe('FileService', () => {
   });
 
   it('removes a chat attachment without touching the message text', async () => {
-    const result = await service.deleteFile(owner, `c_${ROOM_A}_m1_0`);
+    const result = await service.deleteFile(owner, chatId(ROOM_A, 'm1', 0));
     expect(result.ok).toBe(true);
     expect(storage.deleted).toEqual(['chat/AAAAAAAA/a']);
     const m1 = files.messages.find((m) => m.id === 'm1');
@@ -79,8 +98,9 @@ describe('FileService', () => {
 
   it('bulk delete: one audit row per file with a shared batchId, partial results, cap 100', async () => {
     storage.failKeys.add('tok/5.pdf');
-    const result = await service.deleteFiles(owner, ['s_tok1', 's_tok3', 's_missing', 's_tok1']);
-    expect(result.ok && result.data).toEqual({ deleted: ['s_tok1'], missing: ['s_missing'], failed: ['s_tok3'] });
+    const [tok1, tok3, missing] = [shareId('tok1'), shareId('tok3'), shareId('missing')];
+    const result = await service.deleteFiles(owner, [tok1, tok3, missing, tok1]);
+    expect(result.ok && result.data).toEqual({ deleted: [tok1], missing: [missing], failed: [tok3] });
     const rows = await auditRows(auditRepo);
     expect(rows).toHaveLength(1);
     expect(rows[0].after).toEqual({ batchId: expect.any(String) });

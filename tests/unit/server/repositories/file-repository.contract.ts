@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { FileReader, FileRemover } from '@/server/repositories/interfaces';
+import { chatId, shareId } from '../../../support/file-ids';
 
 type Raw = Record<string, unknown>;
 export type FileSeed = {
@@ -71,16 +72,28 @@ export const FILE_SEED: FileSeed = {
   ],
 };
 
+/** Every seeded file name starts with this. It must never come back [D-6]. */
+export const FILE_NAME_MARKER = 'file-';
+
 const ALL_IDS = [
-  `c_${ROOM_B}_m6_0`,
-  `c_${ROOM_A}_m5_0`,
-  's_tok3',
-  `c_${ROOM_A}_m2_0`,
-  's_tok2',
-  `c_${ROOM_A}_m1_0`,
-  `c_${ROOM_A}_m1_1`,
-  's_tok1',
+  chatId(ROOM_B, 'm6', 0),
+  chatId(ROOM_A, 'm5', 0),
+  shareId('tok3'),
+  chatId(ROOM_A, 'm2', 0),
+  shareId('tok2'),
+  chatId(ROOM_A, 'm1', 0),
+  chatId(ROOM_A, 'm1', 1),
+  shareId('tok1'),
 ];
+const SHARE_IDS = new Set(['tok1', 'tok2', 'tok3'].map(shareId));
+
+/** Cursors go into admin URLs: no token, room code or message id in readable form. */
+function expectOpaqueCursor(cursor: string) {
+  const readable = `${cursor} ${Buffer.from(cursor, 'base64url').toString()}`;
+  // One more base64url layer inside (each source keeps its own cursor).
+  const inner = [...readable.matchAll(/"c":"([A-Za-z0-9_-]+)"/g)].map((m) => Buffer.from(m[1], 'base64url').toString());
+  expect(`${readable} ${inner.join(' ')}`).not.toMatch(/tok\d|AAAAAAAA|BBBBBBBB|"m\d"|\/m\d/);
+}
 
 type Repo = FileReader & FileRemover;
 
@@ -98,9 +111,14 @@ export function runFileRepositoryContract(name: string, make: (seed: FileSeed) =
       let cursor: string | null = null;
       for (let page = 0; page < 20; page++) {
         const res = await repo.list({ ...query, cursor }, NOW);
-        expect(JSON.stringify(res.files)).not.toContain(SECRET);
+        const json = JSON.stringify(res.files);
+        expect(json).not.toContain(SECRET);
+        expect(json).not.toContain(FILE_NAME_MARKER);
+        expect(json).not.toContain('.bin');
+        expect(json).not.toMatch(/tok\d/);
         ids.push(...res.files.map((f) => f.id));
         if (!res.nextCursor) return ids;
+        expectOpaqueCursor(res.nextCursor);
         cursor = res.nextCursor;
       }
       throw new Error('too many pages');
@@ -113,36 +131,46 @@ export function runFileRepositoryContract(name: string, make: (seed: FileSeed) =
 
     it('never lists long-text bodies or messages without files, and never returns message text', async () => {
       const ids = await listAll({ limit: 25 });
-      expect(ids.some((id) => id.includes('_m3_') || id.includes('_m4_'))).toBe(false);
+      expect(ids).not.toContain(chatId(ROOM_A, 'm3', 0));
+      expect(ids).not.toContain(chatId(ROOM_A, 'm4', 0));
     });
 
     it('filters by kind, owner, expiry and room', async () => {
-      expect(await listAll({ kind: 'share', limit: 2 })).toEqual(['s_tok3', 's_tok2', 's_tok1']);
-      expect(await listAll({ kind: 'chat', limit: 2 })).toEqual(ALL_IDS.filter((id) => id.startsWith('c_')));
-      expect(await listAll({ ownerUid: 'u1', limit: 25 })).toEqual(['s_tok3', 's_tok1']);
-      expect(await listAll({ expired: true, limit: 25 })).toEqual(['s_tok1']);
+      expect(await listAll({ kind: 'share', limit: 2 })).toEqual([shareId('tok3'), shareId('tok2'), shareId('tok1')]);
+      expect(await listAll({ kind: 'chat', limit: 2 })).toEqual(ALL_IDS.filter((id) => !SHARE_IDS.has(id)));
+      expect(await listAll({ ownerUid: 'u1', limit: 25 })).toEqual([shareId('tok3'), shareId('tok1')]);
+      expect(await listAll({ expired: true, limit: 25 })).toEqual([shareId('tok1')]);
       expect(await listAll({ roomCode: ROOM_A, limit: 2 })).toEqual([
-        `c_${ROOM_A}_m5_0`,
-        `c_${ROOM_A}_m2_0`,
-        `c_${ROOM_A}_m1_0`,
-        `c_${ROOM_A}_m1_1`,
+        chatId(ROOM_A, 'm5', 0),
+        chatId(ROOM_A, 'm2', 0),
+        chatId(ROOM_A, 'm1', 0),
+        chatId(ROOM_A, 'm1', 1),
       ]);
     });
 
-    it('maps metadata only', async () => {
-      const voice = await repo.get(`c_${ROOM_A}_m2_0`);
+    it('maps metadata only: no name, no key, no token', async () => {
+      const voice = await repo.get(chatId(ROOM_A, 'm2', 0));
       expect(voice).toMatchObject({ kind: 'chat', roomCode: ROOM_A, size: 30, voiceDurationMs: 4200, senderName: 'Ali' });
       expect(voice).not.toHaveProperty('key');
-      const file = await repo.get('s_tok1');
-      expect(file).toMatchObject({ kind: 'share', name: 'file-1.pdf', size: 100, uploaderUid: 'u1' });
-      expect(JSON.stringify(file)).not.toContain('tok/1.pdf');
+      expect(voice).not.toHaveProperty('name');
+      const file = await repo.get(shareId('tok1'));
+      expect(file).toMatchObject({ id: shareId('tok1'), kind: 'share', size: 100, uploaderUid: 'u1' });
+      expect(file).not.toHaveProperty('name');
+      const json = JSON.stringify(file);
+      expect(json).not.toContain('tok/1.pdf');
+      expect(json).not.toContain('file-1.pdf');
+      expect(json).not.toContain('tok1');
     });
 
-    it('returns null for bad ids, long-text bodies and missing files', async () => {
+    it('returns null for bad ids, the old readable ids, long-text bodies and missing files', async () => {
       expect(await repo.get('nope')).toBeNull();
-      expect(await repo.get(`c_${ROOM_A}_m3_0`)).toBeNull();
-      expect(await repo.get('s_missing')).toBeNull();
-      expect(await repo.storageKeyOf(`c_${ROOM_A}_m3_0`)).toBeNull();
+      expect(await repo.get('s_tok1')).toBeNull();
+      expect(await repo.get(`c_${ROOM_A}_m1_0`)).toBeNull();
+      expect(await repo.storageKeyOf('s_tok1')).toBeNull();
+      expect(await repo.removeRecord('s_tok1', NOW)).toBe(false);
+      expect(await repo.get(chatId(ROOM_A, 'm3', 0))).toBeNull();
+      expect(await repo.get(shareId('missing'))).toBeNull();
+      expect(await repo.storageKeyOf(chatId(ROOM_A, 'm3', 0))).toBeNull();
     });
 
     it('sums share files with aggregates', async () => {
@@ -152,28 +180,29 @@ export function runFileRepositoryContract(name: string, make: (seed: FileSeed) =
     });
 
     it('removes a share file record once', async () => {
-      expect(await repo.storageKeyOf('s_tok1')).toBe('tok/1.pdf');
-      expect(await repo.removeRecord('s_tok1', NOW)).toBe(true);
-      expect(await repo.get('s_tok1')).toBeNull();
-      expect(await repo.removeRecord('s_tok1', NOW)).toBe(false);
+      const id = shareId('tok1');
+      expect(await repo.storageKeyOf(id)).toBe('tok/1.pdf');
+      expect(await repo.removeRecord(id, NOW)).toBe(true);
+      expect(await repo.get(id)).toBeNull();
+      expect(await repo.removeRecord(id, NOW)).toBe(false);
     });
 
     it('marks one chat attachment removed and keeps the rest of the album', async () => {
-      const id = `c_${ROOM_A}_m1_1`;
+      const id = chatId(ROOM_A, 'm1', 1);
       expect(await repo.storageKeyOf(id)).toBe('chat/AAAAAAAA/b');
       expect(await repo.removeRecord(id, NOW)).toBe(true);
       expect(await repo.get(id)).toBeNull();
       expect(await repo.storageKeyOf(id)).toBeNull();
       expect(await repo.removeRecord(id, NOW)).toBe(false);
       expect(await listAll({ roomCode: ROOM_A, limit: 25 })).toEqual([
-        `c_${ROOM_A}_m5_0`,
-        `c_${ROOM_A}_m2_0`,
-        `c_${ROOM_A}_m1_0`,
+        chatId(ROOM_A, 'm5', 0),
+        chatId(ROOM_A, 'm2', 0),
+        chatId(ROOM_A, 'm1', 0),
       ]);
     });
 
     it('keeps the legacy single field in step for one-file sends', async () => {
-      const id = `c_${ROOM_A}_m5_0`;
+      const id = chatId(ROOM_A, 'm5', 0);
       expect(await repo.removeRecord(id, NOW)).toBe(true);
       expect(await repo.get(id)).toBeNull();
       expect(await listAll({ roomCode: ROOM_A, limit: 25 })).not.toContain(id);

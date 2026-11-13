@@ -13,6 +13,7 @@ import { FirestoreRoomRepository } from '@/server/repositories/firestore/room-re
 import { FirebaseUserRepository } from '@/server/repositories/firestore/user-repository';
 import { R2StorageRepository } from '@/server/repositories/r2/storage-repository';
 import { FileService } from '@/server/services/file-service';
+import { fileIdCodecFromEnv } from '@/server/files/file-id';
 import { RoomService } from '@/server/services/room-service';
 import { UserService } from '@/server/services/user-service';
 // --- end phase 1 core ---
@@ -78,7 +79,7 @@ export function getBlocks(): BlockParts {
 }
 // --- phase 1 core ---
 function phase1Core(db: ReturnType<typeof adminDb>, quota: QuotaGuard, audit: AuditService) {
-  const fileRepo = new FirestoreFileRepository(db, quota);
+  const fileRepo = new FirestoreFileRepository(db, quota, fileIdCodecFromEnv());
   const roomRepo = new FirestoreRoomRepository(db, quota);
   const userRepo = new FirebaseUserRepository(adminAuth(), db, quota);
   return {
