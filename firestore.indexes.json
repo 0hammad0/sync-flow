@@ -64,6 +64,46 @@
         { "fieldPath": "job", "order": "ASCENDING" },
         { "fieldPath": "started_at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "country", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "device", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "rolled_up", "order": "ASCENDING" },
+        { "fieldPath": "last_seen_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ip_held", "order": "ASCENDING" },
+        { "fieldPath": "last_seen_at", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -75,6 +115,141 @@
     {
       "collectionGroup": "admin_audit",
       "fieldPath": "after",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "pages",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "clicks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_sessions",
+      "fieldPath": "vitals",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "path",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "city",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "country",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "region",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "device",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "browser",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "os",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "referrer",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_source",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_medium",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "utm_campaign",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_hourly",
+      "fieldPath": "clicks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "path",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "city",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "country",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "region",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "device",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "browser",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "os",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "referrer",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_source",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_medium",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "utm_campaign",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "a_daily",
+      "fieldPath": "clicks",
       "indexes": []
     }
   ]
