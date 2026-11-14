@@ -218,7 +218,7 @@ export interface FileReader {
   shareTotals(): Promise<StoredBytes>;
   /** Share files of one owner (aggregate). */
   ownerTotals(uid: string): Promise<StoredBytes>;
-  /** Signed-in users' share files past `expires_at` (the cron skips them; phase 1 step 1.0). */
+  /** Signed-in users' share files past `expires_at`, waiting for the next cleanup run (phase 1 step 1.0). */
   expiredOwnedTotals(now: Date): Promise<StoredBytes>;
 }
 

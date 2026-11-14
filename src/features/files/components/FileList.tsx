@@ -140,7 +140,7 @@ export default function FileList({ files }: FileListProps) {
                 {expiredFiles.length} expired {expiredFiles.length === 1 ? 'file' : 'files'}
               </p>
               <p className="text-xs text-fg-muted mt-0.5">
-                Expired files can&apos;t be downloaded. Delete them to free up space, or reshare to set a new expiry.
+                Expired files can&apos;t be downloaded and are deleted automatically within a day. Reshare to set a new expiry and keep them.
               </p>
             </div>
           </div>

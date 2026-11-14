@@ -48,6 +48,6 @@ export type StorageSummaryDto = {
   share: StorageBytesDto | null;
   /** R2 prefix `chat/` (objects + bytes), cached. null when it failed. */
   chat: { objects: number; bytes: number } | null;
-  /** Signed-in users' share files past expiry, kept on purpose (D-7). */
+  /** Signed-in users' share files past expiry, waiting for the next cleanup run (phase 1 step 1.0). */
   notSwept: StorageBytesDto | null;
 };

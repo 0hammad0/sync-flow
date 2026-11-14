@@ -207,13 +207,15 @@ describe('UserService: screen guards', () => {
     expect(await auditRepo.list({ limit: 5 })).toMatchObject({ entries: [] });
   });
 
-  it('disable revokes sessions; role.set records before and after; every row names the target by email', async () => {
+  it('disable revokes sessions; enable, revoke and role.set are audited; every row names the target by email', async () => {
     expect((await service.disableUser(owner, target, { reason: 'spam' })).ok).toBe(true);
     expect(users.calls).toEqual([`disabled:${target}:true`, `revoke:${target}`]);
+    expect((await service.enableUser(owner, target)).ok).toBe(true);
     expect((await service.revokeUserSessions(owner, target)).ok).toBe(true);
     expect((await service.setUserRole(owner, target, 'viewer')).ok).toBe(true);
     const rows = (await auditRepo.list({ limit: 10 })).entries;
-    expect(rows.map((r) => r.action).sort()).toEqual(['role.set', 'user.disable', 'user.revoke_sessions']);
+    expect(rows.map((r) => r.action).sort()).toEqual(['role.set', 'user.disable', 'user.enable', 'user.revoke_sessions']);
+    expect(rows.find((r) => r.action === 'user.enable')).toMatchObject({ before: { disabled: true }, after: { disabled: false } });
     expect(rows.find((r) => r.action === 'role.set')).toMatchObject({
       before: { email: 'sara@example.com', role: null },
       after: { role: 'viewer' },
