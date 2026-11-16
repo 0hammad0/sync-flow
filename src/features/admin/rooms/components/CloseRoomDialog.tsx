@@ -5,6 +5,7 @@ import { blockedError } from '@/shared/lib/blocked';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
 import StepUpNotice from '@/features/admin/shell/StepUpNotice';
 import { formatBytes, formatNumber } from '@/features/admin/format';
+import { rateLimitedNotice } from '@/features/admin/rate-limited';
 import { closeRoom, type CloseRoomData } from '../actions';
 import { REASON_MAX, REASON_MIN } from '../constants';
 import type { RoomRowDto } from '../types';
@@ -48,6 +49,8 @@ export default function CloseRoomDialog({ open, onOpenChange, room, adminEmail, 
       setStepUp({ authAgeSec: result.authAgeSec ?? null });
       return { ok: false, error: result.error, message: 'Sign in again to close this room.' };
     }
+    const limited = rateLimitedNotice(result);
+    if (limited) return { ok: false, error: result.error, message: limited };
     if (result.error === 'not_found') {
       onGone();
       return { ok: true };

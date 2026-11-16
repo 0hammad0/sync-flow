@@ -88,4 +88,22 @@ describe('closeRoom action', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await closeRoom(input)).toMatchObject({ ok: false, error: 'internal', errorId: expect.any(String) });
   });
+
+  it('the 31st write in a minute is rate_limited with the wait, before step-up or the service (5.4)', async () => {
+    // Its own uid: the limiter is per uid and lives for the whole test file.
+    const uid = 'uidRateLimitedRoomsCCCCCCCCC';
+    h.closeRoom.mockResolvedValue(err(new NotFoundError('room')));
+    h.requireAdmin.mockResolvedValue({ ...ctx(60), uid });
+    for (let i = 0; i < 30; i++) expect(await closeRoom(input)).toMatchObject({ error: 'not_found' });
+    expect(h.closeRoom).toHaveBeenCalledTimes(30);
+
+    // A stale sign-in would be step_up_required; the limit answers first.
+    h.requireAdmin.mockResolvedValue({ ...ctx(16 * 60), uid });
+    const result = await closeRoom(input);
+    expect(result).toEqual({ ok: false, error: 'rate_limited', retryAfterSec: expect.any(Number) });
+    const wait = (result as { retryAfterSec: number }).retryAfterSec;
+    expect(wait).toBeGreaterThanOrEqual(1);
+    expect(wait).toBeLessThanOrEqual(60);
+    expect(h.closeRoom).toHaveBeenCalledTimes(30);
+  });
 });

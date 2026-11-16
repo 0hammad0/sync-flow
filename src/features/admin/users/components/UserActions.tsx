@@ -10,6 +10,7 @@ import DropdownMenu from '@/shared/ui/DropdownMenu';
 import AdminButton from '@/shared/ui/AdminButton';
 import { buttonClass } from '@/shared/ui/button-styles';
 import StepUpNotice from '@/features/admin/shell/StepUpNotice';
+import { rateLimitedMessage, rateLimitedNotice } from '@/features/admin/rate-limited';
 import { disableUser, enableUser, revokeUserSessions, setUserRole, type UserActionData } from '../actions';
 import { OWNER_CONFIRM, ROLE_CHOICES, type RoleChoice } from '../constants';
 import type { UserDetailDto } from '../types';
@@ -33,6 +34,7 @@ type UserActionsProps = {
 
 function message(result: Exclude<ActionResult<UserActionData>, { ok: true }>): string {
   if (result.error === 'blocked') return blockedError(result) ?? "You can't do this right now.";
+  if (result.error === 'rate_limited') return rateLimitedMessage(result.retryAfterSec);
   if (result.message) return result.message;
   if (result.error === 'forbidden') return 'Your role cannot do this.';
   if (result.error === 'invalid') return Object.values(result.fields ?? {})[0]?.[0] ?? 'Check the form and try again.';
@@ -93,6 +95,8 @@ export default function UserActions({ user, can, adminEmail }: UserActionsProps)
       setStepUp({ authAgeSec: 'authAgeSec' in result ? (result.authAgeSec ?? null) : null });
       return { ok: false, error: result.error, message: 'Sign in again to finish.' };
     }
+    const limited = rateLimitedNotice(result);
+    if (limited) return { ok: false, error: result.error, message: limited };
     return { ok: false, error: result.error, message: message(result) };
   };
 

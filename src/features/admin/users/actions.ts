@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { updateTag } from 'next/cache';
 import { z } from 'zod';
+import { enforceAdminWriteLimit } from '@/server/auth/admin-write-limit';
 import { requireAdmin } from '@/server/auth/require-admin';
 import { requireRecentAuth } from '@/server/auth/step-up';
 import type { Permission } from '@/server/auth/permissions';
@@ -17,7 +18,7 @@ import { USERS_TAG } from './queries';
 import { setUserRoleSchema, userActionSchema } from './schemas';
 
 // Users actions (13-users.md "Actions"). Each: block check (T-27) →
-// requireAdmin(permission) (T-6) → step-up where the spec says so → zod →
+// requireAdmin(permission) (T-6) → write limit (30/min per admin) → step-up where the spec says so → zod →
 // UserService, which refuses any action on your own account (so an owner can
 // never disable or demote themselves) and writes the audit row.
 
@@ -38,7 +39,7 @@ function failure(error: unknown): ActionFailure {
   return toActionFailure(error);
 }
 
-/** The shared frame: block check → auth → step-up → zod → run → cache clear. */
+/** The shared frame: block check → auth → write limit → step-up → zod → run → cache clear. */
 async function run<S extends z.ZodType>(
   step: Step,
   schema: S,
@@ -47,6 +48,7 @@ async function run<S extends z.ZodType>(
 ): Promise<ActionResult<UserActionData>> {
   try {
     const ctx = await requireAdmin(step.permission);
+    enforceAdminWriteLimit(ctx);
     if (step.stepUp) requireRecentAuth(ctx);
     const parsed = schema.safeParse(input);
     if (!parsed.success) return { ok: false, error: 'invalid', fields: z.flattenError(parsed.error).fieldErrors as Record<string, string[]> };

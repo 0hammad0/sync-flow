@@ -106,4 +106,12 @@ describe('users actions', () => {
     expect(row).toMatchObject({ action: 'user.disable', targetId: TARGET, reason: 'spam', userAgent: 'vitest' });
     expect(h.updateTag).toHaveBeenCalledWith('users');
   });
+
+  it('the shared run() frame limits every users action: 30 writes a minute per admin, then rate_limited (5.4)', async () => {
+    // Its own uid: the limiter is per uid and lives for the whole test file.
+    h.requireAdmin.mockResolvedValue({ ...ctx(60), uid: 'uidRateLimitedUsersDDDDDDDDD' });
+    for (let i = 0; i < 30; i++) await enableUser({ uid: TARGET });
+    expect(await disableUser({ uid: TARGET, reason: 'spam' })).toEqual({ ok: false, error: 'rate_limited', retryAfterSec: expect.any(Number) });
+    expect((await users.get(TARGET))?.disabled).toBe(false);
+  });
 });
