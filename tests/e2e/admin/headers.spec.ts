@@ -58,10 +58,10 @@ test('admin pages: every inline script is allowed by the nonce or the theme hash
 /**
  * Violations already known in the report-only stage. Each must be fixed (or
  * consciously allowed in the policy) before switching to enforce.
- * - `script-src eval`: the shared client chunk carries Node polyfills whose
- *   `is-generator-function` calls `Function()` once, inside try/catch.
+ * None today. The old `script-src eval` came from Node polyfills pulled in by
+ * `src/shared/lib/utils.ts` importing Node `crypto`; it now uses Web Crypto.
  */
-const KNOWN_VIOLATIONS = new Set(['script-src eval']);
+const KNOWN_VIOLATIONS = new Set<string>([]);
 
 test('admin sign-in: no CSP violations beyond the known list', async ({ page }) => {
   await page.addInitScript(() => {
