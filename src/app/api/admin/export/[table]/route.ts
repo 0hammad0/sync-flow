@@ -3,6 +3,7 @@ import { after } from 'next/server';
 import { planExport, errorKind, type ExportPlan } from '@/features/admin/export/export-data';
 import { parseExportRequest, searchRecord } from '@/features/admin/export/schemas';
 import { EXPORT_MAX_ROWS, isExportTable } from '@/features/admin/export/tables';
+import { checkAdminWriteLimit } from '@/server/auth/admin-write-limit';
 import { can } from '@/server/auth/permissions';
 import { requireAdminForRoute } from '@/server/auth/require-admin';
 import type { AdminContext } from '@/server/auth/types';
@@ -10,6 +11,7 @@ import { assertNotBlocked, blockedApiResponse } from '@/server/blocklist/assert-
 import { clientIp } from '@/server/blocklist/request';
 import { getContainer } from '@/server/container';
 import { getQuota } from '@/server/container-light';
+import { tooManyRequests } from '@/shared/lib/rate-limit';
 import { CSV_BOM, csvFileName, csvHeaderLine, csvRowLine } from '@/server/export/csv';
 
 // GET /api/admin/export/{sessions|pages|countries|sources}?{the screen's params}
@@ -102,6 +104,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const auth = await requireAdminForRoute('export:csv');
   if (!auth.ok) return auth.response;
   const { ctx } = auth;
+  // Each export writes an audit row and can read up to 5,000 docs: share the
+  // per-admin write limit (5.4) so a loop can't spend the day's read budget.
+  const limit = checkAdminWriteLimit(ctx);
+  if (!limit.allowed) return tooManyRequests('rate_limited', limit.retryAfterSec * 1000);
 
   const { table } = await params;
   if (!isExportTable(table)) return fail(404, 'unknown_table', 'There is no export for this table.');

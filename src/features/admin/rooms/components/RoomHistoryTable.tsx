@@ -90,7 +90,7 @@ function buildColumns(canSeeUsers: boolean): AdminColumnDef<RoomHistoryRowDto>[]
         const by = info.getValue();
         if (by === 'cron') return 'Expired';
         return canSeeUsers ? (
-          <Link className="text-brand-text hover:underline" href={`/admin/users/${by}`}>
+          <Link className="text-brand-text hover:underline" href={`/admin/users/${encodeURIComponent(by)}`}>
             Closed by admin
           </Link>
         ) : (

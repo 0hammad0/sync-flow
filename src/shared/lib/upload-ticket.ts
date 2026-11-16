@@ -1,3 +1,4 @@
+import 'server-only';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { objectSize, deleteObject } from '@/shared/lib/r2';
 
