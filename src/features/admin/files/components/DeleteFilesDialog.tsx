@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { signOutAdmin } from '@/features/admin/auth/sign-out';
+import { rateLimitedNotice } from '@/features/admin/rate-limited';
 import { blockedError } from '@/shared/lib/blocked';
 import AdminButton from '@/shared/ui/AdminButton';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
@@ -38,7 +39,10 @@ type DeleteFilesDialogProps = {
 
 const STEP_UP = 'Deleting needs a sign-in from the last 15 minutes. Sign out, sign in again, then retry.';
 
-function failureMessage(result: { error: string; message?: string; errorId?: string }): string {
+/** The inline error text. A rate-limited result also shows the wait toast (rateLimitedNotice). */
+function failureMessage(result: { error: string; message?: string; errorId?: string; retryAfterSec?: number }): string {
+  const limited = rateLimitedNotice(result);
+  if (limited) return limited;
   switch (result.error) {
     case 'blocked':
       return blockedError(result) ?? "You can't do this right now.";

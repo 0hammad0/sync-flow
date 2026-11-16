@@ -13,6 +13,13 @@
  *    with a reason. Problems go to stderr and the script exits 1.
  *    The proxy blocks action requests anyway; this is the second check
  *    (T-6 style), so a matcher gap cannot silently open a route.
+ *
+ * 3. Admin write-limit check (phase 5.4): every export of a 'use server' file
+ *    under src/features/admin must call `enforceAdminWriteLimit(` (30 writes
+ *    a minute per admin), in its own body or in a function of the same file
+ *    that it calls (users/actions.ts calls it once in its shared `run()`).
+ *    A read-only action goes on WRITE_LIMIT_ALLOWLIST with a reason.
+ *    Same stderr + exit 1 as check 2.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -21,6 +28,14 @@ import ts from 'typescript';
 const ROOT = process.cwd();
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BLOCK_CHECK = 'assertNotBlocked';
+const WRITE_LIMIT = 'enforceAdminWriteLimit';
+const ADMIN_ACTIONS = /^src\/features\/admin\//;
+
+/**
+ * Admin server actions that may skip `enforceAdminWriteLimit()`: read-only
+ * ones only (nothing written, nothing deleted). Same shape as BLOCK_ALLOWLIST.
+ */
+const WRITE_LIMIT_ALLOWLIST = [];
 
 /**
  * Action entry points that may skip `assertNotBlocked()`. `path` is a
@@ -132,19 +147,37 @@ function bodyOf(locals, name, seen = new Set()) {
   return null;
 }
 
-function callsBlockCheck(node) {
+/**
+ * Whether `node` calls `fn(…)`. With `locals`, a call to another top-level
+ * function of the same file is followed too (once each), so a check in a
+ * shared helper counts for every export that calls the helper.
+ */
+function calls(node, fn, locals = null, seen = new Set()) {
   let found = false;
   const visit = (n) => {
     if (found) return;
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === BLOCK_CHECK) found = true;
-    else ts.forEachChild(n, visit);
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const callee = n.expression.text;
+      if (callee === fn) {
+        found = true;
+        return;
+      }
+      if (locals && !seen.has(callee)) {
+        const body = bodyOf(locals, callee, seen);
+        if (body && calls(body, fn, locals, seen)) {
+          found = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
   };
   visit(node);
   return found;
 }
 
-function allowed(path, name) {
-  return BLOCK_ALLOWLIST.find(
+function allowed(path, name, list = BLOCK_ALLOWLIST) {
+  return list.find(
     (rule) =>
       (typeof rule.path === 'string' ? rule.path === path : rule.path.test(path)) && (!rule.name || rule.name === name)
   );
@@ -163,16 +196,28 @@ for (const file of walk(join(ROOT, 'src'))) {
   const { locals, exported } = declarations(sf);
   for (const name of exported) {
     if (isRoute && !METHODS.includes(name)) continue;
-    actionEntries.push({ kind: isRoute ? 'route' : 'action', path, name, body: bodyOf(locals, name) });
+    actionEntries.push({ kind: isRoute ? 'route' : 'action', path, name, body: bodyOf(locals, name), locals });
   }
 }
 
 const problems = [];
+const limitProblems = [];
+let adminActions = 0;
 for (const entry of actionEntries) {
+  if (entry.kind === 'action' && ADMIN_ACTIONS.test(entry.path)) {
+    adminActions += 1;
+    if (!allowed(entry.path, entry.name, WRITE_LIMIT_ALLOWLIST)) {
+      if (!entry.body) {
+        limitProblems.push(`${entry.path} ${entry.name}: not a plain function, so the check cannot be seen; write it as one or allowlist it`);
+      } else if (!calls(entry.body, WRITE_LIMIT, entry.locals)) {
+        limitProblems.push(`${entry.path} ${entry.name}: admin action does not call enforceAdminWriteLimit()`);
+      }
+    }
+  }
   if (allowed(entry.path, entry.name)) continue;
   if (!entry.body) {
     problems.push(`${entry.path} ${entry.name}: not a plain function, so the check cannot be seen; write it as one or allowlist it`);
-  } else if (!callsBlockCheck(entry.body)) {
+  } else if (!calls(entry.body, BLOCK_CHECK)) {
     problems.push(`${entry.path} ${entry.name}: ${entry.kind} does not call assertNotBlocked()`);
   }
 }
@@ -184,6 +229,15 @@ if (problems.length > 0) {
       problems.map((p) => `  - ${p}`).join('\n') +
       '\n'
   );
-  process.exit(1);
 }
+if (limitProblems.length > 0) {
+  process.stderr.write(
+    `\nAdmin write-limit check failed (${limitProblems.length}). Call enforceAdminWriteLimit(ctx) right after requireAdmin(), ` +
+      `or, for a read-only action, add it to WRITE_LIMIT_ALLOWLIST in scripts/list-admin-entry-points.mjs with a reason:\n` +
+      limitProblems.map((p) => `  - ${p}`).join('\n') +
+      '\n'
+  );
+}
+if (problems.length > 0 || limitProblems.length > 0) process.exit(1);
 process.stderr.write(`Visitor-block check: ${actionEntries.length} action entry points, all checked or allowlisted.\n`);
+process.stderr.write(`Admin write-limit check: ${adminActions} admin actions, all limited or allowlisted.\n`);
