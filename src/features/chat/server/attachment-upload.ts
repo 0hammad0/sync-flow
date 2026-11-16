@@ -1,3 +1,4 @@
+import 'server-only';
 // Validation for chat attachment uploads. Shared by
 // /api/chat/[roomCode]/attachments/presign (direct-to-R2) and the
 // multipart POST /api/chat/[roomCode]/attachments, so both apply the same rules.

@@ -17,6 +17,27 @@ let vitalsCb: VitalsCb | null = null;
 const watchVitals = vi.fn((cb: VitalsCb) => (vitalsCb = cb));
 vi.mock('@/features/tracking/client/vitals', () => ({ watchVitals: (cb: VitalsCb) => watchVitals(cb) }));
 
+// Click capture is its own lazy chunk; the tracker hands it `click()`.
+type ClickCb = (event: Record<string, unknown>) => void;
+let clickCb: ClickCb | null = null;
+const watchClicks = vi.fn((cb: ClickCb) => (clickCb = cb));
+// The clicks chunk is also the way to web-vitals (one loader stub in the tracker chunk, not two).
+vi.mock('@/features/tracking/client/clicks', () => ({
+  watch: (cb: ClickCb) => watchClicks(cb),
+  vitals: (cb: VitalsCb) => watchVitals(cb),
+}));
+const clickEvent = (type: 'click' | 'rage' | 'dead' = 'click') => ({
+  type,
+  t: Date.now(),
+  path: '',
+  target: 'chat-send',
+  label: 'Send',
+  x_pct: 50,
+  y: 120,
+  doc_h: 900,
+  vw_bucket: 'sm',
+});
+
 type Tracker = typeof import('@/features/tracking/client/tracker');
 type Sent = { sid: string; seq: number; final?: boolean; events: Record<string, unknown>[] };
 
@@ -89,6 +110,7 @@ beforeEach(() => {
   visibility = 'visible';
   referrer = '';
   vitalsCb = null;
+  clickCb = null;
   vi.clearAllMocks();
   sessionStorage.clear();
   for (const name of ['sf_cr', 'sf_consent']) document.cookie = `${name}=; Max-Age=0; Path=/`;
@@ -223,11 +245,12 @@ describe('caps and session id', () => {
     expect(JSON.parse(sessionStorage.getItem('sf_s')!).p).toBe(100);
   });
 
-  it('counts at most 300 clicks per session (phase 4 asks takeClick)', async () => {
-    const t = await startAt('/');
-    let taken = 0;
-    for (let i = 0; i < 350; i++) if (t.takeClick()) taken++;
-    expect(taken).toBe(300);
+  it('counts at most 300 click events per session (clicks chunk → click())', async () => {
+    await startAt('/');
+    expect(watchClicks).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 350; i++) clickCb!(clickEvent(i % 10 === 0 ? 'rage' : 'click'));
+    hide();
+    expect(sent.flatMap((b) => b.events).filter((e) => e.type === 'click' || e.type === 'rage')).toHaveLength(300);
     expect(JSON.parse(sessionStorage.getItem('sf_s')!).c).toBe(300);
   });
 
@@ -293,6 +316,37 @@ describe('engaged time', () => {
     vi.advanceTimersByTime(20); // requestAnimationFrame
     hide();
     expect(events('engage')[0].scroll).toBe(50);
+  });
+});
+
+describe('clicks (phase 4)', () => {
+  it('ride on the next flush (no request per click) with the masked path, and pass the server schema', async () => {
+    await startAt('/chat/AB12CD');
+    clickCb!(clickEvent());
+    clickCb!(clickEvent('dead'));
+    expect(sent).toHaveLength(0);
+    hide();
+    expect(sent).toHaveLength(1);
+    const clicks = sent[0].events.filter((e) => e.type === 'click' || e.type === 'dead');
+    expect(clicks.map((e) => e.path)).toEqual(['/chat/[code]', '/chat/[code]']);
+    const parsed = parseBeacon(sent[0]);
+    expect(parsed?.invalid).toBe(0);
+    expect(parsed?.events.filter((e) => e.type === 'click')).toHaveLength(1);
+  });
+
+  it('a click on a page that is not recorded is dropped', async () => {
+    await startAt('/admin/users');
+    clickCb?.(clickEvent());
+    hide();
+    expect(sent.flatMap((b) => b.events).filter((e) => e.type === 'click')).toHaveLength(0);
+  });
+
+  it('nothing is recorded after stop()', async () => {
+    const t = await startAt('/');
+    t.stop();
+    clickCb!(clickEvent());
+    hide();
+    expect(sent).toHaveLength(0);
   });
 });
 

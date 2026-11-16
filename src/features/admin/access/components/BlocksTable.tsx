@@ -14,6 +14,7 @@ import Tooltip from '@/shared/ui/Tooltip';
 import DataTable from '@/shared/ui/data-table/DataTable';
 import AdminButton from '@/shared/ui/AdminButton';
 import { createAdminColumnHelper, type AdminColumnDef } from '@/shared/ui/data-table/types';
+import { rateLimitedMessage } from '@/features/admin/rate-limited';
 import { unblockSubject } from '../actions';
 import { formatExpiry, formatHits, formatUtc } from '../format';
 import type { AccessActorDto, BlockCountsDto, BlockRowDto } from '../types';
@@ -79,7 +80,9 @@ export default function BlocksTable({ rows, counts, status, type, page, canWrite
       const reason =
         result.error === 'blocked'
           ? (blockedError(result) ?? "You can't do this right now.")
-          : (result.message ?? (result.error === 'not_found' ? 'This block no longer exists.' : 'Please try again.'));
+          : result.error === 'rate_limited'
+            ? rateLimitedMessage(result.retryAfterSec)
+            : (result.message ?? (result.error === 'not_found' ? 'This block no longer exists.' : 'Please try again.'));
       void toast('error', "Couldn't unblock", reason);
       if (result.error === 'conflict' || result.error === 'not_found') router.refresh();
     });

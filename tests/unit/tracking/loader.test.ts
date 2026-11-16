@@ -75,6 +75,23 @@ describe('begin(): stop rules before the tracker chunk is fetched', () => {
     expect(tracker.start).not.toHaveBeenCalled();
   });
 
+  it('the admin click-map preview (framed, ?sf_preview=1) never fetches the tracker', async () => {
+    history.replaceState(null, '', '/?sf_preview=1');
+    vi.stubGlobal('top', {});
+    const { begin } = await freshLoader();
+    begin();
+    await settle();
+    expect(tracker.start).not.toHaveBeenCalled();
+  });
+
+  it('?sf_preview=1 outside a frame is a normal visit', async () => {
+    history.replaceState(null, '', '/?sf_preview=1');
+    const { begin } = await freshLoader();
+    begin();
+    await settle();
+    expect(tracker.start).toHaveBeenCalledTimes(1);
+  });
+
   it('starts after Accept or in a known non-consent region (the tracker re-checks the rest)', async () => {
     document.cookie = 'sf_consent=y; Path=/';
     document.cookie = 'sf_cr=eu; Path=/';

@@ -73,7 +73,7 @@ describe('check:entry-points visitor-block check', () => {
 
   it('passes an action that skips the check for one role only (unblockSubject, owner lockout)', () => {
     const run = fixture({
-      'src/features/admin/access/actions.ts': `'use server';\nexport async function unblockSubject(input: unknown) {\n  const ctx = await requireAdmin('blocks:write');\n  if (ctx.role !== 'owner') {\n    const blocked = await assertNotBlocked();\n    if (blocked) return { ok: false };\n  }\n  return { ok: true };\n}\n`,
+      'src/features/admin/access/actions.ts': `'use server';\nexport async function unblockSubject(input: unknown) {\n  const ctx = await requireAdmin('blocks:write');\n  enforceAdminWriteLimit(ctx);\n  if (ctx.role !== 'owner') {\n    const blocked = await assertNotBlocked();\n    if (blocked) return { ok: false };\n  }\n  return { ok: true };\n}\n`,
     });
     expect(run.status).toBe(0);
     expect(run.stderr).toMatch(/1 action entry points/);
@@ -82,5 +82,44 @@ describe('check:entry-points visitor-block check', () => {
   it('ignores files that are not entry points', () => {
     const run = fixture({ 'src/shared/lib/util.ts': `export async function helper() {}\n` });
     expect(run.status).toBe(0);
+  });
+});
+
+// Part 3: the admin write-limit check (phase 5.4).
+const adminAction = (body: string) =>
+  `'use server';\nexport async function doIt(input: unknown) {\n  const blocked = await assertNotBlocked();\n  if (blocked) return { ok: false };\n${body}  return { ok: true };\n}\n`;
+
+describe('check:entry-points admin write-limit check', () => {
+  it('passes an admin action that calls enforceAdminWriteLimit() after requireAdmin()', () => {
+    const run = fixture({
+      'src/features/admin/x/actions.ts': adminAction(`  const ctx = await requireAdmin('x:write');\n  enforceAdminWriteLimit(ctx);\n`),
+    });
+    expect(run.status).toBe(0);
+    expect(run.stderr).toMatch(/Admin write-limit check: 1 admin actions/);
+  });
+
+  it('flags an admin write action without it, even if a comment or string names it', () => {
+    const run = fixture({
+      'src/features/admin/x/actions.ts': adminAction(`  // enforceAdminWriteLimit(ctx) later\n  const s = 'enforceAdminWriteLimit(ctx)';\n  await requireAdmin('x:write');\n`),
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toMatch(/src\/features\/admin\/x\/actions\.ts doIt: admin action does not call enforceAdminWriteLimit\(\)/);
+    expect(run.stderr).not.toMatch(/Visitor-block check failed/);
+  });
+
+  it('follows a shared helper in the same file (users/actions.ts run())', () => {
+    const shared = (inner: string) =>
+      `'use server';\nasync function run(p: string) {\n  const ctx = await requireAdmin(p);\n${inner}  return { ok: true };\n}\n` +
+      `export async function a() {\n  const blocked = await assertNotBlocked();\n  if (blocked) return { ok: false };\n  return run('x:write');\n}\n`;
+    expect(fixture({ 'src/features/admin/users/actions.ts': shared('  enforceAdminWriteLimit(ctx);\n') }).status).toBe(0);
+    const bad = fixture({ 'src/features/admin/users/actions.ts': shared('') });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toMatch(/users\/actions\.ts a: admin action does not call enforceAdminWriteLimit/);
+  });
+
+  it('does not apply to server actions outside the admin', () => {
+    const run = fixture({ 'src/features/files/server/files.ts': adminAction('') });
+    expect(run.status).toBe(0);
+    expect(run.stderr).toMatch(/Admin write-limit check: 0 admin actions/);
   });
 });

@@ -1,3 +1,4 @@
+import 'server-only';
 // Central configuration for every AI feature. This is the one file to edit
 // as the AI layer evolves: add a task, tune a prompt, change models, or
 // flip features off — the API route and the UI adapt automatically.

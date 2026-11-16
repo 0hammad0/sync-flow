@@ -12,15 +12,17 @@ type TopBarProps = {
   /** Nav and footer for the < 768 px drawer. */
   drawerNav: ReactNode;
   drawerFooter: ReactNode;
+  /** The ⌘K button (CommandPaletteTrigger); also the touch way in. */
+  search: ReactNode;
 };
 
 /**
  * 56 px, sticky (48 px and not sticky on landscape phones). Left: ☰ (< 768)
  * and breadcrumbs. Right: the account avatar (< 768; the sidebar has it above).
  * Date range (analytics pages) and "N online" (≥ 1024 px, polled every 60 s).
- * ⌘K arrives with its phase.
+ * ⌘K opens the command palette (button for touch, lazy chunk).
  */
-export default function TopBar({ email, role, drawerNav, drawerFooter }: TopBarProps) {
+export default function TopBar({ email, role, drawerNav, drawerFooter, search }: TopBarProps) {
   return (
     <header className="sticky top-0 z-30 flex h-[var(--admin-topbar-h)] shrink-0 items-center gap-2 border-b border-edge bg-surface/90 px-4 sm:px-6 xl:px-8 short:static short:h-12">
       <MobileNav nav={drawerNav} footer={drawerFooter} />
@@ -30,6 +32,7 @@ export default function TopBar({ email, role, drawerNav, drawerFooter }: TopBarP
         <Suspense fallback={null}>
           <DateRangePicker />
         </Suspense>
+        {search}
         <OnlineNowDot />
         <div className="flex items-center md:hidden">
           <AccountMenu email={email} role={role} variant="compact" />

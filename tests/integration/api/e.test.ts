@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const scheduled: (() => unknown)[] = [];
 const ingest = vi.fn(async (...args: unknown[]) => (void args, 'written'));
-const tracking = { enabled: true as boolean, peek: null as boolean | null, fail: false };
+const tracking = {
+  enabled: true as boolean,
+  consentMode: 'eu_uk' as 'none' | 'eu_uk' | 'all',
+  peek: null as boolean | null,
+  fail: false,
+};
 
 vi.mock('next/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/server')>()),
@@ -16,9 +21,9 @@ vi.mock('next/server', async (importOriginal) => ({
 vi.mock('@/server/container-light', () => ({
   getIngest: () => ({
     ingest,
-    trackingEnabled: async () => {
+    probeSettings: async () => {
       if (tracking.fail) throw new Error('no settings');
-      return tracking.enabled;
+      return { trackingEnabled: tracking.enabled, consentMode: tracking.consentMode };
     },
   }),
   peekTrackingEnabled: () => tracking.peek,
@@ -58,7 +63,7 @@ describe('POST /api/e', () => {
   beforeEach(() => {
     scheduled.length = 0;
     ingest.mockClear();
-    Object.assign(tracking, { enabled: true, peek: null, fail: false });
+    Object.assign(tracking, { enabled: true, consentMode: 'eu_uk', peek: null, fail: false });
     vi.unstubAllEnvs();
   });
 
@@ -154,7 +159,7 @@ describe('POST /api/e', () => {
 
 describe('GET /api/e (region and kill-switch probe)', () => {
   beforeEach(() => {
-    Object.assign(tracking, { enabled: true, peek: null, fail: false });
+    Object.assign(tracking, { enabled: true, consentMode: 'eu_uk', peek: null, fail: false });
     vi.unstubAllEnvs();
   });
 
@@ -185,6 +190,15 @@ describe('GET /api/e (region and kill-switch probe)', () => {
     const res = await probe({ 'x-vercel-ip-country': 'US' });
     expect(res.status).toBe(204);
     expect(res.headers.get('set-cookie')).toMatch(/^sf_cr=off;/);
+  });
+
+  it('consent mode from settings: all asks everyone, none asks nobody', async () => {
+    tracking.consentMode = 'all';
+    expect((await probe({ 'x-vercel-ip-country': 'PK' })).headers.get('set-cookie')).toMatch(/^sf_cr=eu;/);
+    tracking.consentMode = 'none';
+    expect((await probe({ 'x-vercel-ip-country': 'DE' })).headers.get('set-cookie')).toMatch(/^sf_cr=ok;/);
+    tracking.enabled = false;
+    expect((await probe({ 'x-vercel-ip-country': 'DE' })).headers.get('set-cookie')).toMatch(/^sf_cr=off;/);
   });
 
   it('marks the cookie Secure over https', async () => {

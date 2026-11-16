@@ -1517,6 +1517,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             )}
             <button
               onClick={() => void handleInvite()}
+              data-track="chat-invite"
               className={`p-2 bg-surface border border-edge rounded-lg hover:bg-surface-3 cursor-pointer transition-colors ${
                 inviteCopied ? 'text-success-text' : 'text-fg-muted hover:text-fg'
               }`}
@@ -1660,6 +1661,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             with a height animation and glow. */}
         {summary !== null && (
           <div
+            data-private
             className={`relative mx-2 sm:mx-4 mt-1.5 px-2.5 py-2 pr-8 bg-brand/5 border rounded-lg animate-fade-in transition-all duration-300 ${
               summaryExpanded ? 'border-brand/40 shadow-[var(--glow)]' : 'border-brand/20'
             }`}
@@ -1718,6 +1720,8 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
             if (fromBottom < 200) setUnseenCount(0);
           }}
           data-chat-scroll
+          // Click tracking drops every label in here: message text never leaves the browser.
+          data-private
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-4 py-3 sm:py-4 space-y-3 bg-canvas/50"
           aria-live="polite"
         >
@@ -1771,6 +1775,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                 <button
                   type="button"
                   onClick={() => void handleInvite()}
+              data-track="chat-invite"
                   className="flex items-center gap-2 px-5 py-2.5 bg-flow text-white text-sm font-medium rounded-xl btn-hover hover:shadow-[var(--glow)] hover:brightness-110 cursor-pointer transition-all duration-200"
                 >
                   <UserPlus className="w-4 h-4" />
@@ -1901,7 +1906,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
 
           {/* Reply preview (WhatsApp-style bar above the input) */}
           {replyTo && (
-            <div className="flex items-start gap-2 p-2 bg-surface-2 border-l-4 border-brand rounded-lg animate-fade-in">
+            <div data-private className="flex items-start gap-2 p-2 bg-surface-2 border-l-4 border-brand rounded-lg animate-fade-in">
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-brand-text">{replyTo.sender_name}</p>
                 <p className="text-xs text-fg-muted truncate">
@@ -1963,7 +1968,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
 
           {/* Pending attachment chips — uploaded files waiting to be sent */}
           {pendingAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-1 animate-fade-in">
+            <div data-private className="flex flex-wrap gap-1.5 px-1 animate-fade-in">
               {pendingAttachments.map((att, i) => {
                 const mime = att.mime_type || '';
                 const Icon = mime.startsWith('image/')
@@ -2213,6 +2218,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
                   }`}
                   title="Attach photo, video, or file"
                   aria-label="Attach photo, video, or file"
+                  data-track="chat-attach"
                 >
                   <Paperclip className="w-5 h-5" />
                 </button>
@@ -2268,6 +2274,7 @@ export default function ChatRoom({ room, joinUrl }: ChatRoomProps) {
               }`}
               title="Send"
               aria-label="Send message"
+              data-track="chat-send"
             >
               {sending ? (
                 <LoadingSpinner size="sm" className="text-white" />

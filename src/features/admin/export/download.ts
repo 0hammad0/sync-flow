@@ -18,6 +18,10 @@ export async function failureOf(res: Response): Promise<{ message: string; final
   if (body?.error === 'blocked') return { message: BLOCKED_MESSAGE, final: true };
   if (res.status === 401) return { message: 'Your session ended. Sign in again, then retry.', final: true };
   if (res.status === 403 && body?.error === 'forbidden') return { message: "Your role can't export data.", final: true };
+  if (res.status === 429 && body?.error === 'rate_limited') {
+    const sec = Number(res.headers.get('Retry-After'));
+    return { message: `Too many requests in a short time. Try again in ${sec > 0 ? sec : 60} seconds.`, final: true };
+  }
   const message = typeof body?.message === 'string' ? body.message : "Couldn't export. Try again.";
   return { message, final: res.status === 429 || res.status === 403 || res.status === 404 };
 }

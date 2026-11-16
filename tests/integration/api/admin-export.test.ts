@@ -20,6 +20,7 @@ import { MemoryEventRepository } from '../../support/memory-event-repository';
 const TODAY = '2026-11-13';
 
 const mocks = vi.hoisted(() => ({
+  writeLimit: vi.fn(),
   requireAdmin: vi.fn(),
   assertNotBlocked: vi.fn(),
   container: null as unknown,
@@ -53,6 +54,7 @@ vi.mock('@/server/auth/require-admin', async (importOriginal) => {
       real.requireAdminForRoute(permission, mocks.requireAdmin),
   };
 });
+vi.mock('@/server/auth/admin-write-limit', () => ({ checkAdminWriteLimit: mocks.writeLimit }));
 vi.mock('@/server/container', () => ({ getContainer: () => mocks.container }));
 vi.mock('@/server/container-light', () => ({
   getEventRepository: () => mocks.repo,
@@ -152,6 +154,7 @@ let auditRepo: MemoryAuditRepository;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.writeLimit.mockReturnValue({ allowed: true });
   seq = 0;
   mocks.usedReads = 0;
   repo = new MemoryEventRepository();
@@ -203,6 +206,16 @@ describe('/api/admin/export auth', () => {
     const res = await call('/api/admin/export/sessions?range=7d');
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ ok: false, error: 'unauthorized' });
+    expect(repo.reads).toBe(0);
+    expect(await auditRows()).toEqual([]);
+  });
+
+  it('answers 429 + Retry-After when the admin is over the per-admin limit, and reads nothing', async () => {
+    mocks.writeLimit.mockReturnValue({ allowed: false, retryAfterSec: 12 });
+    const res = await call('/api/admin/export/sessions?range=7d');
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('12');
+    expect(await res.json()).toMatchObject({ error: 'rate_limited' });
     expect(repo.reads).toBe(0);
     expect(await auditRows()).toEqual([]);
   });

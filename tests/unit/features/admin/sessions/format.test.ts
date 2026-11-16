@@ -17,6 +17,7 @@ const page = (id: string, ts: string | null, path = `/${id}`): TimelinePageDto =
   engagedMs: 1000,
   wallMs: 2000,
   scrollMax: 50,
+  clicks: [],
 });
 
 describe('timelineItems', () => {

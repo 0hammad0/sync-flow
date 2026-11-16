@@ -128,4 +128,17 @@ describe('DeleteFilesDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out and sign in again' }));
     expect(signOut.signOutAdmin).toHaveBeenCalledTimes(1);
   });
+
+  it('a rate-limited delete shows a toast with the wait and the same text inline (5.4)', async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.error).mockClear();
+    actions.deleteFile.mockResolvedValue({ ok: false, error: 'rate_limited', retryAfterSec: 12 });
+    render(<DeleteFilesDialog open onOpenChange={vi.fn()} ids={[ID]} label="PDF file (2.5 MB)" onDone={vi.fn()} actions={actionProps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Try again in 12 seconds/));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Too many changes', { description: expect.stringMatching(/Try again in 12 seconds\./) }),
+    );
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
 });

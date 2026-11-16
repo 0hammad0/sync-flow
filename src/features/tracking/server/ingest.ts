@@ -7,6 +7,7 @@ import {
   MAX_BODY_BYTES,
   parseBeacon,
   type Beacon,
+  type ClickEvent,
   type EngageEvent,
   type PageviewEvent,
   type VitalsEvent,
@@ -15,8 +16,10 @@ import {
   DEFAULT_TRACKING_SETTINGS,
   applySessionPatch,
   dayKey,
+  MAX_CLICKS_PER_SESSION,
   rollupHour,
   sessionRollup,
+  type ClickEntry,
   type SessionPatch,
   type SessionSetFields,
   type TrackingSettings,
@@ -193,7 +196,36 @@ export function buildSessionPatch(beacon: Beacon, info: Enriched, ctx: PatchCont
     engaged += e.ms;
   }
 
-  return { id: beacon.sid, now: ctx.now, set, increment: { pageviews: pageviews.length, engaged_ms: engaged }, pages };
+  // Clicks ride in this same write (arrayUnion), never a write of their own.
+  const clicks: ClickEntry[] = beacon.events
+    .filter((e): e is ClickEvent => e.type === 'click' || e.type === 'rage' || e.type === 'dead')
+    .sort((a, b) => a.t - b.t)
+    .map((e) => ({
+      ts: clampTs(e.t, ctx.now),
+      path: e.path,
+      target: e.target,
+      label: e.label ?? null,
+      x_pct: e.x_pct,
+      y_px: e.y,
+      doc_h: e.doc_h,
+      vw_bucket: e.vw_bucket,
+      rage: e.type === 'rage',
+      dead: e.type === 'dead',
+    }));
+  const clickCount = clicks.filter((c) => !c.rage && !c.dead).length;
+
+  const patch: SessionPatch = {
+    id: beacon.sid,
+    now: ctx.now,
+    set,
+    increment: { pageviews: pageviews.length, engaged_ms: engaged },
+    pages,
+  };
+  if (clicks.length > 0) {
+    patch.clicks = clicks;
+    patch.increment.click_count = clickCount;
+  }
+  return patch;
 }
 
 /** Sampling keeps 1 in 2 sessions, by the session id, so every flush of a session gets the same answer. */
@@ -359,6 +391,12 @@ export class IngestService {
     return (await this.settings.get()).trackingEnabled;
   }
 
+  /** Kill switch + consent mode for `GET /api/e`, from the same 60 s cache. */
+  async probeSettings(): Promise<Pick<TrackingSettings, 'trackingEnabled' | 'consentMode'>> {
+    const { trackingEnabled, consentMode } = await this.settings.get();
+    return { trackingEnabled, consentMode };
+  }
+
   /** The cached kill switch without a read, or `null` before the first read. Safe before the 204. */
   peekTrackingEnabled(): boolean | null {
     return this.settings.peek()?.trackingEnabled ?? null;
@@ -444,6 +482,16 @@ export class IngestService {
       return null;
     }
     if (existing?.rolled_up) return null;
+    // The final flush already reads the doc: hold the 300-click cap here too.
+    // The tracker enforces it; non-final flushes are not trimmed (no read),
+    // so a tampered client can store more, but sessionRollup counts only 300.
+    if (patch.clicks) {
+      const room = Math.max(0, MAX_CLICKS_PER_SESSION - (existing?.clicks.length ?? 0));
+      if (patch.clicks.length > room) {
+        patch.clicks = patch.clicks.slice(0, room);
+        patch.increment.click_count = patch.clicks.filter((c) => !c.rage && !c.dead).length;
+      }
+    }
     patch.set.rolled_up = true;
     const merged = applySessionPatch(existing, patch);
     const delta = sessionRollup(merged);

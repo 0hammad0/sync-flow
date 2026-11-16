@@ -7,6 +7,7 @@ import {
   clientIp,
   findBlockForRequest,
 } from '@/server/blocklist/request';
+import { adminCspHeaders, isAdminPagePath } from '@/server/security/csp';
 import { SESSION_COOKIE } from '@/shared/lib/firebase/session';
 import { updateSession } from '@/shared/lib/firebase/proxy';
 import { safeNextPath } from '@/shared/lib/safe-next';
@@ -54,7 +55,14 @@ async function handle(request: NextRequest): Promise<Response> {
   // public pages) need nothing else from the proxy.
   if (!isSessionPath(path)) return NextResponse.next();
 
-  const response = await updateSession(request);
+  // Admin pages: fresh nonce + report-only CSP on every response, redirects
+  // included. Public pages never get here, so they stay static.
+  const csp = isAdminPagePath(path) ? adminCspHeaders(request) : null;
+  const response = await updateSession(
+    request,
+    csp ? () => NextResponse.next({ request: { headers: csp.requestHeaders } }) : undefined,
+  );
+  if (csp) for (const [name, value] of csp.responseHeaders) response.headers.set(name, value);
 
   // updateSession only knows "/login" and "/dashboard"; carry the return path
   // through those redirects so the user lands back where they started.
@@ -82,7 +90,8 @@ async function handle(request: NextRequest): Promise<Response> {
  * The proxy runs only where it has work, so a public page view never invokes it:
  * 1. Session pages (redirects only, no blocklist read): /dashboard, /login, /admin.
  * 2. Every /api route, except the never-blocked ones that would only pay for a
- *    pass-through: /api/e (tracker), /api/cleanup and /api/admin/cron (CRON_SECRET).
+ *    pass-through: /api/e (tracker), /api/csp-report (browser CSP reports),
+ *    /api/cleanup and /api/admin/cron (CRON_SECRET).
  *    `DELETE /api/session` is excluded by method inside isActionRequest.
  * 3. Server actions on any page: JS calls carry `next-action`; no-JS form posts
  *    carry a form content type. A GET page view has neither.
@@ -93,7 +102,7 @@ export const config = {
     '/dashboard/:path*',
     '/login',
     '/admin/:path*',
-    '/api/((?!e(?:/|$)|cleanup(?:/|$)|admin/cron(?:/|$)).*)',
+    '/api/((?!e(?:/|$)|cleanup(?:/|$)|admin/cron(?:/|$)|csp-report(?:/|$)).*)',
     { source: '/:path*', has: [{ type: 'header', key: 'next-action' }] },
     {
       source: '/:path*',

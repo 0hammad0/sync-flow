@@ -22,6 +22,7 @@ import Checkbox from '@/shared/ui/Checkbox';
 import Dialog from '@/shared/ui/Dialog';
 import Input from '@/shared/ui/Input';
 import SegmentedControl from '@/shared/ui/SegmentedControl';
+import { rateLimitedNotice } from '@/features/admin/rate-limited';
 import { blockSubject } from '../actions';
 import { formatUtc } from '../format';
 import type { AccessActorDto, BlockRowDto } from '../types';
@@ -117,7 +118,8 @@ export default function BlockDialog({ open, onOpenChange, actor, onCreated, init
       else if (result.error === 'invalid') setServerFields(result.fields ?? {});
       else if (result.error === 'step_up_required') {
         setFormError('Sign in again to do this. Country and wide-range blocks need a sign-in from the last 15 minutes.');
-      } else if (result.error === 'forbidden') setFormError('Your role cannot create blocks.');
+      } else if (result.error === 'rate_limited') setFormError(rateLimitedNotice(result));
+      else if (result.error === 'forbidden') setFormError('Your role cannot create blocks.');
       else setFormError(`Could not save the block.${result.errorId ? ` Error id ${result.errorId}.` : ''}`);
     } catch (error) {
       setFormError(blockedError(error) ?? 'Could not save the block. Check your connection and try again.');

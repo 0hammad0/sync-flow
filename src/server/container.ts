@@ -22,6 +22,12 @@ import { RollupService, type CronRun as RollupCronRun } from '@/features/trackin
 import { recordCronRun } from '@/server/cron/record-cron-run';
 import type { EventRepository } from '@/server/repositories/interfaces';
 import { getEventRepository, getIngest, getQuota } from '@/server/container-light';
+// --- phase 5 settings ---
+import { FirestoreSettingsRepository } from '@/server/repositories/firestore/settings-repository';
+import { FirestoreSubjectDataRepository } from '@/server/repositories/firestore/subject-data-repository';
+import { DataDeletionService } from '@/server/services/data-deletion-service';
+import { SettingsService } from '@/server/services/settings-service';
+// --- end phase 5 settings ---
 
 /**
  * Composition root (no DI container). Built lazily on first use and kept for
@@ -121,3 +127,25 @@ async function recordRollupRun(run: RollupCronRun): Promise<void> {
     errorId: null,
   });
 }
+
+// --- phase 5 settings ---
+// Settings screen (15-settings.md): `admin_config/settings` and the danger
+// zone's subject delete. Built on first use, on the same QuotaGuard and
+// AuditService as the main container.
+
+export type SettingsParts = { settings: SettingsService; deletion: DataDeletionService };
+
+let settingsParts: SettingsParts | null = null;
+
+export function getSettingsParts(): SettingsParts {
+  if (!settingsParts) {
+    const db = adminDb();
+    const { quota, audit } = getContainer();
+    settingsParts = {
+      settings: new SettingsService({ store: new FirestoreSettingsRepository(db, quota) }),
+      deletion: new DataDeletionService({ store: new FirestoreSubjectDataRepository(db, quota), quota, audit }),
+    };
+  }
+  return settingsParts;
+}
+// --- end phase 5 settings ---

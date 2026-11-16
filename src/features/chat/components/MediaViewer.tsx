@@ -56,6 +56,8 @@ export function MediaViewer({
   return createPortal(
     <div
       className="fixed inset-0 z-[70] flex flex-col bg-black/90 animate-fade-in"
+      // File names: never sent as click labels.
+      data-private
       role="dialog"
       aria-modal="true"
       aria-label={`Viewing ${att.name}`}

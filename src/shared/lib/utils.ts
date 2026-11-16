@@ -1,10 +1,14 @@
-import { randomBytes } from 'crypto';
+// Web Crypto (browser and Node ≥ 22), not Node's `crypto`: this file is imported by
+// client components, and the Node module pulls a ~100 KB polyfill chunk into every page.
+function randomBytes(n: number): Uint8Array {
+  return globalThis.crypto.getRandomValues(new Uint8Array(n));
+}
 
 // Constants
 export const MAX_USER_FILES = 10;
 
 export function generateToken(): string {
-  return randomBytes(16).toString('hex');
+  return Array.from(randomBytes(16), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // 30 chars, no I O 0 1 L (ambiguous when shared verbally or by QR)

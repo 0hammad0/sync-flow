@@ -122,8 +122,24 @@ describe('SessionTimeline', () => {
     render(
       <SessionTimeline
         pages={[
-          { id: 'b', ts: '2026-11-14T14:03:18.000Z', path: '/chat/[code]', engagedMs: 179_000, wallMs: 205_000, scrollMax: 75 },
-          { id: 'a', ts: '2026-11-14T14:02:31.000Z', path: '/', engagedMs: 41_000, wallMs: 47_000, scrollMax: 100 },
+          {
+            id: 'b',
+            ts: '2026-11-14T14:03:18.000Z',
+            path: '/chat/[code]',
+            engagedMs: 179_000,
+            wallMs: 205_000,
+            scrollMax: 75,
+            clicks: [],
+          },
+          {
+            id: 'a',
+            ts: '2026-11-14T14:02:31.000Z',
+            path: '/',
+            engagedMs: 41_000,
+            wallMs: 47_000,
+            scrollMax: 100,
+            clicks: [],
+          },
         ]}
         startedAt="2026-11-14T14:02:31.000Z"
         lastSeenAt="2026-11-14T14:06:43.000Z"
@@ -141,6 +157,36 @@ describe('SessionTimeline', () => {
     expect(items[2].textContent).toContain('Last event');
     expect(screen.getByText(/100-page limit/)).toBeTruthy();
   });
+
+  it('shows each page view\'s clicks, with rage and dead as text badges (phase 4)', () => {
+    render(
+      <SessionTimeline
+        pages={[
+          {
+            id: 'a',
+            ts: '2026-11-14T14:02:31.000Z',
+            path: '/',
+            engagedMs: 41_000,
+            wallMs: 47_000,
+            scrollMax: 100,
+            clicks: [
+              { ts: '2026-11-14T14:02:50.000Z', target: 'room-create', label: 'Start a room', kind: 'click' },
+              { ts: '2026-11-14T14:02:52.000Z', target: 'room-create', label: 'Start a room', kind: 'dead' },
+            ],
+          },
+        ]}
+        startedAt="2026-11-14T14:02:31.000Z"
+        lastSeenAt="2026-11-14T14:06:43.000Z"
+        pageCapReached={false}
+        clickCapReached
+      />,
+      { wrapper: Providers },
+    );
+    const clicks = within(screen.getByRole('list', { name: '2 clicks' })).getAllByRole('listitem');
+    expect(clicks[0].textContent).toContain('Clicked “Start a room” room-create');
+    expect(clicks[1].textContent).toContain('Dead click');
+    expect(screen.getByText(/300-click limit/)).toBeTruthy();
+  });
 });
 
 describe('SessionHeader', () => {
@@ -156,6 +202,7 @@ describe('SessionHeader', () => {
     vitals: { lcp: 1200, inp: 120, cls: 0.04 },
     pages: [],
     pageCapReached: false,
+    clickCapReached: false,
   });
 
   it('masked IP: no full IP, no Block button', () => {

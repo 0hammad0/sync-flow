@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { TrackerEvent } from '@/features/tracking/schemas';
 import { clampTs, keptWhenSampling } from '@/features/tracking/server/ingest';
 import { encodeKey } from '@/server/firestore/encode-key';
 
@@ -234,6 +235,94 @@ describe('IngestService: rollup only on the final flush', () => {
     await h.service.ingest(beacon([pv('p1', '/')]), requestMeta());
     expect(h.repo.sessions.get(SID_EVEN)?.rolled_up).toBe(false);
     expect(h.repo.hourly.size).toBe(0);
+  });
+});
+
+describe('IngestService: clicks (phase 4)', () => {
+  const click = (type: 'click' | 'rage' | 'dead', t = T0 + 5_000, extra: Record<string, unknown> = {}): TrackerEvent =>
+    ({
+      type,
+      t,
+      path: '/',
+      target: 'room-create',
+      label: 'Start a room',
+      x_pct: 50,
+      y: 400,
+      doc_h: 1_600,
+      vw_bucket: 'sm',
+      ...extra,
+    }) as TrackerEvent;
+
+  it('clicks ride in the same single write as the flush, with a click counter', async () => {
+    const h = ingestHarness();
+    await h.service.ingest(beacon([pv('p1', '/'), click('click'), click('click', T0 + 5_100), click('click', T0 + 5_200), click('rage', T0 + 5_200)]), requestMeta());
+    expect(h.repo.sessionWrites()).toBe(1);
+    const s = h.repo.sessions.get(SID_EVEN)!;
+    expect(s.clicks).toHaveLength(4);
+    expect(s.click_count).toBe(3);
+    expect(s.clicks[0]).toMatchObject({ path: '/', target: 'room-create', label: 'Start a room', x_pct: 50, y_px: 400, doc_h: 1_600, vw_bucket: 'sm', rage: false, dead: false });
+    expect(s.clicks.at(-1)).toMatchObject({ rage: true, dead: false });
+  });
+
+  it('a later flush appends clicks (arrayUnion) and still writes once', async () => {
+    const h = ingestHarness();
+    await h.service.ingest(beacon([pv('p1', '/'), click('click')]), requestMeta());
+    await h.service.ingest(beacon([click('dead', T0 + 6_000)], { seq: 1 }), requestMeta());
+    expect(h.repo.sessionWrites()).toBe(2);
+    const s = h.repo.sessions.get(SID_EVEN)!;
+    expect(s.clicks.map((c) => c.dead)).toEqual([false, true]);
+    expect(s.click_count).toBe(1);
+  });
+
+  it('the final flush rolls up clicks.{path} = { total, rage, dead } in the same batch', async () => {
+    const h = ingestHarness();
+    await h.service.ingest(beacon([pv('p1', '/'), click('click'), click('click'), click('rage')]), requestMeta());
+    await h.service.ingest(
+      beacon([pv('p2', '/chat/[code]', T0 + 60_000), click('click', T0 + 61_000, { path: '/chat/[code]', target: 'chat-send', label: null }), click('dead', T0 + 62_000, { path: '/chat/[code]', target: 'chat-send', label: null })], { seq: 1, final: true }),
+      requestMeta(),
+    );
+    expect(h.repo.sessionWrites()).toBe(2); // one per flush; the hourly rollup rides in the final batch
+    const hour = h.repo.hourly.get('2026-11-13-10');
+    expect(hour?.clicks[encodeKey('/')]).toEqual({ total: 2, rage: 1, dead: 0 });
+    expect(hour?.clicks[encodeKey('/chat/[code]')]).toEqual({ total: 1, rage: 0, dead: 1 });
+  });
+
+  it('a session without clicks writes no clicks field and rolls up no click map', async () => {
+    const h = ingestHarness();
+    await h.service.ingest(beacon([pv('p1', '/')], { final: true }), requestMeta());
+    expect(h.repo.sessions.get(SID_EVEN)?.clicks).toEqual([]);
+    expect(h.repo.hourly.get('2026-11-13-10')?.clicks).toEqual({});
+  });
+
+  it('the final flush holds the 300-click cap against a tampered client (no extra read)', async () => {
+    const h = ingestHarness();
+    const many = (n: number, from: number) => Array.from({ length: n }, (_, i) => click('click', T0 + from + i));
+    await h.service.ingest(beacon([pv('p1', '/'), ...many(49, 0)]), requestMeta());
+    for (let seq = 1; seq <= 5; seq++) await h.service.ingest(beacon(many(50, seq * 100), { seq }), requestMeta());
+    expect(h.repo.sessions.get(SID_EVEN)?.clicks).toHaveLength(299);
+    const reads = h.repo.reads;
+    await h.service.ingest(beacon(many(20, 10_000), { seq: 6, final: true }), requestMeta());
+    expect(h.repo.reads - reads).toBe(1);
+    const s = h.repo.sessions.get(SID_EVEN)!;
+    expect(s.clicks).toHaveLength(300);
+    expect(s.click_count).toBe(300);
+  });
+
+  it('the repository caps target (120) and label (40) whatever the caller passes', async () => {
+    const h = ingestHarness();
+    await h.repo.writeSession({
+      id: SID_EVEN,
+      now: new Date(T0),
+      set: {},
+      increment: { pageviews: 0, engaged_ms: 0, click_count: 1 },
+      pages: {},
+      clicks: [
+        { ts: new Date(T0), path: '/', target: 't'.repeat(500), label: 'l'.repeat(500), x_pct: 1, y_px: 1, doc_h: 1, vw_bucket: 'lg', rage: false, dead: false },
+      ],
+    });
+    const c = h.repo.sessions.get(SID_EVEN)!.clicks[0];
+    expect(c.target).toHaveLength(120);
+    expect(c.label).toHaveLength(40);
   });
 });
 

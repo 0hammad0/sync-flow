@@ -161,3 +161,58 @@ describe('next.config headers for admin', () => {
     expect(getRedirectUrl(res)).toBeNull();
   });
 });
+
+describe('proxy: admin CSP (report-only, step 5.3)', () => {
+  const CSP = 'content-security-policy-report-only';
+  const NONCE = /'nonce-([A-Za-z0-9+/]+={0,2})'/;
+
+  function nonceOf(res: Response): string {
+    const match = res.headers.get(CSP)?.match(NONCE);
+    expect(match, 'policy carries a nonce').toBeTruthy();
+    return match![1];
+  }
+
+  it.each([
+    ['a signed-in admin page (pass-through)', '/admin/settings', 'valid'],
+    ['the sign-in page', '/admin/sign-in', undefined],
+    ['a signed-out admin redirect', '/admin/files', undefined],
+  ])('is on %s, report-only, with Server-Timing kept', async (_label, path, cookie) => {
+    const res = await proxy(request(path, cookie));
+    const policy = res.headers.get(CSP)!;
+    expect(policy).toMatch(/^default-src 'self'; script-src 'self' 'nonce-[^']+' 'strict-dynamic' 'sha256-/);
+    expect(policy).toContain("frame-ancestors 'none'");
+    expect(policy).toContain("connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com");
+    expect(policy).not.toMatch(/r2\.|cloudflarestorage/);
+    expect(res.headers.get('content-security-policy')).toBeNull();
+    expect(res.headers.get('reporting-endpoints')).toBe(`csp="${ORIGIN}/api/csp-report"`);
+    expect(res.headers.get('server-timing')).toMatch(/^proxy;dur=\d+\.\d$/);
+  });
+
+  it('forwards the same nonce to the render (request headers Next reads)', async () => {
+    const res = await proxy(request('/admin/settings', 'valid'));
+    const nonce = nonceOf(res);
+    expect(res.headers.get(`x-middleware-request-${CSP}`)).toBe(res.headers.get(CSP));
+    expect(res.headers.get('x-middleware-request-x-nonce')).toBe(nonce);
+    // The original request headers still reach the page (the session cookie).
+    expect(res.headers.get('x-middleware-request-cookie')).toBe('__session=valid');
+  });
+
+  it('a fresh nonce on every request', async () => {
+    const nonces = new Set<string>();
+    for (let i = 0; i < 20; i++) nonces.add(nonceOf(await proxy(request('/admin/sign-in'))));
+    expect(nonces.size).toBe(20);
+  });
+
+  it.each([
+    ['/dashboard', 'valid'],
+    ['/login', undefined],
+    ['/administrator', undefined],
+    ['/privacy', undefined],
+    ['/api/admin/files', undefined],
+  ])('is not on %s', async (path, cookie) => {
+    const res = await proxy(request(path, cookie));
+    expect(res.headers.get(CSP)).toBeNull();
+    expect(res.headers.get('reporting-endpoints')).toBeNull();
+    expect(res.headers.get('x-middleware-request-x-nonce')).toBeNull();
+  });
+});

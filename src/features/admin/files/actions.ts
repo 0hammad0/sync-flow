@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { updateTag } from 'next/cache';
 import { z } from 'zod';
+import { enforceAdminWriteLimit } from '@/server/auth/admin-write-limit';
 import { requireAdmin } from '@/server/auth/require-admin';
 import { requireRecentAuth } from '@/server/auth/step-up';
 import { assertNotBlocked } from '@/server/blocklist/assert-not-blocked';
@@ -15,7 +16,7 @@ import { deleteFileSchema, deleteFilesSchema } from './schemas';
 
 // Files & storage actions (09-files-and-storage.md "Actions"). Each one:
 // block check (admins are visitors too, T-27) → requireAdmin('files:delete')
-// (T-6) → step-up (sign-in within 15 min) → zod → FileService, which deletes
+// (T-6) → write limit (30/min per admin) → step-up (sign-in within 15 min) → zod → FileService, which deletes
 // the R2 object first, then the record, then writes one `file.delete` audit
 // row per file (no file name, D-6) → cache refresh.
 
@@ -41,6 +42,7 @@ export async function deleteFile(input: unknown): Promise<ActionResult<{ id: str
   if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
   try {
     const ctx = await requireAdmin('files:delete');
+    enforceAdminWriteLimit(ctx);
     requireRecentAuth(ctx);
     const parsed = deleteFileSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: 'invalid', fields: z.flattenError(parsed.error).fieldErrors };
@@ -65,6 +67,7 @@ export async function deleteFiles(input: unknown): Promise<ActionResult<BulkDele
   if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
   try {
     const ctx = await requireAdmin('files:delete');
+    enforceAdminWriteLimit(ctx);
     requireRecentAuth(ctx);
     const parsed = deleteFilesSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: 'invalid', fields: z.flattenError(parsed.error).fieldErrors };

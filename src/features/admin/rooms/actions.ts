@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { updateTag } from 'next/cache';
 import { z } from 'zod';
+import { enforceAdminWriteLimit } from '@/server/auth/admin-write-limit';
 import { requireAdmin } from '@/server/auth/require-admin';
 import { requireRecentAuth } from '@/server/auth/step-up';
 import { assertNotBlocked } from '@/server/blocklist/assert-not-blocked';
@@ -13,7 +14,7 @@ import { ROOMS_TAG } from './queries';
 import { closeRoomSchema } from './schemas';
 
 // Rooms actions. Order (12-rooms.md "closeRoom steps"): block check (admins
-// are visitors too, T-27) → requireAdmin('rooms:close') (T-6) → step-up
+// are visitors too, T-27) → requireAdmin('rooms:close') (T-6) → write limit (30/min per admin) → step-up
 // (sign-in within 15 min) → zod → RoomService.closeRoom, which deletes the
 // R2 prefix first, then the room docs (the shared deleteRoom helper the cron
 // uses), writes history write 2 and the `room.close` audit row.
@@ -31,6 +32,7 @@ export async function closeRoom(input: unknown): Promise<ActionResult<CloseRoomD
   if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
   try {
     const ctx = await requireAdmin('rooms:close');
+    enforceAdminWriteLimit(ctx);
     requireRecentAuth(ctx);
     const parsed = closeRoomSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: 'invalid', fields: z.flattenError(parsed.error).fieldErrors };
