@@ -6,6 +6,7 @@ import type {
   CronRun,
   CronRunRepository,
   NewCronRun,
+  RoleChangeResult,
   RoleGrant,
   RoleIndexRebuild,
   StorageRemover,
@@ -44,6 +45,12 @@ export class MemoryUserRepository implements UserReader, UserAdmin {
   readonly users = new Map<string, AdminUser>();
   readonly roles = new Map<string, { role: AdminRole; email: string | null; grantedBy: string; at: Date }>();
   readonly calls: string[] = [];
+  /**
+   * Whether the `admin_config/roles` doc exists. It also counts as existing
+   * once `roles` has entries (tests seed it directly). Set false with an empty
+   * `roles` to model a missing index.
+   */
+  roleIndexWritten = false;
 
   addUser(user: Partial<AdminUser> & { uid: string }): void {
     this.users.set(user.uid, {
@@ -93,12 +100,35 @@ export class MemoryUserRepository implements UserReader, UserAdmin {
     this.calls.push(`revoke:${uid}`);
   }
 
-  async setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<void> {
+  /**
+   * Same order as the Firestore repo: removing an owner decides and writes
+   * the index first (the synchronous block below stands in for the
+   * transaction: no await between read and write), then the claim. The
+   * `await` before it lets concurrent calls interleave, as real ones do.
+   */
+  async setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<RoleChangeResult> {
+    await Promise.resolve(); // the Auth getUser round trip in the real repo
+    const user = this.mustGet(uid);
+    const writeIndex = () => {
+      this.roleIndexWritten = true;
+      if (role) this.roles.set(uid, { role, email: grant.email, grantedBy: grant.grantedBy, at: grant.at });
+      else this.roles.delete(uid);
+    };
+    if (user.role === 'owner' && role !== 'owner') {
+      if (!this.roleIndexWritten && this.roles.size === 0) return { ok: false, reason: 'index_missing' };
+      const others = [...this.roles].filter(([key, e]) => key !== uid && e.role === 'owner');
+      if (others.length === 0) return { ok: false, reason: 'last_owner' };
+      writeIndex();
+      this.calls.push(`role:${uid}:${role}`);
+      user.role = role;
+      this.calls.push(`revoke:${uid}`);
+      return { ok: true };
+    }
     this.calls.push(`role:${uid}:${role}`);
-    this.mustGet(uid).role = role;
+    user.role = role;
     this.calls.push(`revoke:${uid}`);
-    if (role) this.roles.set(uid, { role, email: grant.email, grantedBy: grant.grantedBy, at: grant.at });
-    else this.roles.delete(uid);
+    writeIndex();
+    return { ok: true };
   }
 
   async rebuildRoleIndex(grant: Omit<RoleGrant, 'email'>): Promise<RoleIndexRebuild> {
@@ -120,6 +150,7 @@ export class MemoryUserRepository implements UserReader, UserAdmin {
     const removed = [...this.roles.keys()].filter((uid) => !next.has(uid)).length;
     this.roles.clear();
     for (const [uid, entry] of next) this.roles.set(uid, entry);
+    this.roleIndexWritten = true;
     return { admins: next.size, added, removed, changed };
   }
 

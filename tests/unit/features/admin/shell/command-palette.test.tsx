@@ -80,6 +80,10 @@ describe('CommandPalette', () => {
     expect(within(listbox).getByRole('group', { name: 'Pages' })).toBeTruthy();
     expect(within(listbox).getByRole('group', { name: 'Actions' })).toBeTruthy();
     expect(document.activeElement).toBe(input());
+    // The listbox (the combobox popup, reached with ↑/↓) is the scroll container,
+    // not a wrapper around it that no key could reach (axe scrollable-region-focusable).
+    expect(listbox.className).toContain('overflow-y-auto');
+    expect(listbox.parentElement?.className ?? '').not.toContain('overflow-y-auto');
   });
 
   it('lists the same pages as the sidebar for the role; a viewer never sees Settings, Audit or New block', () => {
@@ -201,6 +205,16 @@ describe('CommandPaletteTrigger', () => {
   it('mounts nothing until first opened (the palette is a lazy chunk)', () => {
     setup();
     expect(palette()).toBeNull();
+  });
+
+  it('advertises aria-keyshortcuts only once the key listener is attached; the hint is not label text', () => {
+    const { unmount } = setup();
+    const button = screen.getByRole('button', { name: 'Search and jump' });
+    expect(button.getAttribute('aria-keyshortcuts')).toBe('Meta+K Control+K');
+    // Visible text must be part of the name (WCAG 2.5.3): the ⌘K hint is drawn by CSS.
+    expect(button.textContent).toBe('Search');
+    unmount();
+    expect(button.hasAttribute('aria-keyshortcuts')).toBe(false);
   });
 
   it('⌘K and Ctrl+K open it, even while typing; the top-bar button opens it too', () => {

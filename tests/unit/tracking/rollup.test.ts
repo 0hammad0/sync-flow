@@ -105,8 +105,47 @@ describe('rollup step 2: a_daily', () => {
   it('skips a day with no hourly docs (never overwrites a daily whose hours are gone)', async () => {
     const h = harness();
     await h.repo.putDaily({ ...emptyRollup(), sessions: 7, day: '2026-11-12', built_at: new Date(0) });
-    await h.service.run();
+    const result = await h.service.run();
     expect((await h.repo.getDaily('2026-11-12'))?.sessions).toBe(7);
+    expect(h.repo.writes.filter((w) => w.method === 'putDaily' && w.id === '2026-11-12')).toHaveLength(1); // only the seed
+    expect(result.counts).toMatchObject({ daily_built: 0, daily_empty: 1 }); // 2026-11-13 had no doc: empty one
+  });
+
+  it('a recent day with no visits gets an empty daily doc once (+1 read +1 write), then only the check read', async () => {
+    const h = harness();
+    const first = await h.service.run();
+    expect(first.counts).toMatchObject({ daily_built: 0, daily_empty: 2 });
+    for (const day of ['2026-11-12', '2026-11-13']) {
+      expect(await h.repo.getDaily(day)).toEqual({ ...emptyRollup(), day, built_at: new Date(NOW) });
+    }
+    const putsBefore = h.repo.writes.filter((w) => w.method === 'putDaily').length;
+    expect(putsBefore).toBe(2);
+
+    const reads = h.repo.reads;
+    const second = await h.service.run();
+    expect(second.counts.daily_empty).toBe(0);
+    expect(h.repo.writes.filter((w) => w.method === 'putDaily')).toHaveLength(2); // nothing rewritten
+    expect(h.repo.reads - reads).toBeGreaterThanOrEqual(2); // the getDaily checks
+  });
+
+  it('an empty daily doc is replaced by the real one once hourly docs arrive (late catch-up)', async () => {
+    const h = harness();
+    await h.service.run();
+    const r = emptyRollup();
+    r.sessions = 2;
+    h.repo.hourly.set('2026-11-13-23', r);
+    expect(await h.service.buildDaily('2026-11-13')).toBe('built');
+    expect((await h.repo.getDaily('2026-11-13'))?.sessions).toBe(2);
+  });
+
+  it('writes no empty doc for today, or for a day whose hours retention may have deleted', async () => {
+    const h = harness();
+    // NOW = 2026-11-14T04:10Z; retention deletes hours before 2026-10-31-04.
+    expect(await h.service.buildDaily('2026-11-14')).toBe('skipped'); // not complete
+    expect(await h.service.buildDaily('2026-10-31')).toBe('skipped'); // hours 00-03 may be gone
+    expect(await h.service.buildDaily('2026-10-20')).toBe('skipped');
+    expect(await h.service.buildDaily('2026-11-01')).toBe('empty'); // every hour still inside the window
+    expect(h.repo.writes.filter((w) => w.method === 'putDaily').map((w) => w.id)).toEqual(['2026-11-01']);
   });
 
   it('backfills any day whose hourly docs still exist', async () => {
@@ -114,7 +153,7 @@ describe('rollup step 2: a_daily', () => {
     const r = emptyRollup();
     r.sessions = 4;
     h.repo.hourly.set('2026-11-05-09', r);
-    expect(await h.service.buildDaily('2026-11-05')).toBe(true);
+    expect(await h.service.buildDaily('2026-11-05')).toBe('built');
     expect((await h.repo.getDaily('2026-11-05'))?.sessions).toBe(4);
   });
 

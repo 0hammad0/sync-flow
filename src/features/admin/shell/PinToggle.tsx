@@ -46,7 +46,7 @@ export default function PinToggle() {
           <span className="admin-pin-icon-pinned col-start-1 row-start-1 truncate">Unpin sidebar</span>
           <span className="admin-pin-icon-rail col-start-1 row-start-1 truncate">Pin sidebar</span>
         </span>
-        <Kbd keys={['mod', 'B']} />
+        <Kbd keys={['mod', 'B']} decorative />
       </span>
     </button>
   );

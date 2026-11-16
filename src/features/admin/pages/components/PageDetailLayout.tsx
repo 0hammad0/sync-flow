@@ -28,6 +28,10 @@ function useMedia(query: string): boolean | null {
 
 /** The table's row link for a path, to return focus there after closing. */
 function rowLinkFor(path: string): HTMLAnchorElement | null {
+  // The open row's own link closes the panel, so its href has no `?path=`
+  // (PagesTable rowHref). It is the row marked aria-current.
+  const open = document.querySelector<HTMLAnchorElement>('a[data-row-link]:has([aria-current="true"])');
+  if (open) return open;
   const links = document.querySelectorAll<HTMLAnchorElement>('a[data-row-link], li a[href*="path="]');
   for (const link of links) {
     const href = link.getAttribute('href');
@@ -36,6 +40,13 @@ function rowLinkFor(path: string): HTMLAnchorElement | null {
   }
   return null;
 }
+
+/**
+ * The row to focus once the server render after a close has committed. That
+ * render can replace the table's DOM and drop the focus the close just set, so
+ * the layout sets it again after the commit. Module scope: it survives a remount.
+ */
+let pendingReturn: { path: string; until: number } | null = null;
 
 type PageDetailLayoutProps = {
   table: ReactNode;
@@ -56,8 +67,20 @@ export default function PageDetailLayout({ table, panel, path }: PageDetailLayou
   const close = useCallback(() => {
     const last = path;
     void setUrlPath(null);
-    if (last) requestAnimationFrame(() => rowLinkFor(last)?.focus());
+    if (!last) return;
+    pendingReturn = { path: last, until: Date.now() + 5_000 };
+    requestAnimationFrame(() => rowLinkFor(last)?.focus());
   }, [path, setUrlPath]);
+
+  // After the close's server render: put focus back if it fell to <body>.
+  useEffect(() => {
+    if (path !== null || !pendingReturn) return;
+    const { path: last, until } = pendingReturn;
+    pendingReturn = null;
+    if (Date.now() > until) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) rowLinkFor(last)?.focus();
+  }, [path]);
 
   // Beside the table: focus moves to the panel title, Esc closes.
   useEffect(() => {

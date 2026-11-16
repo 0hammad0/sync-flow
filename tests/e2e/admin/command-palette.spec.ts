@@ -25,7 +25,17 @@ async function signIn(context: BrowserContext, baseURL: string, session: string)
 const palette = (page: Page) => page.getByRole('dialog', { name: 'Search and jump' });
 const combobox = (page: Page) => palette(page).getByRole('combobox');
 
+/**
+ * The ⌘K and `/` listeners attach on hydration, after `load`: a key pressed
+ * earlier is lost (CI: Ctrl+K sent 19 ms after load, palette never opened).
+ * The trigger gets `aria-keyshortcuts` in the same effect that attaches them.
+ */
+async function shortcutsReady(page: Page) {
+  await expect(page.getByRole('button', { name: 'Search and jump' })).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
+}
+
 async function openWithKeys(page: Page) {
+  await shortcutsReady(page);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
   await expect(combobox(page)).toBeFocused();
 }
@@ -96,11 +106,13 @@ test.describe('command palette', () => {
     test.skip(isTouch(testInfo), 'keyboard shortcut: desktop widths');
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin');
+    await shortcutsReady(page);
     await page.locator('body').press('/');
     await expect(combobox(page)).toBeFocused();
     await page.keyboard.press('Escape');
 
     await page.goto('/admin/access');
+    await shortcutsReady(page);
     await page.locator('body').press('/');
     await expect(page.locator('#admin-content input[type="search"]')).toBeFocused();
     await expect(palette(page)).toHaveCount(0);
@@ -110,11 +122,14 @@ test.describe('command palette', () => {
     test.skip(!isTouch(testInfo), 'touch widths only');
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin');
+    await shortcutsReady(page);
     await page.getByRole('button', { name: 'Search and jump' }).tap();
     await expect(combobox(page)).toBeVisible();
     if (widthOf(testInfo) < 640) {
-      const box = await palette(page).boundingBox();
-      expect(Math.round(box!.width)).toBe(widthOf(testInfo));
+      // The sheet opens with a 180 ms scale(0.96 → 1) entrance: measure once it settles.
+      await expect
+        .poll(async () => Math.round((await palette(page).boundingBox())?.width ?? 0))
+        .toBe(widthOf(testInfo));
       await palette(page).getByRole('button', { name: 'Cancel' }).tap();
       await expect(palette(page)).toHaveCount(0);
     }

@@ -194,6 +194,12 @@ export function runEventRepositoryContract(name: string, makeRepo: () => Promise
       expect(await repo.getDaily('2026-11-12')).toBeNull();
     });
 
+    it('an empty a_daily doc (a day with no visits) reads back as a zero rollup, not as missing', async () => {
+      const builtAt = new Date('2026-11-14T04:00:00.000Z');
+      await repo.putDaily({ ...emptyRollup(), day: '2026-11-12', built_at: builtAt });
+      expect(await repo.readDaily(['2026-11-12'])).toEqual([{ ...emptyRollup(), day: '2026-11-12', built_at: builtAt }]);
+    });
+
     it('nulls full IPs of sessions last seen before the cutoff, up to the limit', async () => {
       for (const [i, minutes] of [[1, 0], [2, 1], [3, 2], [4, 100]] as const) {
         await repo.writeSession(patch(String(i).repeat(32), { now: at(minutes) }));

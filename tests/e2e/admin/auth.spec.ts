@@ -68,11 +68,27 @@ test.describe('needs a real signed-in session', () => {
     // Needs: a valid admin __session cookie.
   });
 
-  test.fixme('a signed-in user without a role sees "This account isn’t an admin" and can sign out', async () => {
-    // Needs: a valid no-role __session cookie, and the shell layout (merged separately).
-  });
-
   test.fixme('sign out everywhere sends a second browser to sign-in on its next request', async () => {
     // Needs: two real sessions for one admin.
+  });
+});
+
+// No-role session from the Auth emulator (E2E_NOROLE_SESSION, seeded by
+// tests/e2e/support/seed-emulator.mjs in CI job `e2e-signed-in`).
+test.describe('signed in without a role', () => {
+  const NOROLE = process.env.E2E_NOROLE_SESSION;
+  test.fixme(!NOROLE, 'Needs E2E_NOROLE_SESSION: a no-role session cookie from the Firebase Auth emulator.');
+
+  test('sees "This account isn’t an admin" with their email, and can sign out', async ({ page, context, baseURL }) => {
+    await context.addCookies([{ name: '__session', value: NOROLE!, url: baseURL!, httpOnly: true, sameSite: 'Lax' }]);
+    await page.goto('/admin');
+    await expect(page.getByRole('heading', { level: 1, name: 'This account isn’t an admin' })).toBeVisible();
+    await expect(page.getByText('e2e-norole@example.com')).toBeVisible();
+    await expect(page.locator('.admin-shell')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Back to site' })).toHaveAttribute('href', '/');
+
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page).toHaveURL(/\/admin\/sign-in(\?|$)/);
+    expect((await context.cookies()).find((c) => c.name === '__session')?.value ?? '').toBe('');
   });
 });

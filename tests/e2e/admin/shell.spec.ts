@@ -42,11 +42,26 @@ async function signIn(context: BrowserContext, baseURL: string, session: string,
 /** Sums layout-shift entries from the first paint on. */
 async function trackLayoutShift(page: Page) {
   await page.addInitScript(() => {
-    const w = window as unknown as { __cls: number };
+    type Rect = { x: number; y: number; width: number; height: number };
+    type Shift = PerformanceEntry & { value: number; hadRecentInput: boolean; sources?: { node?: Node; previousRect: Rect; currentRect: Rect }[] };
+    const w = window as unknown as { __cls: number; __shifts: string[] };
     w.__cls = 0;
+    w.__shifts = [];
+    const describe = (node?: Node) => {
+      if (!(node instanceof Element)) return node?.nodeName ?? '?';
+      const id = node.id ? `#${node.id}` : '';
+      const cls = typeof node.className === 'string' ? `.${node.className.trim().split(/\s+/).slice(0, 3).join('.')}` : '';
+      const text = (node.textContent ?? '').trim().slice(0, 30);
+      return `${node.tagName.toLowerCase()}${id}${cls} "${text}"`;
+    };
+    const box = (r: Rect) => `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as PerformanceEntry[] & { value: number; hadRecentInput: boolean }[]) {
-        if (!entry.hadRecentInput) w.__cls += entry.value;
+      for (const entry of list.getEntries() as Shift[]) {
+        if (entry.hadRecentInput) continue;
+        w.__cls += entry.value;
+        for (const s of entry.sources ?? []) {
+          w.__shifts.push(`${entry.value.toFixed(4)} @${Math.round(entry.startTime)}ms ${describe(s.node)} ${box(s.previousRect)} -> ${box(s.currentRect)}`);
+        }
       }
     }).observe({ type: 'layout-shift', buffered: true });
   });
@@ -85,8 +100,19 @@ test.describe('signed in', () => {
       const expected = expectedContentLeft(pin, widthOf(testInfo));
       expect(await contentLeft(page)).toBe(expected);
       await page.reload();
+      // `load` can fire before React reveals the streamed shell (the root
+      // loading.tsx is still on screen and #admin-content is hidden): wait for it.
+      await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
       expect(await contentLeft(page)).toBe(expected);
-      expect(await page.evaluate(() => (window as unknown as { __cls: number }).__cls)).toBe(0);
+      // Read CLS once the late content is in: the "N online" count arrives after
+      // hydration (top bar from 1024 px, the Overview badge at every width).
+      await expect(page.getByRole('link', { name: /online now$/ })).toBeVisible();
+      const { cls, shifts } = await page.evaluate(() => {
+        const w = window as unknown as { __cls: number; __shifts: string[] };
+        return { cls: w.__cls, shifts: w.__shifts };
+      });
+      // On failure the message names each moved element and its old -> new box.
+      expect(cls, `layout shifts:\n${shifts.join('\n')}`).toBe(0);
     });
   }
 
@@ -101,13 +127,17 @@ test.describe('signed in', () => {
     test.skip(isTouch(testInfo) || widthOf(testInfo) < 768, 'hover-open is pointer-fine, ≥ 768 px only');
     await signIn(context, baseURL!, OWNER!, 'rail');
     await page.goto('/admin');
+    // `load` can fire while the loading fallback is still on screen and
+    // #admin-content is hidden (its left edge reads 0): wait for the page.
+    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     const sidebar = page.locator('.admin-sidebar');
     const before = await contentLeft(page);
 
     await page.mouse.move(widthOf(testInfo) - 10, 400);
     await sidebar.hover({ position: { x: 32, y: 300 } });
     await expect(sidebar).toHaveAttribute('data-open', 'hover');
-    await expect(page.getByRole('link', { name: 'Sessions' })).toBeVisible();
+    // The sidebar's own link: Overview also has a "Sessions …" KPI link.
+    await expect(sidebar.getByRole('link', { name: 'Sessions', exact: true })).toBeVisible();
     expect(await contentLeft(page)).toBe(before); // overlay, does not push content
 
     await page.mouse.move(widthOf(testInfo) - 10, 400);
@@ -128,6 +158,10 @@ test.describe('signed in', () => {
     await signIn(context, baseURL!, OWNER!, 'rail');
     await page.goto('/admin');
     const shell = page.locator('.admin-shell');
+    // The shortcut listener exists once the shell has hydrated; a key pressed
+    // before that does nothing. The top-bar count renders only after hydration.
+    const hydrated = page.getByRole('link', { name: /^[\d,]+ online$/ });
+    await expect(hydrated).toBeVisible();
 
     await page.keyboard.press('Control+B');
     await expect(shell).toHaveAttribute('data-sidebar', 'pinned');
@@ -138,6 +172,7 @@ test.describe('signed in', () => {
 
     await page.reload();
     await expect(shell).toHaveAttribute('data-sidebar', 'pinned');
+    await expect(hydrated).toBeVisible();
 
     await page.evaluate(() => {
       const input = document.createElement('input');
@@ -188,7 +223,8 @@ test.describe('signed in', () => {
     await page.goto('/admin');
     await page.getByRole('button', { name: /^Account:/ }).filter({ visible: true }).first().click();
     const menu = page.getByRole('menu');
-    await expect(menu.getByText('Owner')).toBeVisible();
+    // Exact: the email above it (e2e-owner@…) also contains "owner".
+    await expect(menu.getByText('Owner', { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Back to site' })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
     await menu.getByRole('menuitem', { name: /Sign out everywhere/ }).click();

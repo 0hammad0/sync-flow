@@ -47,9 +47,14 @@ test.describe('signed in', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
-  test('drill by URL, back one level, and a bad country falls back silently', async ({ page, context, baseURL }) => {
+  test('drill by URL, back one level, and a bad country falls back silently', async ({ page, context, baseURL }, testInfo) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/geography?range=7d&country=PK&region=PB');
+    // The pointer starts at (0, 0), on the sidebar rail (768–1279 px). A hover there
+    // opens the sidebar over the "Back to …" arrow next to it, and a click parked on
+    // the arrow keeps it open. Park the pointer on the content, as shell.spec.ts does
+    // (leaving the rail also closes a hover-open sidebar).
+    await page.mouse.move(widthOf(testInfo) - 10, 400);
     const crumbs = page.getByRole('navigation', { name: 'Location level' });
     await expect(crumbs.getByRole('link', { name: 'Pakistan' })).toBeVisible();
     await expect(crumbs.getByText('PB')).toHaveAttribute('aria-current', 'page');
@@ -82,10 +87,19 @@ test.describe('signed in', () => {
     await expect(show).toHaveAttribute('aria-expanded', 'false');
     await page.waitForLoadState('networkidle');
     // Chunk names are hashed: the map chunk is the script fetched on the click.
-    const chunk = page.waitForRequest((r) => r.resourceType() === 'script');
+    const scripts: string[] = [];
+    page.on('request', (r) => {
+      if (r.resourceType() === 'script') scripts.push(r.url());
+    });
     await show.click();
-    await chunk;
     await expect(page).toHaveURL(/view=map/);
     await expect(page.getByRole('button', { name: 'Hide map' })).toHaveAttribute('aria-expanded', 'true');
+    if (widthOf(testInfo) < 375) {
+      // Under 375 px the map is never loaded; a line says so (09-charts-and-maps.md "Small phone").
+      await expect(page.getByText('Map hidden on small screens.')).toBeVisible();
+      expect(scripts).toEqual([]);
+    } else {
+      await expect.poll(() => scripts.length).toBeGreaterThan(0);
+    }
   });
 });

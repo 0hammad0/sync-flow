@@ -35,7 +35,10 @@ test.describe('signed in', () => {
     for (const tab of ['referrers', 'utm', 'devices', 'browsers', 'os']) {
       await page.goto(`/admin/sources?range=30d&tab=${tab}`);
       await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible();
-      await expect(page.getByText(EMPTY).or(page.locator('main table tbody tr, main ul li').first())).toBeVisible();
+      // Scoped to the tab panel: <main> also holds the shell's nav lists (the phone
+      // drawer's are hidden), and the table renders a hidden card list beside it.
+      const panel = page.getByRole('tabpanel');
+      await expect(panel.getByText(EMPTY).or(panel.locator('table tbody tr, ul li')).filter({ visible: true }).first()).toBeVisible();
     }
   });
 

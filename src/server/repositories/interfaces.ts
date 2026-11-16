@@ -348,12 +348,24 @@ export type RoleGrant = { email: string | null; grantedBy: string; at: Date };
 /** What a rebuild of `admin_config/roles` changed. `admins`: entries in the new index. */
 export type RoleIndexRebuild = { admins: number; added: number; removed: number; changed: number };
 
+/**
+ * Outcome of a role change. Refused only when the target's claim is `owner`
+ * and the new role is not: `last_owner` when the `admin_config/roles` index
+ * would list no owner after the change, `index_missing` when that index doc
+ * does not exist (run "Rebuild from claims" first). Nothing is written then.
+ */
+export type RoleChangeResult = { ok: true } | { ok: false; reason: 'last_owner' | 'index_missing' };
+
 export interface UserAdmin {
   setDisabled(uid: string, disabled: boolean): Promise<void>;
   /** Ends every session at the next `verifySessionCookie(c, true)`. */
   revokeSessions(uid: string): Promise<void>;
-  /** Sets the `role` claim (other claims kept) and updates the `admin_config/roles` index. null removes it. */
-  setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<void>;
+  /**
+   * Sets the `role` claim (other claims kept), ends the user's sessions and
+   * updates the `admin_config/roles` index. null removes it. Removing an
+   * owner is decided in a transaction on the index (last-owner check).
+   */
+  setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<RoleChangeResult>;
   /**
    * Rewrites the `admin_config/roles` index from the `role` claims (one full
    * Auth scan; Firestore: 1 read + 1 write). Claims are not touched. An entry

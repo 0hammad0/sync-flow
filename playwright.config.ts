@@ -3,6 +3,25 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 /**
+ * The signed-in CI job (ci.yml `e2e-signed-in`) seeds the Firebase emulators
+ * and sets these (tests/e2e/support/seed-emulator.mjs). There the specs must
+ * run, not skip, so a missing one stops the run before any test.
+ */
+const SEEDED_E2E_VARS = [
+  'E2E_ADMIN_SESSION',
+  'E2E_ADMIN_UID',
+  'E2E_MODERATOR_SESSION',
+  'E2E_VIEWER_SESSION',
+  'E2E_NOROLE_SESSION',
+  'E2E_CHAT_ROOM',
+  'E2E_SUBJECT_IP',
+] as const;
+if (process.env.E2E_REQUIRE_SESSIONS === '1') {
+  const missing = SEEDED_E2E_VARS.filter((name) => !process.env[name]);
+  if (missing.length) throw new Error(`E2E_REQUIRE_SESSIONS=1 but ${missing.join(', ')} not set. Run tests/e2e/support/seed-emulator.mjs first.`);
+}
+
+/**
  * The 8 widths from the admin Definition of Done (320 → 1920). Touch widths
  * use a coarse pointer, so hover-only UI is caught there. Chromium only:
  * one engine keeps CI fast; Safari-only bugs are checked on a real phone.

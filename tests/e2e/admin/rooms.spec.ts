@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+import { showTableFilters } from '../support/table-filters';
+
 /*
  * Rooms screen (phase 1 step 1.3). Spec: docs/admin/03-features/12-rooms.md.
  *
@@ -37,11 +39,13 @@ test.describe('signed in', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
-  test('History tab reads closed rooms', async ({ page, context, baseURL }) => {
+  test('History tab reads closed rooms', async ({ page, context, baseURL }, testInfo) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/rooms?status=history');
-    await expect(page.getByRole('radio', { name: 'History' })).toBeChecked();
     await expect(page.getByRole('heading', { level: 1, name: 'Rooms' })).toBeVisible();
+    // Phones: the status switch is in the "Filters" sheet (08-tables.md "< 640 px").
+    await showTableFilters(page, testInfo);
+    await expect(page.getByRole('radio', { name: 'History' })).toBeChecked();
   });
 
   test('an unknown code opens the sheet with "no longer exists" and no close button', async ({ page, context, baseURL }) => {
@@ -56,7 +60,13 @@ test.describe('signed in', () => {
   test('the page never shows a link into the chat or a download', async ({ page, context, baseURL }) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/rooms');
-    await expect(page.locator('a[href^="/chat"], a[download], a[href*="r2.cloudflarestorage"]')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1, name: 'Rooms' })).toBeVisible();
+    // No link to any room, anywhere in the document.
+    await expect(page.locator('a[href^="/chat/"]')).toHaveCount(0);
+    // The root layout also renders the public header and footer (hidden on admin
+    // routes by admin.css); their plain "/chat" landing links are not this page's.
+    // Inside <main> (the admin shell), not even the landing page is linked.
+    await expect(page.locator('main').locator('a[href^="/chat"], a[download], a[href*="r2.cloudflarestorage"]')).toHaveCount(0);
   });
 });
 

@@ -182,7 +182,16 @@ body:has([data-admin-root]) > .backdrop {
   display: none;
 }
 
-/* A full-bleed admin root (the shell) drops the public content column. */
+/* Every admin route spans the full width from the first byte: the loading
+   fallback (admin/loading.tsx), sign-in and the shell alike. If the column
+   width waited for the shell, a hard load would paint the fallback in the
+   896 px public column and then jump to full width (a layout shift). Sign-in
+   and Forbidden centre their own 360 px column (AdminAuthFrame). */
+.site-main:has(> [data-admin-root]) {
+  max-width: none;
+}
+
+/* A full-bleed admin root (the shell) drops the public content padding. */
 .site-main:has(> [data-admin-root] > [data-fullbleed]) {
   max-width: none;
   padding: 0;

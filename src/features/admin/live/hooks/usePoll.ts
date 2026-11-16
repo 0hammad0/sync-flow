@@ -72,18 +72,22 @@ export function usePoll<T>({ queryKey, url, intervalMs, initial, paused = false,
   const online = useOnline();
   const [idle, resume] = useIdle();
   const gate = { visible, online, idle, paused };
+  // Server-seeded polls are keyed by the server render's time, so coming back
+  // to the page shows the newer server render, not an older cached poll (the
+  // same render, within the server's 30 s cache, reuses its newer polls). Not
+  // `gcTime: 0`: that dropped the entry between hydration's render and its
+  // subscription, and the re-created query then refetched at once (a client
+  // fetch on first paint, and one more poll right after Pause).
+  const key: QueryKey = initial ? [...queryKey, initial.at] : queryKey;
 
   const query = useQuery<PollSnapshot<T>>({
-    queryKey,
+    queryKey: key,
     queryFn: async ({ signal }) => {
-      const prev = client.getQueryData<PollSnapshot<T>>(queryKey) ?? initialSnapshot<T>(initial?.data ?? null, initial?.at ?? null);
+      const prev = client.getQueryData<PollSnapshot<T>>(key) ?? initialSnapshot<T>(initial?.data ?? null, initial?.at ?? null);
       return pollOnce(prev, url, signal);
     },
     initialData: initial ? initialSnapshot(initial.data, initial.at) : undefined,
     initialDataUpdatedAt: initial?.at,
-    // Server-seeded polls drop their cache on unmount, so coming back shows the
-    // fresh server render instead of an older cached poll.
-    ...(initial ? { gcTime: 0 } : {}),
     enabled,
     staleTime: 0,
     // A first observer with no server data fetches once; later ones share the cache.

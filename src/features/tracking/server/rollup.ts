@@ -21,6 +21,8 @@ import type { EventRepository } from '@/server/repositories/interfaces';
  *    (no final flush: mobile kill, crash) → `a_hourly`, `rolled_up = true`.
  * 2. `a_daily` for the last 2 complete UTC days, rebuilt by overwrite from
  *    their 24 `a_hourly` docs (idempotent). Long-tail map keys fold into `_other`.
+ *    A day with no visits (0 hourly docs) gets an empty daily doc, so the
+ *    admin screens read 1 doc for it instead of falling back to 24 hourly ones.
  * 3. Retention: delete `a_sessions` past the raw window (90 d), null full
  *    IPs past the IP window (30 d, 1 write each), delete `a_hourly` (14 d)
  *    and `a_counters` (1 y). Batches of 500. Windows from settings.
@@ -30,7 +32,8 @@ import type { EventRepository } from '@/server/repositories/interfaces';
  * No TTL policy (not free on Spark).
  *
  * Firestore cost per run, roughly: catch-up 1 read + 2 writes per session;
- * daily 48 reads + 2 writes; retention 1 read + 1 write/delete per doc, plus
+ * daily 48 reads + 2 writes (+1 read +1 write per day with no visits: the
+ * existence check and the empty doc); retention 1 read + 1 write/delete per doc, plus
  * 1 read per empty query (≤ 5) and 1 settings read.
  */
 
@@ -43,10 +46,13 @@ export const COUNTERS_KEEP_DAYS = 365;
 export const BUDGET_MS = 45_000;
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 export type RollupCounts = {
   sessions_rolled_up: number;
   daily_built: number;
+  /** Days with no visits that got an empty (all-zero) daily doc. */
+  daily_empty: number;
   ips_nulled: number;
   sessions_deleted: number;
   hourly_deleted: number;
@@ -102,6 +108,7 @@ export class RollupService {
     const counts: RollupCounts = {
       sessions_rolled_up: 0,
       daily_built: 0,
+      daily_empty: 0,
       ips_nulled: 0,
       sessions_deleted: 0,
       hourly_deleted: 0,
@@ -156,17 +163,39 @@ export class RollupService {
     return { status, counts, error };
   }
 
-  /** Rebuilds `a_daily/{day}` from its `a_hourly` docs (backfill: any day still within 14 days). */
-  async buildDaily(day: string): Promise<boolean> {
+  /**
+   * Rebuilds `a_daily/{day}` from its `a_hourly` docs (backfill: any day still
+   * within 14 days). `built`: a daily doc from its hours. `empty`: no hourly
+   * docs, so an all-zero daily doc was written. `skipped`: nothing written.
+   */
+  async buildDaily(day: string): Promise<'built' | 'empty' | 'skipped'> {
     await this.require('reads');
     await this.require('writes');
     const hours = await this.deps.events.getHourly(hoursOfDay(day));
     const present = hours.filter((h): h is Rollup => h !== null);
-    // No hourly docs: nothing to build, and never overwrite a daily whose hours were deleted.
-    if (present.length === 0) return false;
+    if (present.length === 0) return this.markEmptyDay(day);
     const total = present.reduce((sum, h) => addRollup(sum, h), emptyRollup());
     await this.deps.events.putDaily({ ...foldRollup(total), day, built_at: new Date(this.now()) });
-    return true;
+    return 'built';
+  }
+
+  /**
+   * No hourly docs for `day`: either nobody visited, or retention already
+   * deleted its hours. Only the first is safe to record as zero, so the empty
+   * doc is written only when (a) the day is complete, (b) every hour of it is
+   * still inside the hourly retention window (retention deletes ids before
+   * `hourKey(now - 14 d)`, so none of this day's hours can have been deleted),
+   * and (c) no daily doc exists (never overwrite a real one). Cost: 1 read,
+   * plus 1 write the first time.
+   */
+  private async markEmptyDay(day: string): Promise<'empty' | 'skipped'> {
+    const start = Date.parse(`${day}T00:00:00.000Z`);
+    const now = this.now();
+    const keepFrom = Math.floor((now - HOURLY_KEEP_DAYS * DAY_MS) / HOUR_MS) * HOUR_MS;
+    if (Number.isNaN(start) || start + DAY_MS > now || start < keepFrom) return 'skipped';
+    if (await this.deps.events.getDaily(day)) return 'skipped';
+    await this.deps.events.putDaily({ ...emptyRollup(), day, built_at: new Date(now) });
+    return 'empty';
   }
 
   private async require(kind: QuotaKind): Promise<void> {
@@ -197,7 +226,9 @@ export class RollupService {
     const today = Date.parse(`${dayKey(new Date(this.now()))}T00:00:00Z`);
     for (const offset of [2, 1]) {
       this.checkTime(deadline);
-      if (await this.buildDaily(dayKey(new Date(today - offset * DAY_MS)))) counts.daily_built += 1;
+      const built = await this.buildDaily(dayKey(new Date(today - offset * DAY_MS)));
+      if (built === 'built') counts.daily_built += 1;
+      else if (built === 'empty') counts.daily_empty += 1;
     }
   }
 

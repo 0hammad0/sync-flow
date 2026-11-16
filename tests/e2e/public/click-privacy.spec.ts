@@ -11,8 +11,10 @@ import { answerProbe, hidePage, type TrackerLog } from '../support/tracker';
  * joined here. The test builds the same DOM on a real public page: a chat
  * message list root with `data-private` (as ChatRoom.tsx renders it), a
  * composer with typed text, and the real tracker + click chunk.
- * With E2E_CHAT_ROOM (a room code on an emulator-backed server), the second
- * test sends a real message and inspects the flushes too.
+ * With E2E_CHAT_ROOM (a room code on an emulator-backed server: CI job
+ * `e2e-signed-in`, room seeded by tests/e2e/support/seed-emulator.mjs, and the
+ * build's client SDK on the Firestore emulator), the second test sends a real
+ * message and inspects the flushes too.
  */
 test.beforeEach(({}, testInfo) => {
   test.skip(!['w390', 'w1366'].includes(testInfo.project.name), 'phone and laptop widths');
@@ -75,10 +77,20 @@ test('labels are dropped inside the message list and inputs; nothing typed or se
 test('a real room: send a message, then no message text in any stored click', async ({ page }) => {
   const room = process.env.E2E_CHAT_ROOM;
   test.fixme(!room, 'Needs E2E_CHAT_ROOM: a room code on an emulator-backed server.');
+  // A stored chat name skips the "your name" step, so the composer shows at once
+  // (ChatRoom.tsx reads STORED_NAME_KEY from localStorage).
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('syncflow.chatName', 'E2E tester');
+    } catch {}
+  });
   const log = await answerProbe(page, 'ok');
   await page.goto(`/chat/${room}`);
   await trackerReady(page, log);
-  const draft = page.locator('textarea').last();
+  // The composer by its placeholder: react-textarea-autosize appends a hidden
+  // measuring <textarea aria-hidden> to <body>, so `textarea` alone can hit it.
+  const draft = page.getByPlaceholder('Message', { exact: true });
+  await expect(draft).toBeVisible();
   await draft.fill(SECRET_MESSAGE);
   await page.locator('[data-track="chat-send"]').click();
   await expect(page.getByText(SECRET_MESSAGE).first()).toBeVisible();

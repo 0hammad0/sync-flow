@@ -88,7 +88,10 @@ export default function GeoMap({ data, summary, total, className = '' }: GeoMapP
         {cssDefault ? (
           <>
             {button(true, 'sm:hidden')}
-            {button(false, 'hidden sm:inline-flex')}
+            {/* `max-sm:hidden`, not `hidden sm:inline-flex`: the button's own `inline-flex`
+                comes later in the CSS than `hidden` and would win, showing both buttons
+                on phones and pushing the row 8 px past a 320 px screen. */}
+            {button(false, 'max-sm:hidden')}
           </>
         ) : (
           button(!open)
@@ -106,8 +109,15 @@ export default function GeoMap({ data, summary, total, className = '' }: GeoMapP
               className="mx-auto max-w-4xl"
             />
           ) : (
-            // Holds the map's place until the screen width is known.
-            cssDefault && <Skeleton shape="block" className="mx-auto aspect-[2/1] w-full max-w-4xl opacity-50" />
+            // Holds the map's place until the screen width is known: the 2:1 map and
+            // its one-line legend (mt-2 + 16 px), so the table below does not jump
+            // 24 px when the map mounts after hydration.
+            cssDefault && (
+              <div className="mx-auto max-w-4xl">
+                <Skeleton shape="block" className="aspect-[2/1] w-full opacity-50" />
+                <div aria-hidden="true" className="mt-2 h-4" />
+              </div>
+            )
           )}
         </div>
       </div>

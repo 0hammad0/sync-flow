@@ -88,6 +88,19 @@ describe('users actions', () => {
     expect((await audit.list({ limit: 5 })).entries).toEqual([]);
   });
 
+  it('demoting the last owner in the roles index comes back as conflict with a message the UI shows', async () => {
+    h.requireAdmin.mockResolvedValue(ctx(60));
+    users.users.get(TARGET)!.role = 'owner';
+    users.roles.set(TARGET, { role: 'owner', email: 'sara@example.com', grantedBy: OWNER, at: new Date() });
+    expect(await setUserRole({ uid: TARGET, role: 'viewer' })).toEqual({
+      ok: false,
+      error: 'conflict',
+      message: 'This would leave no owner. Add another owner first.',
+    });
+    expect(users.calls).toEqual([]);
+    expect(h.updateTag).not.toHaveBeenCalled();
+  });
+
   it('granting owner needs OWNER typed; unknown users are not_found', async () => {
     h.requireAdmin.mockResolvedValue(ctx(60));
     expect(await setUserRole({ uid: TARGET, role: 'owner' })).toMatchObject({ ok: false, error: 'invalid', fields: { confirm: expect.any(Array) } });
