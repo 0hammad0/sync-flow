@@ -58,6 +58,46 @@ export type PageEntry = {
 
 export type Vitals = { lcp: number | null; inp: number | null; cls: number | null };
 
+export type VwBucket = 'sm' | 'md' | 'lg';
+
+/**
+ * One entry of a session's `clicks` array (phase 4). A `click` event is an
+ * entry with `rage` and `dead` false; a `rage` or `dead` event is its own
+ * entry with that flag set. Cap 300 per session (tracker; trimmed again on
+ * the final flush).
+ */
+export type ClickEntry = {
+  ts: Date;
+  path: string;
+  /** `data-track` id or a short CSS selector, ≤ 120 chars. */
+  target: string;
+  /** Visible button / link text, ≤ 40 chars. Never input or message text. */
+  label: string | null;
+  /** 0–100. */
+  x_pct: number;
+  y_px: number;
+  doc_h: number;
+  vw_bucket: VwBucket;
+  rage: boolean;
+  dead: boolean;
+};
+
+export const MAX_CLICKS_PER_SESSION = 300;
+export const CLICK_TARGET_MAX = 120;
+export const CLICK_LABEL_MAX = 40;
+
+/**
+ * The repository's own guard before any click is written: caps `target`
+ * (120) and `label` (40) whatever the caller passed, so a bug upstream can
+ * never store a long text. Returns null for an entry without a target.
+ */
+export function clampClick(entry: ClickEntry): ClickEntry | null {
+  const target = String(entry.target ?? '').trim().slice(0, CLICK_TARGET_MAX);
+  if (!target) return null;
+  const label = typeof entry.label === 'string' ? entry.label.trim().slice(0, CLICK_LABEL_MAX) || null : null;
+  return { ...entry, target, label };
+}
+
 export type SessionDoc = {
   id: string;
   started_at: Date | null;
@@ -94,11 +134,19 @@ export type SessionDoc = {
   sampled: boolean;
   pages: Record<string, PageEntry>;
   vitals: Vitals | null;
+  /** Click events in arrival order (phase 4). Index-exempt; never queried. */
+  clicks: ClickEntry[];
+  /**
+   * Counter of `click` events (rage / dead entries not counted). The data
+   * model calls the counter `clicks`, but that name is the array, so the
+   * counter is `click_count`.
+   */
+  click_count: number;
 };
 
 /** Plain fields a flush may overwrite. */
 export type SessionSetFields = Partial<
-  Omit<SessionDoc, 'id' | 'last_seen_at' | 'pageviews' | 'engaged_ms' | 'pages'>
+  Omit<SessionDoc, 'id' | 'last_seen_at' | 'pageviews' | 'engaged_ms' | 'pages' | 'clicks' | 'click_count'>
 >;
 
 /** A page entry change: `engaged_ms` is added, the others overwrite when present. */
@@ -114,8 +162,10 @@ export type SessionPatch = {
   /** Becomes `last_seen_at`. */
   now: Date;
   set: SessionSetFields;
-  increment: { pageviews: number; engaged_ms: number };
+  increment: { pageviews: number; engaged_ms: number; click_count?: number };
   pages: Record<string, PagePatch>;
+  /** Appended to `clicks` in the same write (`arrayUnion`). */
+  clicks?: ClickEntry[];
 };
 
 export function emptySession(id: string, now: Date): SessionDoc {
@@ -153,6 +203,8 @@ export function emptySession(id: string, now: Date): SessionDoc {
     sampled: false,
     pages: {},
     vitals: null,
+    clicks: [],
+    click_count: 0,
   };
 }
 
@@ -165,6 +217,11 @@ export function applySessionPatch(doc: SessionDoc | null, patch: SessionPatch): 
   }
   next.pageviews += patch.increment.pageviews;
   next.engaged_ms += patch.increment.engaged_ms;
+  next.click_count += patch.increment.click_count ?? 0;
+  for (const click of patch.clicks ?? []) {
+    const entry = clampClick(click);
+    if (entry) next.clicks.push(structuredClone(entry));
+  }
   for (const [pv, change] of Object.entries(patch.pages)) {
     const page = next.pages[pv] ?? { path: null, ts: null, engaged_ms: 0, scroll_max: 0 };
     next.pages[pv] = {
@@ -192,6 +249,8 @@ export type PathStats = {
   scroll_sum: number;
 };
 export type CityStats = DimStats & { lat: number | null; lon: number | null };
+/** `clicks.{path}` (phase 4): `total` counts click events; rage and dead are their own events. */
+export type ClickStats = { total: number; rage: number; dead: number };
 
 /** Breakdown maps with `DimStats` values. `path` and `city` have their own shapes. */
 export const DIM_MAPS = [
@@ -208,7 +267,7 @@ export const DIM_MAPS = [
 export type DimMap = (typeof DIM_MAPS)[number];
 
 /** Every map field on a rollup doc (index-exempt in firestore.indexes.json). */
-export const ROLLUP_MAP_FIELDS = ['path', 'city', ...DIM_MAPS] as const;
+export const ROLLUP_MAP_FIELDS = ['path', 'city', 'clicks', ...DIM_MAPS] as const;
 
 export type Rollup = {
   views: number;
@@ -219,12 +278,14 @@ export type Rollup = {
   sampled: boolean;
   path: Record<string, PathStats>;
   city: Record<string, CityStats>;
+  /** Per path key (encoded like `path`). Only per-path totals; targets come from session docs. */
+  clicks: Record<string, ClickStats>;
 } & Record<DimMap, Record<string, DimStats>>;
 
 export type DailyDoc = Rollup & { day: string; built_at: Date };
 
 export function emptyRollup(): Rollup {
-  const r = { views: 0, sessions: 0, bounces: 0, engaged_ms: 0, sampled: false, path: {}, city: {} } as Rollup;
+  const r = { views: 0, sessions: 0, bounces: 0, engaged_ms: 0, sampled: false, path: {}, city: {}, clicks: {} } as Rollup;
   for (const m of DIM_MAPS) r[m] = {};
   return r;
 }
@@ -329,6 +390,13 @@ export function sessionRollup(session: SessionDoc): Rollup {
     add(city);
     r.city[key] = city;
   }
+
+  for (const click of session.clicks ?? []) {
+    const c = (r.clicks[encodeKey(click.path)] ??= { total: 0, rage: 0, dead: 0 });
+    if (click.rage) c.rage += k;
+    else if (click.dead) c.dead += k;
+    else c.total += k;
+  }
   return r;
 }
 
@@ -375,7 +443,7 @@ export function foldRollup(r: Rollup, cap = DAILY_MAP_KEY_CAP): Rollup {
     const map = out[m] as Record<string, Record<string, number | null>>;
     const keys = Object.keys(map);
     if (keys.length <= cap) continue;
-    const rank = m === 'path' ? 'views' : 'sessions';
+    const rank = m === 'path' ? 'views' : m === 'clicks' ? 'total' : 'sessions';
     keys.sort((x, y) => ((map[y][rank] as number) - (map[x][rank] as number)) || (x < y ? -1 : 1));
     const kept = new Set(keys.slice(0, cap - 1));
     let other: Record<string, number | null> | null = map[FOLD_KEY] ? { ...map[FOLD_KEY] } : null;

@@ -9,8 +9,9 @@ import { useEffect } from 'react';
  * own beyond React and Next, so nothing else rides into the first load.
  *
  * Never fetches the tracker on `/admin/**`, with Global Privacy Control or
- * Do Not Track on, after "Reject" (`sf_consent=n`), or while tracking is
- * switched off (`sf_cr=off`). Otherwise it waits for `requestIdleCallback`
+ * Do Not Track on, after "Reject" (`sf_consent=n`), while tracking is
+ * switched off (`sf_cr=off`), or inside the admin click-map preview (a frame
+ * with `?sf_preview=1`, 06-clicks.md). Otherwise it waits for `requestIdleCallback`
  * (fallback `setTimeout` 2 s) and imports the tracker chunk, which does the
  * full consent check (`consent.ts`: region probe, banner) and the events.
  *
@@ -33,6 +34,9 @@ export const STOP_COOKIE = /(?:^|;)\s*(?:sf_consent=n|sf_cr=off)\s*(?:;|$)/;
 
 export const isAdminPath = (path: string): boolean => /^\/admin(?:\/|$)/.test(path);
 
+/** The admin click map frames public pages with `?sf_preview=1`: no tracker in there. */
+export const isPreview = (): boolean => top !== self && /[?&]sf_preview=1(?:&|$)/.test(location.search);
+
 function load(then: (m: Tracker) => void): void {
   if (privacySignal()) return;
   import('./tracker')
@@ -43,7 +47,7 @@ function load(then: (m: Tracker) => void): void {
 /** Fetches and starts the tracker unless a stop rule applies. Re-checked on every call. */
 export function begin(): void {
   try {
-    if (!isAdminPath(location.pathname) && !STOP_COOKIE.test(document.cookie)) load((m) => m.start());
+    if (!isAdminPath(location.pathname) && !isPreview() && !STOP_COOKIE.test(document.cookie)) load((m) => m.start());
   } catch {
     // Never reaches the page.
   }

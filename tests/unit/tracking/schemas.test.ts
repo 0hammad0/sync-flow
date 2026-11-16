@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  MAX_CLICK_LABEL,
+  MAX_CLICK_TARGET,
   MAX_EVENTS,
+  clickEventSchema,
+  deadEventSchema,
   engageEventSchema,
+  rageEventSchema,
   pageviewEventSchema,
   parseBeacon,
   vitalsEventSchema,
@@ -74,5 +79,51 @@ describe('parseBeacon', () => {
 
   it('accepts exactly MAX_EVENTS events', () => {
     expect(parseBeacon({ sid: SID, seq: 0, events: Array(MAX_EVENTS).fill(engage) })?.events).toHaveLength(MAX_EVENTS);
+  });
+});
+
+describe('click schemas (phase 4)', () => {
+  const click = {
+    type: 'click',
+    t: 1_763_000_020_000,
+    path: '/chat/AB12CD',
+    target: 'chat-send',
+    label: 'Send',
+    x_pct: 42.5,
+    y: 812,
+    doc_h: 900,
+    vw_bucket: 'sm',
+  };
+
+  it('accepts click, rage and dead, masks the path, and turns an empty label into null', () => {
+    expect(clickEventSchema.parse(click).path).toBe('/chat/[code]');
+    expect(rageEventSchema.safeParse({ ...click, type: 'rage' }).success).toBe(true);
+    expect(deadEventSchema.safeParse({ ...click, type: 'dead' }).success).toBe(true);
+    expect(clickEventSchema.parse({ ...click, label: '   ' }).label).toBeNull();
+    expect(clickEventSchema.parse({ ...click, label: null }).label).toBeNull();
+    expect(clickEventSchema.parse({ ...click, label: undefined }).label).toBeNull();
+  });
+
+  it('target ≤ 120 and label ≤ 40 characters: longer is dropped, never cut', () => {
+    expect(clickEventSchema.safeParse({ ...click, target: 'a'.repeat(MAX_CLICK_TARGET) }).success).toBe(true);
+    expect(clickEventSchema.safeParse({ ...click, target: 'a'.repeat(MAX_CLICK_TARGET + 1) }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, label: 'b'.repeat(MAX_CLICK_LABEL) }).success).toBe(true);
+    expect(clickEventSchema.safeParse({ ...click, label: 'b'.repeat(MAX_CLICK_LABEL + 1) }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, target: '' }).success).toBe(false);
+  });
+
+  it('rejects bad numbers, an unknown viewport bucket, unknown keys and private paths', () => {
+    expect(clickEventSchema.safeParse({ ...click, x_pct: 100.1 }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, x_pct: -1 }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, y: 1.5 }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, vw_bucket: 'xl' }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, text: 'typed words' }).success).toBe(false);
+    expect(clickEventSchema.safeParse({ ...click, path: '/admin/users' }).success).toBe(false);
+  });
+
+  it('one bad click never drops the batch', () => {
+    const parsed = parseBeacon({ sid: SID, seq: 1, events: [click, { ...click, label: 'x'.repeat(41) }, engage] });
+    expect(parsed?.events.map((e) => e.type)).toEqual(['click', 'engage']);
+    expect(parsed?.invalid).toBe(1);
   });
 });

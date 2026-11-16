@@ -86,6 +86,7 @@ export default async function SessionPage({ params }: { params: Params }) {
           startedAt={session.startedAt}
           lastSeenAt={session.lastSeenAt}
           pageCapReached={session.pageCapReached}
+          clickCapReached={session.clickCapReached}
         />
       </section>
     </div>

@@ -72,3 +72,62 @@ for (const path of ['/', '/chat']) {
     expect(fromTracker).toEqual([]);
   });
 }
+
+/**
+ * Per-click cost (phase 4): the click chunk's one `pointerup` listener on
+ * `document` is timed from inside the page (an init script wraps exactly that
+ * listener), over real buttons and links. Budget: < 1 ms each, and 0 long
+ * tasks while clicking. Synthetic pointerups: no navigation, no app action.
+ */
+test('click capture: < 1 ms main-thread time per click, 0 long tasks', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __clicks: number[]; __long: number };
+    w.__clicks = [];
+    w.__long = 0;
+    new PerformanceObserver((list) => {
+      w.__long += list.getEntries().length;
+    }).observe({ type: 'longtask' });
+    const add = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type, listener, options) {
+      if (this === document && type === 'pointerup' && typeof listener === 'function') {
+        const inner = listener;
+        const timed = function (this: unknown, event: Event) {
+          const t = performance.now();
+          inner.call(this, event);
+          w.__clicks.push(performance.now() - t);
+        };
+        return add.call(this, type, timed, options);
+      }
+      return add.call(this, type, listener, options);
+    };
+  });
+  const log = await answerProbe(page, 'ok');
+  await page.goto('/');
+  await expect.poll(() => log.probes.length, { timeout: 15_000 }).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __clicks: number[] }).__clicks !== undefined)).toBe(true);
+  await page.waitForTimeout(1_000); // click chunk loaded
+  await page.evaluate(() => (window as unknown as { __long: number }).__long = 0);
+
+  await page.evaluate(() => {
+    const targets = [...document.querySelectorAll('a, button, [role=button], [data-track]')].slice(0, 20);
+    for (let i = 0; i < 40; i++) {
+      const el = targets[i % targets.length];
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true, isPrimary: true, button: 0, clientX: 10 + i * 40, clientY: 10 }));
+    }
+  });
+  await page.waitForTimeout(1_500); // dead checks end
+
+  const { clicks, long } = await page.evaluate(() => {
+    const w = window as unknown as { __clicks: number[]; __long: number };
+    return { clicks: w.__clicks, long: w.__long };
+  });
+  expect(clicks.length).toBeGreaterThanOrEqual(40);
+  const sorted = [...clicks].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)];
+  test.info().annotations.push({ type: 'per-click ms', description: `median ${sorted[sorted.length >> 1].toFixed(3)}, p95 ${p95.toFixed(3)}, max ${sorted.at(-1)!.toFixed(3)}` });
+  expect(p95).toBeLessThan(1);
+  expect(long).toBe(0);
+
+  await hidePage(page);
+  await expect.poll(() => log.flushes.flatMap((f) => f.body.events).filter((e) => e.type === 'click').length).toBeGreaterThanOrEqual(40);
+});

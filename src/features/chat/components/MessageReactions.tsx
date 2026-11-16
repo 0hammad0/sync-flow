@@ -357,6 +357,8 @@ export function ReactionDetails({
         </div>
         <ul
           id={panelId}
+          // Reactor names: never sent as click labels.
+          data-private
           role="tabpanel"
           aria-labelledby={tabId(activeTab)}
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-1"

@@ -18,6 +18,8 @@ interface ButtonProps {
   type?: 'button' | 'submit' | 'reset';
   title?: string;
   onClick?: () => void;
+  /** `data-track` id for click analytics (06-clicks.md). */
+  track?: string;
   children: React.ReactNode;
 }
 
@@ -53,6 +55,7 @@ export default function Button({
   type = 'button',
   title,
   onClick,
+  track,
   children,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
@@ -81,7 +84,7 @@ export default function Button({
 
   if (href && !isDisabled) {
     return (
-      <Link href={href} className={classes} title={title}>
+      <Link href={href} className={classes} title={title} data-track={track}>
         {content}
       </Link>
     );
@@ -95,6 +98,7 @@ export default function Button({
       aria-busy={loading || undefined}
       className={classes}
       title={title}
+      data-track={track}
     >
       {content}
     </button>

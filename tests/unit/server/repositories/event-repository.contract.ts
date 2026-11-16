@@ -122,6 +122,47 @@ export function runEventRepositoryContract(name: string, makeRepo: () => Promise
       expect(hour?.country.PK).toMatchObject({ sessions: 2, views: 5 });
     });
 
+    it('appends clicks in the flush write (arrayUnion), counts them, caps target and label, and rolls up clicks.{path}', async () => {
+      const id = 'd'.repeat(32);
+      const click = (s: number, over: Record<string, unknown> = {}) => ({
+        ts: new Date(t0.getTime() + s * 1_000),
+        path: '/chat/[code]',
+        target: 'chat-send',
+        label: 'Send',
+        x_pct: 12.5,
+        y_px: 640,
+        doc_h: 900,
+        vw_bucket: 'sm' as const,
+        rage: false,
+        dead: false,
+        ...over,
+      });
+      await repo.writeSession(patch(id, { clicks: [click(1), click(2, { rage: true })], increment: { pageviews: 1, engaged_ms: 0, click_count: 1 } }));
+      await repo.writeSession(
+        patch(id, {
+          set: {},
+          pages: {},
+          clicks: [click(3, { target: 'x'.repeat(200), label: 'y'.repeat(200), dead: true })],
+          increment: { pageviews: 0, engaged_ms: 0, click_count: 0 },
+        }),
+      );
+      const s = await repo.getSession(id);
+      expect(s?.clicks).toHaveLength(3);
+      expect(s?.click_count).toBe(1);
+      expect(s?.clicks[0]).toMatchObject({ path: '/chat/[code]', target: 'chat-send', label: 'Send', x_pct: 12.5, y_px: 640, doc_h: 900, vw_bucket: 'sm' });
+      expect(s?.clicks[0].ts.getTime()).toBe(t0.getTime() + 1_000);
+      expect(s?.clicks[2].target).toHaveLength(120);
+      expect(s?.clicks[2].label).toHaveLength(40);
+      expect(sessionRollup(s!).clicks[encodeKey('/chat/[code]')]).toEqual({ total: 1, rage: 1, dead: 1 });
+
+      const d = delta(1);
+      d.clicks[encodeKey('/chat/[code]')] = { total: 1, rage: 1, dead: 1 };
+      await repo.writeSession(patch('e'.repeat(32)), { hour: '2026-11-13-12', delta: d });
+      await repo.writeSession(patch('f'.repeat(32)), { hour: '2026-11-13-12', delta: d });
+      const [hour] = await repo.getHourly(['2026-11-13-12']);
+      expect(hour?.clicks[encodeKey('/chat/[code]')]).toEqual({ total: 2, rage: 2, dead: 2 });
+    });
+
     it('lists unrolled sessions last seen before a time, oldest first, and rolls one up', async () => {
       await repo.writeSession(patch('1'.repeat(32), { now: at(2) }));
       await repo.writeSession(patch('2'.repeat(32), { now: at(1) }));

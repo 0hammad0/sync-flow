@@ -23,6 +23,7 @@ export default function CopyButton({ text, compact = false }: CopyButtonProps) {
       }`}
       title={copied ? 'Link copied to clipboard!' : 'Copy share link to clipboard'}
       aria-label={copied ? 'Link copied' : 'Copy link'}
+      data-track="link-copy"
     >
       {copied ? (
         <>

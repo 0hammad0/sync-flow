@@ -27,6 +27,7 @@ const MANIFEST: Record<string, Guard> = {
   [`page ${P}/[...missing]/page.tsx`]: page('analytics:read'),
   [`page ${P}/access/page.tsx`]: page('blocks:read'),
   [`page ${P}/audit/page.tsx`]: page('audit:read'),
+  [`page ${P}/clicks/page.tsx`]: page('analytics:read'),
   [`page ${P}/files/[fileId]/page.tsx`]: page('files:read'),
   [`page ${P}/files/@drawer/(.)[fileId]/page.tsx`]: page('files:read'),
   [`page ${P}/files/@drawer/page.tsx`]: { check: null, reason: 'renders null: closes the drawer slot' },

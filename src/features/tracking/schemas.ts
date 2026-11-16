@@ -9,7 +9,8 @@ import { normalisePath } from './normalise-path';
  *
  * Events are strict: an event with an unknown key is dropped, so nothing the
  * tracker did not mean to send (typed text, message content) can ride along.
- * Click events (`click`, `rage`, `dead`) are added in phase 4.
+ * Click events (`click`, `rage`, `dead`, phase 4) carry no free text but the
+ * visible label of a button or link, capped at 40 characters.
  *
  * Spec: docs/admin/01-architecture/07-tracker.md ("Events"), 03-data-model.md.
  */
@@ -79,10 +80,50 @@ export const vitalsEventSchema = z.strictObject({
   cls: z.number().min(0).max(100).nullable().optional(),
 });
 
+/** Click caps (03-data-model.md "Click fields"). Longer = tampered: the event is dropped, never cut. */
+export const MAX_CLICK_TARGET = 120;
+export const MAX_CLICK_LABEL = 40;
+/** Page coordinates in px; far beyond any real page. */
+const MAX_PAGE_PX = 1_000_000;
+
+/** Viewport width bucket at the click: `sm` < 640, `md` < 1024, `lg` ≥ 1024. */
+export const VW_BUCKETS = ['sm', 'md', 'lg'] as const;
+export type VwBucket = (typeof VW_BUCKETS)[number];
+
+const clickFields = {
+  t: timestamp,
+  path: routePath,
+  /** `data-track` id, else a short CSS selector. */
+  target: z.string().trim().min(1).max(MAX_CLICK_TARGET),
+  /** Visible text of the button or link; null inside inputs or `[data-private]`. Empty → null. */
+  label: z
+    .string()
+    .max(MAX_CLICK_LABEL)
+    .nullable()
+    .optional()
+    .transform((v) => v?.trim() || null),
+  /** x as % of the page width (0–100). */
+  x_pct: z.number().min(0).max(100),
+  /** y in px from the top of the page. */
+  y: z.number().int().min(0).max(MAX_PAGE_PX),
+  /** Page height in px when measured. */
+  doc_h: z.number().int().min(0).max(MAX_PAGE_PX),
+  vw_bucket: z.enum(VW_BUCKETS),
+};
+
+export const clickEventSchema = z.strictObject({ type: z.literal('click'), ...clickFields });
+/** ≥ 3 clicks within 600 ms within 30 px (tracker rule). */
+export const rageEventSchema = z.strictObject({ type: z.literal('rage'), ...clickFields });
+/** No DOM change or navigation within 1 s after a click (tracker rule). */
+export const deadEventSchema = z.strictObject({ type: z.literal('dead'), ...clickFields });
+
 export const trackerEventSchema = z.discriminatedUnion('type', [
   pageviewEventSchema,
   engageEventSchema,
   vitalsEventSchema,
+  clickEventSchema,
+  rageEventSchema,
+  deadEventSchema,
 ]);
 
 /**
@@ -103,6 +144,8 @@ export const beaconEnvelopeSchema = z.object({
 export type PageviewEvent = z.infer<typeof pageviewEventSchema>;
 export type EngageEvent = z.infer<typeof engageEventSchema>;
 export type VitalsEvent = z.infer<typeof vitalsEventSchema>;
+/** `click`, `rage` or `dead`: same fields, the type says which. */
+export type ClickEvent = z.infer<typeof clickEventSchema> | z.infer<typeof rageEventSchema> | z.infer<typeof deadEventSchema>;
 export type TrackerEvent = z.infer<typeof trackerEventSchema>;
 /** What the tracker sends (before server-side normalisation). */
 export type TrackerEventInput = z.input<typeof trackerEventSchema>;

@@ -15,7 +15,9 @@ import {
   DEFAULT_TRACKING_SETTINGS,
   DIM_MAPS,
   ROLLUP_MAP_FIELDS,
+  clampClick,
   emptyRollup,
+  type ClickEntry,
   type DailyDoc,
   type Device,
   type Rollup,
@@ -41,7 +43,8 @@ import type {
  *
  * Cost per method:
  * - readTrackingSettings, getSession: 1 read
- * - writeSession: 1 write, 2 with the hourly rollup (one batch)
+ * - writeSession: 1 write, 2 with the hourly rollup (one batch). Clicks ride
+ *   in the same set/merge (`arrayUnion`), never a write of their own
  * - rollUpSession: 2 writes (one batch)
  * - listUnrolledSessions: 1 read per doc, minimum 1
  * - getHourly: 1 read per id asked (missing docs are billed too)
@@ -64,6 +67,32 @@ const date = z
   .nullish()
   .catch(null)
   .transform((v) => v?.toDate() ?? null);
+
+const clickEntry = z.object({
+  ts: z.instanceof(Timestamp).transform((v) => v.toDate()),
+  path: z.string(),
+  target: z.string().min(1),
+  label: nullableString,
+  x_pct: z.number().finite(),
+  y_px: z.number().finite(),
+  doc_h: z.number().finite(),
+  vw_bucket: z.enum(['sm', 'md', 'lg']),
+  rage: z.boolean().catch(false).default(false),
+  dead: z.boolean().catch(false).default(false),
+});
+
+/** Clicks as stored; a malformed entry is skipped, not the session. */
+const clickList = z
+  .array(z.unknown())
+  .catch([])
+  .default([])
+  .transform((items) =>
+    items.flatMap((item): ClickEntry[] => {
+      const parsed = clickEntry.safeParse(item);
+      const entry = parsed.success ? clampClick(parsed.data) : null;
+      return entry ? [entry] : [];
+    }),
+  );
 
 const pageEntry = z.object({
   path: nullableString,
@@ -113,6 +142,8 @@ const sessionDoc = z.object({
     .nullish()
     .catch(null)
     .transform((v) => v ?? null),
+  clicks: clickList,
+  click_count: count,
 });
 
 const settingsDoc = z.object({
@@ -153,6 +184,7 @@ function parseRollup(data: DocumentData | undefined): Rollup {
   };
   fill('path', { views: 0, sessions: 0, engaged_ms: 0, bounces: 0, entries: 0, exits: 0, scroll_sum: 0 });
   fill('city', { sessions: 0, views: 0, engaged_ms: 0, bounces: 0, lat: null, lon: null });
+  fill('clicks', { total: 0, rage: 0, dead: 0 });
   for (const m of DIM_MAPS) fill(m, { sessions: 0, views: 0, engaged_ms: 0, bounces: 0 });
   return r;
 }
@@ -198,6 +230,15 @@ function sessionWrite(patch: SessionPatch): Record<string, unknown> {
     pages[pv] = page;
   }
   if (Object.keys(pages).length > 0) doc.pages = pages;
+  // Repository guard: target ≤ 120 and label ≤ 40 whatever the caller passed.
+  const clicks = (patch.clicks ?? []).flatMap((c) => {
+    const entry = clampClick(c);
+    return entry ? [{ ...entry, ts: Timestamp.fromDate(entry.ts) }] : [];
+  });
+  if (clicks.length > 0) {
+    doc.clicks = FieldValue.arrayUnion(...clicks);
+    doc.click_count = FieldValue.increment(patch.increment.click_count ?? 0);
+  }
   return doc;
 }
 

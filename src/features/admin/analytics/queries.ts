@@ -13,6 +13,7 @@ import type {
   PageFlowDto,
   PageStatsDto,
   PageTrendDto,
+  RangeMeta,
   SampleBreakdownDto,
   SessionDetailDto,
   SessionListDto,
@@ -32,7 +33,14 @@ import { maskIpDto, type SessionSample } from '@/server/analytics/session-dto';
 import { getEventRepository, getQuota } from '@/server/container-light';
 import { QuotaExceededError } from '@/server/quota/quota-guard';
 import type { EventReader, SessionFilter } from '@/server/repositories/interfaces';
-import { AnalyticsService, sampleSourceFrom, type SessionListInput } from '@/server/services/analytics-service';
+import type { ClickSample } from '@/server/analytics/click-sample';
+import {
+  AnalyticsService,
+  clickSampleSourceFrom,
+  sampleSourceFrom,
+  type ClickPathStats,
+  type SessionListInput,
+} from '@/server/services/analytics-service';
 import { normaliseIp } from '@/shared/lib/ip';
 import { resolveRange, type RangeParams, type ResolvedRange } from './range';
 
@@ -51,6 +59,7 @@ import { resolveRange, type RangeParams, type ResolvedRange } from './range';
 // | IP search                         | 5 min    | ≤ 100                                         |
 // | Session detail                    | 5 min    | 1                                             |
 // | Flow / drill sample               | 30 min   | ≤ 500 (shared by flow, referrer, browsers)     |
+// | Click sample (clicks screen)      | 30 min   | ≤ 500 (one per range, every filter in memory)  |
 // | Live                              | 30 s     | 1 count + ≤ 100                               |
 // | Online now                        | 30 s     | 1 count (1 per 1,000 online)                  |
 // | Tracking settings (retention)     | 5 min    | 1                                             |
@@ -148,12 +157,20 @@ const sampleDocs = unstable_cache(
 );
 const sampleMemo = cache((from: string, to: string, limit: number) => sampleDocs(from, to, limit));
 
+const clickDocs = unstable_cache(
+  (from: string, to: string, limit: number): Promise<ClickSample> => clickSampleSourceFrom(reader()).clicks(from, to, limit),
+  ['admin-analytics-clicks'],
+  { tags: [ROLLUPS_TAG], revalidate: SAMPLE_TTL_S },
+);
+const clickMemo = cache((from: string, to: string, limit: number) => clickDocs(from, to, limit));
+
 let service: AnalyticsService | null = null;
 
 function analytics(): AnalyticsService {
   service ??= new AnalyticsService({
     rollups: cachedRollups,
     samples: { sample: sampleMemo },
+    clickSamples: { clicks: clickMemo },
     sessions: reader(),
   });
   return service;
@@ -285,6 +302,19 @@ export function getPageTrend(range: ResolvedRange, path: string): Promise<QueryR
 /** Came from / went to, from the newest 500 sessions in range (≤ 30 days). */
 export function getPageFlow(range: ResolvedRange, path: string): Promise<QueryResult<PageFlowDto>> {
   return run('page flow', () => analytics().getPageFlow(range, path));
+}
+
+// ---------------------------------------------------------------------------
+// Clicks (06-clicks.md)
+
+/** Tracked paths with views and click totals over the range. Same rollup docs as Pages. */
+export function getClickPaths(range: ResolvedRange): Promise<QueryResult<{ rows: ClickPathStats[]; meta: RangeMeta }>> {
+  return run('click paths', () => analytics().getClickPaths(range));
+}
+
+/** Clicks of the newest 500 sessions in range (≤ 30 days), cached 30 min; filters run in memory. */
+export function getClickSample(range: ResolvedRange): Promise<QueryResult<{ sample: ClickSample; from: string; to: string }>> {
+  return run('click sample', () => analytics().getClickSample(range));
 }
 
 // ---------------------------------------------------------------------------

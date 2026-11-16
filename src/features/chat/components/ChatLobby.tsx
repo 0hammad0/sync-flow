@@ -157,6 +157,7 @@ export default function ChatLobby() {
             disabled={creating}
             loading={creating}
             loadingText="Starting…"
+            track="room-create"
           >
             Start a room
           </Button>
@@ -194,6 +195,7 @@ export default function ChatLobby() {
             disabled={joining || joinCode.length !== ROOM_CODE_LENGTH}
             loading={joining}
             loadingText="Joining…"
+            track="room-join"
           >
             Join room
           </Button>
