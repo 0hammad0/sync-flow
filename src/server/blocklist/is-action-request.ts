@@ -15,10 +15,16 @@ function under(pathname: string, base: string): boolean {
  * - `CRON_SECRET` routes (`/api/cleanup`, `/api/admin/cron/**`): Vercel cron, not a visitor
  * - `DELETE /api/session`: sign-out must always work
  * - `/api/e`: the tracker drops a blocked visitor's events itself and answers 204
+ * - `POST /admin/access` (exact): the block / unblock server actions post to
+ *   that page. Owner lockout: an owner caught by a block (shared IP, range,
+ *   country) must still reach `unblockSubject`. Not an open door: every action
+ *   still runs its own block check, and only `unblockSubject` skips it, only
+ *   for an owner, after `requireAdmin` (src/features/admin/access/actions.ts).
  */
 export function isBlockExempt(method: string, pathname: string): boolean {
   if (under(pathname, '/api/cleanup') || under(pathname, '/api/admin/cron')) return true;
   if (under(pathname, '/api/e')) return true;
+  if (method.toUpperCase() === 'POST' && pathname === '/admin/access') return true;
   return method.toUpperCase() === 'DELETE' && pathname === '/api/session';
 }
 

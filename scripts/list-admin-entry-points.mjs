@@ -25,6 +25,11 @@ const BLOCK_CHECK = 'assertNotBlocked';
 /**
  * Action entry points that may skip `assertNotBlocked()`. `path` is a
  * repo-relative path or a RegExp; `name` limits it to one method or export.
+ *
+ * Not here on purpose: `unblockSubject` (src/features/admin/access/actions.ts).
+ * The proxy lets `POST /admin/access` through (isBlockExempt, owner lockout) and
+ * the action skips its check for an owner only, so it still calls
+ * assertNotBlocked() for every other role and stays under this check.
  */
 const BLOCK_ALLOWLIST = [
   { path: 'src/app/api/cleanup/route.ts', reason: 'CRON_SECRET cron: never blocked (T-27)' },

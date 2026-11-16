@@ -29,6 +29,23 @@ describe('isActionRequest', () => {
     expect(isActionRequest('POST', '/api/e')).toBe(false);
   });
 
+  it('POST /admin/access is exempt (owner lockout: the unblock action must be reachable)', () => {
+    expect(isBlockExempt('POST', '/admin/access')).toBe(true);
+    expect(isBlockExempt('post', '/admin/access')).toBe(true);
+    expect(isActionRequest('POST', '/admin/access')).toBe(false);
+  });
+
+  it('only POST to the exact /admin/access page is exempt', () => {
+    expect(isActionRequest('PUT', '/admin/access')).toBe(true);
+    expect(isActionRequest('DELETE', '/admin/access')).toBe(true);
+    expect(isActionRequest('POST', '/admin/access/x')).toBe(true);
+    expect(isActionRequest('POST', '/admin/accessx')).toBe(true);
+    expect(isActionRequest('POST', '/admin/sessions')).toBe(true);
+    expect(isActionRequest('POST', '/admin/live')).toBe(true);
+    expect(isActionRequest('POST', '/admin')).toBe(true);
+    expect(isActionRequest('POST', '/api/admin/access')).toBe(true);
+  });
+
   it('only those exact routes are exempt', () => {
     expect(isActionRequest('POST', '/api/session')).toBe(true);
     expect(isActionRequest('POST', '/api/events')).toBe(true);

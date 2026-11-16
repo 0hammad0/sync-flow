@@ -71,6 +71,14 @@ describe('check:entry-points visitor-block check', () => {
     expect(run.status).toBe(0);
   });
 
+  it('passes an action that skips the check for one role only (unblockSubject, owner lockout)', () => {
+    const run = fixture({
+      'src/features/admin/access/actions.ts': `'use server';\nexport async function unblockSubject(input: unknown) {\n  const ctx = await requireAdmin('blocks:write');\n  if (ctx.role !== 'owner') {\n    const blocked = await assertNotBlocked();\n    if (blocked) return { ok: false };\n  }\n  return { ok: true };\n}\n`,
+    });
+    expect(run.status).toBe(0);
+    expect(run.stderr).toMatch(/1 action entry points/);
+  });
+
   it('ignores files that are not entry points', () => {
     const run = fixture({ 'src/shared/lib/util.ts': `export async function helper() {}\n` });
     expect(run.status).toBe(0);

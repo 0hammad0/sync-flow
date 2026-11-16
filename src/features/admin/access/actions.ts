@@ -17,6 +17,7 @@ import type { BlockRowDto } from './types';
 // Access-control actions. Each one: block check (admins are visitors too,
 // T-27) → requireAdmin('blocks:write') (T-6) → zod → BlockService (one
 // transaction: block + enforcement copy + audit row) → cache refresh.
+// unblockSubject swaps the first two so an owner can skip the block check.
 
 async function actor(): Promise<BlockActor> {
   const h = await headers();
@@ -30,6 +31,8 @@ function afterWrite() {
 }
 
 export async function blockSubject(input: unknown): Promise<ActionResult<BlockRowDto>> {
+  // The only block check on /admin/access: the proxy lets POSTs there through
+  // (isBlockExempt, owner lockout). A blocked admin, owner too, cannot block.
   const blocked = await assertNotBlocked();
   if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
   try {
@@ -45,11 +48,19 @@ export async function blockSubject(input: unknown): Promise<ActionResult<BlockRo
   }
 }
 
+/**
+ * Owner lockout: auth runs first here, and an owner skips the block check, so
+ * an owner caught by a block (shared IP, range, country) can always undo it.
+ * The proxy lets `POST /admin/access` through for this (isBlockExempt). Any
+ * other role that is blocked is still refused. blockSubject keeps its check.
+ */
 export async function unblockSubject(input: unknown): Promise<ActionResult<{ id: string; value: string }>> {
-  const blocked = await assertNotBlocked();
-  if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
   try {
     const ctx = await requireAdmin('blocks:write');
+    if (ctx.role !== 'owner') {
+      const blocked = await assertNotBlocked();
+      if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
+    }
     const parsed = unblockSubjectSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: 'invalid', fields: z.flattenError(parsed.error).fieldErrors };
     const result = await getBlocks().service.remove({ ctx, id: parsed.data.id, actor: await actor() });

@@ -199,8 +199,9 @@ export class FirestoreBlockRepository implements BlockRepository {
   async readBlocklist(): Promise<BlocklistSnapshot> {
     const settingsRef = this.db.collection(COLLECTIONS.adminConfig).doc(ADMIN_CONFIG_DOCS.settings);
     const [list, settings] = await this.run(() => this.db.getAll(this.blocklistRef, settingsRef));
-    // Security reads: counted, never blocked.
-    this.quota.record('reads', 2);
+    // Security reads: counted, never blocked. Tagged so `a_counters` also keeps
+    // them apart (`blocklist_reads`) and counts this load per instance.
+    this.quota.record('reads', 2, 'blocklist_load');
     return { blocklist: parseBlocklist(list.data()), settings: (settings.data() as Record<string, unknown>) ?? null };
   }
 

@@ -33,7 +33,19 @@ async function blockedResponse(request: NextRequest): Promise<Response | null> {
   return path === '/api' || path.startsWith('/api/') ? blockedApiResponse(hit) : blockedActionResponse(hit);
 }
 
-export async function proxy(request: NextRequest) {
+/**
+ * Adds `Server-Timing: proxy;dur=<ms>` to every response the proxy returns or
+ * passes through, so its added time shows in the browser's network panel.
+ * Only the duration: no names, ids or block details.
+ */
+export async function proxy(request: NextRequest): Promise<Response> {
+  const start = performance.now();
+  const response = await handle(request);
+  response.headers.append('Server-Timing', `proxy;dur=${(performance.now() - start).toFixed(1)}`);
+  return response;
+}
+
+async function handle(request: NextRequest): Promise<Response> {
   const blocked = await blockedResponse(request);
   if (blocked) return blocked;
 

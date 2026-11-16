@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CAPS_REFRESH_MS,
   DEFAULT_QUOTA_CAPS,
+  FirestoreQuotaStore,
   FLUSH_EVENT_COUNT,
   FLUSH_INTERVAL_MS,
   QuotaExceededError,
@@ -14,6 +16,7 @@ import {
   utcDay,
   type QuotaCaps,
   type QuotaCounts,
+  type QuotaExtra,
   type QuotaStore,
 } from '@/server/quota/quota-guard';
 
@@ -25,6 +28,7 @@ class FakeStore implements QuotaStore {
   caps: Partial<QuotaCaps> | null = null;
   reads: { day: string; withCaps: boolean }[] = [];
   adds: { day: string; delta: QuotaCounts }[] = [];
+  extras: (QuotaExtra | undefined)[] = [];
   failAdds: unknown = null;
   failReads: unknown = null;
 
@@ -38,8 +42,9 @@ class FakeStore implements QuotaStore {
     return { used: { ...(this.used.get(day) ?? { reads: 0, writes: 0, deletes: 0 }) }, caps: withCaps ? this.caps : null };
   }
 
-  async add(day: string, delta: QuotaCounts) {
+  async add(day: string, delta: QuotaCounts, extra?: QuotaExtra) {
     this.adds.push({ day, delta: { ...delta } });
+    this.extras.push(extra && structuredClone(extra));
     if (this.failAdds) throw this.failAdds;
   }
 }
@@ -55,7 +60,7 @@ describe('QuotaGuard', () => {
   beforeEach(() => {
     clock = T0;
     store = new FakeStore();
-    guard = new QuotaGuard(store, { now: () => clock, logger: silent });
+    guard = new QuotaGuard(store, { now: () => clock, logger: silent, instanceId: 'inst-a' });
   });
 
   describe('usage (Health meters)', () => {
@@ -260,6 +265,50 @@ describe('QuotaGuard', () => {
     });
   });
 
+  describe('blocklist measurement fields (same flush, no extra write)', () => {
+    it('blocklist load reads count in reads and in blocklist_reads, plus one load per call for this instance', async () => {
+      guard.record('reads', 2, 'blocklist_load');
+      guard.record('reads', 2, 'blocklist_load');
+      guard.record('reads', 5);
+      expect(guard.snapshot().used.reads).toBe(9);
+      await guard.flush();
+      expect(store.adds).toEqual([{ day: '2026-11-13', delta: { reads: 9, writes: 0, deletes: 0 } }]);
+      expect(store.extras).toEqual([{ blocklistReads: 4, blocklistLoads: { 'inst-a': 2 } }]);
+    });
+
+    it('sends no extra fields when there was no blocklist load', async () => {
+      guard.record('reads', 3);
+      await guard.flush();
+      expect(store.extras).toEqual([undefined]);
+    });
+
+    it('a blocklist load alone never triggers a flush (no flush per load)', async () => {
+      for (let i = 0; i < 50; i += 1) guard.record('reads', 2, 'blocklist_load');
+      await settle();
+      expect(store.adds).toEqual([]);
+    });
+
+    it('keeps the fields after a failed flush and sends them next time', async () => {
+      store.failAdds = new Error('unavailable');
+      guard.record('reads', 2, 'blocklist_load');
+      await guard.flush();
+      store.failAdds = null;
+      guard.record('reads', 2, 'blocklist_load');
+      await guard.flush();
+      expect(store.adds).toHaveLength(2);
+      expect(store.extras[1]).toEqual({ blocklistReads: 4, blocklistLoads: { 'inst-a': 2 } });
+    });
+
+    it('the flush write itself carries no blocklist fields', async () => {
+      guard.record('reads', 2, 'blocklist_load');
+      await guard.flush();
+      clock += FLUSH_INTERVAL_MS;
+      await guard.flush();
+      expect(store.adds[1].delta).toEqual({ reads: 0, writes: 1, deletes: 0 });
+      expect(store.extras[1]).toBeUndefined();
+    });
+  });
+
   describe('day roll-over (UTC)', () => {
     it('starts the new day from the new counter doc', async () => {
       store.setUsed('2026-11-13', { writes: 5_000 });
@@ -324,6 +373,53 @@ describe('QuotaGuard', () => {
       expect(guard.noteError(new Error('unavailable'))).toBe(false);
       expect(guard.snapshot().stoppedUntil).toBeNull();
     });
+  });
+});
+
+describe('FirestoreQuotaStore (a_counters/{day})', () => {
+  function fakeDb(data: Record<string, unknown> | undefined) {
+    const set = vi.fn(async () => {});
+    const doc = vi.fn(() => ({ set, get: async () => ({ data: () => data }) }));
+    const db = { collection: vi.fn(() => ({ doc })) } as unknown as Firestore;
+    return { db, set, doc };
+  }
+
+  it('writes blocklist_reads and blocklist_loads.<instanceId> in the same set as the totals', async () => {
+    const { db, set, doc } = fakeDb(undefined);
+    await new FirestoreQuotaStore(db).add('2026-11-13', { reads: 6, writes: 1, deletes: 0 }, {
+      blocklistReads: 4,
+      blocklistLoads: { 'inst-a': 2 },
+    });
+    expect(doc).toHaveBeenCalledWith('2026-11-13');
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith(
+      {
+        reads_used: FieldValue.increment(6),
+        writes_used: FieldValue.increment(1),
+        blocklist_reads: FieldValue.increment(4),
+        // A nested map: set() with merge never parses dotted keys as paths.
+        blocklist_loads: { 'inst-a': FieldValue.increment(2) },
+      },
+      { merge: true },
+    );
+  });
+
+  it('writes no blocklist fields without extra', async () => {
+    const { db, set } = fakeDb(undefined);
+    await new FirestoreQuotaStore(db).add('2026-11-13', { reads: 1, writes: 0, deletes: 0 });
+    expect(set).toHaveBeenCalledWith({ reads_used: FieldValue.increment(1) }, { merge: true });
+  });
+
+  it('still parses the totals from a doc that has the blocklist and ingest fields', async () => {
+    const { db } = fakeDb({
+      reads_used: 120,
+      writes_used: 30,
+      deletes_used: 2,
+      blocklist_reads: 40,
+      blocklist_loads: { 'inst-a': 12, 'inst-b': 8 },
+      ingest: { accepted: 5 },
+    });
+    expect((await new FirestoreQuotaStore(db).read('2026-11-13', false)).used).toEqual({ reads: 120, writes: 30, deletes: 2 });
   });
 });
 
