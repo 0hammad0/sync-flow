@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Download, Search, Trash2 } from 'lucide-react';
 import { formatNumber } from '@/features/admin/format';
 import type { ActionResult } from '@/server/errors';
+import { rateLimitedNotice } from '@/features/admin/rate-limited';
 import { blockedError } from '@/shared/lib/blocked';
 import AdminButton from '@/shared/ui/AdminButton';
 import ConfirmDialog, { type ConfirmResult } from '@/shared/ui/ConfirmDialog';
@@ -27,8 +28,11 @@ async function toast(kind: 'success' | 'error', title: string) {
 type Failure = Extract<ActionResult<unknown>, { ok: false }>;
 
 function failureText(result: Failure): string {
+  const limited = rateLimitedNotice(result);
+  if (limited) return limited;
   if (result.error === 'blocked') return blockedError(result) ?? "You can't do this right now.";
   if (result.message) return result.message;
+  if (result.error === 'step_up_required') return 'Deleting needs a sign-in from the last 15 minutes. Sign out, sign in again, then retry.';
   if (result.error === 'forbidden') return 'Only owners can delete visitor data.';
   if (result.error === 'invalid') return Object.values(result.fields ?? {})[0]?.[0] ?? SETTINGS_MESSAGES.subject;
   return `Something went wrong. Try again.${result.errorId ? ` Error id ${result.errorId}.` : ''}`;

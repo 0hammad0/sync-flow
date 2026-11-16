@@ -4,7 +4,9 @@ import { headers } from 'next/headers';
 import { updateTag } from 'next/cache';
 import { z } from 'zod';
 import { ROLLUPS_TAG } from '@/features/admin/analytics/queries';
+import { enforceAdminWriteLimit } from '@/server/auth/admin-write-limit';
 import { requireAdmin } from '@/server/auth/require-admin';
+import { requireRecentAuth } from '@/server/auth/step-up';
 import { assertNotBlocked } from '@/server/blocklist/assert-not-blocked';
 import { clientIp } from '@/server/blocklist/request';
 import { getContainer, getSettingsParts } from '@/server/container';
@@ -15,9 +17,10 @@ import { SETTINGS_TAG, subjectDeleteSchema, subjectPreviewSchema, updateSettings
 import type { SettingsSavedDto, SubjectDeleteDto, SubjectPreviewDto } from './types';
 
 // Settings actions (15-settings.md "Actions"). Each one: requireAdmin
-// ('settings:write', owner only) → block check (T-27) → zod → service.
-// D-5 = no: there is no TOTP step-up; the owner-only permission is the gate,
-// plus the typed confirm for the delete.
+// ('settings:write', owner only) → block check (T-27) → write rate limit
+// (5.4) → zod → service. The delete also needs a recent sign-in, like the
+// other destructive admin actions (requireRecentAuth).
+// D-5 = no: there is no TOTP step-up.
 
 async function requestInfo(): Promise<AuditRequestInfo> {
   const h = await headers();
@@ -41,7 +44,7 @@ export async function updateSettings(input: unknown): Promise<ActionResult<Setti
     const ctx = await requireAdmin('settings:write');
     const blocked = await assertNotBlocked();
     if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
-    // TODO(phase 5.4): call the admin write rate-limit helper here, right after requireAdmin.
+    enforceAdminWriteLimit(ctx);
     const parsed = updateSettingsSchema.safeParse(input);
     if (!parsed.success) return invalid(parsed.error);
     const { expectedUpdatedAt, ...values } = parsed.data;
@@ -58,10 +61,10 @@ export async function updateSettings(input: unknown): Promise<ActionResult<Setti
 /** "Find data": count the sessions for an IP or uid, and whether today's delete budget covers them. No audit (read only). */
 export async function previewSubjectData(input: unknown): Promise<ActionResult<SubjectPreviewDto>> {
   try {
-    await requireAdmin('settings:write');
+    const ctx = await requireAdmin('settings:write');
     const blocked = await assertNotBlocked();
     if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
-    // TODO(phase 5.4): call the admin write rate-limit helper here, right after requireAdmin.
+    enforceAdminWriteLimit(ctx);
     const parsed = subjectPreviewSchema.safeParse(input);
     if (!parsed.success) return invalid(parsed.error);
     const preview = await getSettingsParts().deletion.preview(parsed.data.subject);
@@ -84,7 +87,8 @@ export async function deleteSubjectData(input: unknown): Promise<ActionResult<Su
     const ctx = await requireAdmin('settings:write');
     const blocked = await assertNotBlocked();
     if (blocked) return { ok: false, error: 'blocked', ref: blocked.ref };
-    // TODO(phase 5.4): call the admin write rate-limit helper here, right after requireAdmin.
+    enforceAdminWriteLimit(ctx);
+    requireRecentAuth(ctx);
     const parsed = subjectDeleteSchema.safeParse(input);
     if (!parsed.success) return invalid(parsed.error);
     const result = await getSettingsParts().deletion.deleteSubject(ctx, parsed.data.subject, { request: await requestInfo() });

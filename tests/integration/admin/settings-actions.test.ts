@@ -36,7 +36,7 @@ const { updateSettings, previewSubjectData, deleteSubjectData } = await import('
 const { createRequireAdmin } = await vi.importActual<typeof import('@/server/auth/require-admin')>('@/server/auth/require-admin');
 
 const IP = '203.0.113.9';
-const owner: AdminContext = { uid: 'uidOwnerAAAAAAAAAAAAAAAAAAAA', email: 'owner@example.com', role: 'owner', authTime: 1 };
+const owner: AdminContext = { uid: 'uidOwnerAAAAAAAAAAAAAAAAAAAA', email: 'owner@example.com', role: 'owner', authTime: Math.floor(Date.now() / 1000) };
 const valid = { trackingEnabled: false, consentMode: 'all', ipRetentionDays: 7, rawRetentionDays: 30, expectedUpdatedAt: null };
 
 let settingsStore: MemorySettingsStore;
@@ -160,6 +160,12 @@ describe('previewSubjectData / deleteSubjectData', () => {
 
   it('delete needs the typed value; a wrong one deletes nothing', async () => {
     expect(await deleteSubjectData({ subject: IP, confirm: '203.0.113.' })).toMatchObject({ ok: false, error: 'invalid' });
+    expect(subjects.sessions).toHaveLength(5);
+  });
+
+  it('delete needs a sign-in from the last 15 minutes; an older one deletes nothing', async () => {
+    mocks.requireAdmin.mockResolvedValueOnce({ ...owner, authTime: Math.floor(Date.now() / 1000) - 16 * 60 });
+    expect(await deleteSubjectData({ subject: IP, confirm: IP })).toMatchObject({ ok: false, error: 'step_up_required' });
     expect(subjects.sessions).toHaveLength(5);
   });
 

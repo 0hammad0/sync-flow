@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Info } from 'lucide-react';
 import type { ActionResult } from '@/server/errors';
+import { rateLimitedNotice } from '@/features/admin/rate-limited';
 import { blockedError } from '@/shared/lib/blocked';
 import AdminButton from '@/shared/ui/AdminButton';
 import Select from '@/shared/ui/Select';
@@ -43,6 +44,8 @@ function dayOptions(options: readonly number[], current: number) {
 }
 
 function failureText(result: Failure): string {
+  const limited = rateLimitedNotice(result);
+  if (limited) return limited;
   if (result.error === 'blocked') return blockedError(result) ?? "You can't do this right now.";
   if (result.message) return result.message;
   if (result.error === 'forbidden') return 'Only owners can change settings.';

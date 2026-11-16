@@ -35,7 +35,13 @@ const ADMIN_ACTIONS = /^src\/features\/admin\//;
  * Admin server actions that may skip `enforceAdminWriteLimit()`: read-only
  * ones only (nothing written, nothing deleted). Same shape as BLOCK_ALLOWLIST.
  */
-const WRITE_LIMIT_ALLOWLIST = [];
+const WRITE_LIMIT_ALLOWLIST = [
+  {
+    path: 'src/features/admin/shell/actions.ts',
+    name: 'searchAdmin',
+    reason: 'command palette search: read only (at most 2 point reads through QuotaGuard), nothing written',
+  },
+];
 
 /**
  * Action entry points that may skip `assertNotBlocked()`. `path` is a
