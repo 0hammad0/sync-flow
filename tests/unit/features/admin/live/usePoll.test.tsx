@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -92,6 +93,61 @@ describe('usePoll (T-26)', () => {
     expect(screen.getByTestId('state').textContent).toBe('running:ok:1');
     await advance(LIVE_POLL_MS);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('no fetch on first paint even when time passes between render and subscribe (hydration)', async () => {
+    // Concurrent hydration can yield between the render that builds the query
+    // and the passive effect that subscribes to it. A layout effect stands in
+    // for that gap: timers due in it run before the subscription.
+    function Gap() {
+      useLayoutEffect(() => {
+        vi.advanceTimersByTime(5);
+      }, []);
+      return null;
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const at = Date.now();
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <Probe at={at} />
+        <Gap />
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={client}>
+        <Probe at={at} />
+        <Gap />
+      </QueryClientProvider>,
+    );
+    await advance(1_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('state').textContent).toBe('running:ok:0');
+    await advance(LIVE_POLL_MS - 1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new server render wins over an older cached poll; the same render reuses the cache', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = (at: number) => (
+      <QueryClientProvider client={client}>
+        <Probe at={at} />
+      </QueryClientProvider>
+    );
+    const first = Date.now();
+    const view = render(page(first));
+    await advance(LIVE_POLL_MS);
+    expect(screen.getByTestId('state').textContent).toBe('running:ok:1');
+    view.unmount();
+
+    // Back within the server's 30 s cache: same render time, the newer poll stays.
+    const again = render(page(first));
+    expect(screen.getByTestId('state').textContent).toBe('running:ok:1');
+    again.unmount();
+
+    // A later server render: its data, not the cached poll.
+    render(page(Date.now() + 60_000));
+    expect(screen.getByTestId('state').textContent).toBe('running:ok:0');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('makes no request while the tab is hidden, and one at once when it is back', async () => {

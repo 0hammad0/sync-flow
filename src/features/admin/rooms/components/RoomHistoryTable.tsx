@@ -44,10 +44,11 @@ export default function RoomHistoryTable({ rows, page, canSeeUsers, error }: Roo
       error={
         error ? { title: 'Could not load room history.', reason: error.reason, errorId: error.errorId, onRetry: () => router.refresh() } : undefined
       }
-      empty={{
-        title: 'No closed rooms yet.',
-        body: 'Rooms show here after they expire or an admin closes them. Kept for 365 days.',
-      }}
+      empty={EMPTY}
+      // History counts as a filter (badge, "Clear filters" back to Live) but narrows
+      // nothing and has no search: an empty page means no closed rooms yet, not
+      // "No closed rooms match … try a different search".
+      noResults={EMPTY}
       filters={
         <RoomStatusFilter
           value="history"
@@ -59,6 +60,11 @@ export default function RoomHistoryTable({ rows, page, canSeeUsers, error }: Roo
     />
   );
 }
+
+const EMPTY = {
+  title: 'No closed rooms yet.',
+  body: 'Rooms show here after they expire or an admin closes them. Kept for 365 days.',
+};
 
 const col = createAdminColumnHelper<RoomHistoryRowDto>();
 

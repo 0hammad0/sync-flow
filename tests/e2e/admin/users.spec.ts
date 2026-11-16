@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+import { showTableFilters } from '../support/table-filters';
+
 /*
  * Users screen (phase 1 step 1.4). Spec: docs/admin/03-features/13-users.md.
  *
@@ -40,11 +42,13 @@ test.describe('signed in', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
-  test('admins filter lists the signed-in owner', async ({ page, context, baseURL }) => {
+  test('admins filter lists the signed-in owner', async ({ page, context, baseURL }, testInfo) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/users?filter=admins');
-    await expect(page.getByRole('radio', { name: 'Admins' })).toBeChecked();
     await expect(page.getByText('This is you.').first()).toBeVisible();
+    // Phones: the filter is in the "Filters" sheet (08-tables.md "< 640 px").
+    await showTableFilters(page, testInfo);
+    await expect(page.getByRole('radio', { name: 'Admins' })).toBeChecked();
   });
 
   test('your own detail page has no actions', async ({ page, context, baseURL }) => {

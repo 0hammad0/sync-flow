@@ -33,7 +33,7 @@ test.describe('signed in', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Clicks' })).toBeVisible();
     await expect(page.getByText('Where people click. Days are in UTC.')).toBeVisible();
     await expect(page.getByRole('radiogroup', { name: 'Viewport' })).toBeVisible();
-    await expect(page.getByRole('radiogroup', { name: 'View' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'View', exact: true })).toBeVisible();
     await expect(page.getByText('Clicks from visitors without consent are not recorded.')).toBeVisible();
     await expect(page.getByText(EMPTY).or(page.getByRole('table'))).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -58,7 +58,7 @@ test.describe('signed in', () => {
 
     await page.goto('/admin/clicks?vw=xl&view=nope');
     await expect(page.getByRole('radiogroup', { name: 'Viewport' }).getByRole('radio', { checked: true })).toHaveText('Desktop');
-    await expect(page.getByRole('radiogroup', { name: 'View' }).getByRole('radio', { checked: true })).toHaveText('List');
+    await expect(page.getByRole('radiogroup', { name: 'View', exact: true }).getByRole('radio', { checked: true })).toHaveText('List');
   });
 
   test('an unknown ?path= shows "Unknown page."', async ({ page, context, baseURL }) => {

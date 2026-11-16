@@ -30,7 +30,7 @@ test.describe('axe: clicks', () => {
       await prepare(page, scheme);
       await page.goto('/admin/clicks?range=30d&view=list');
       await expect(page.getByRole('heading', { level: 1, name: 'Clicks' })).toBeVisible();
-      await expect(page.getByRole('radiogroup', { name: 'View' })).toBeVisible();
+      await expect(page.getByRole('radiogroup', { name: 'View', exact: true })).toBeVisible();
       await expectNoAxeViolations(page, `/admin/clicks list, ${scheme}`);
     });
   }
@@ -65,6 +65,17 @@ test.describe('axe: settings', () => {
     await signIn(context, baseURL!, OWNER!);
     await prepare(page, 'light');
     await page.goto('/admin/settings?section=roles');
+    // ?section=roles scrolls Roles to the top once, after hydration (SettingsNav.tsx).
+    // Click after that scroll, or "Add admin" moves out from under the pointer.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const top = document.getElementById('roles')?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY;
+          const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1;
+          return top < 160 || atBottom;
+        }),
+      )
+      .toBe(true);
     await page.getByRole('button', { name: 'Add admin' }).click();
     await expect(page.getByRole('alertdialog', { name: 'Add an admin?' })).toBeVisible();
     await expectNoAxeViolations(page, 'Add admin dialog');
@@ -98,6 +109,8 @@ test.describe('axe: command palette', () => {
       await prepare(page, scheme);
       await page.goto('/admin');
       await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+      // Listener attached (set on hydration, same effect as the ⌘K listener).
+      await expect(page.getByRole('button', { name: 'Search and jump' })).toHaveAttribute('aria-keyshortcuts', /Control\+K/);
       if (isTouch(testInfo)) {
         await page.getByRole('button', { name: 'Search and jump' }).filter({ visible: true }).first().tap();
       } else {

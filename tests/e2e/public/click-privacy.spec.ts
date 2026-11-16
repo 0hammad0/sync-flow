@@ -87,7 +87,9 @@ test('a real room: send a message, then no message text in any stored click', as
   const log = await answerProbe(page, 'ok');
   await page.goto(`/chat/${room}`);
   await trackerReady(page, log);
-  const draft = page.locator('textarea').last();
+  // The composer by its placeholder: react-textarea-autosize appends a hidden
+  // measuring <textarea aria-hidden> to <body>, so `textarea` alone can hit it.
+  const draft = page.getByPlaceholder('Message', { exact: true });
   await expect(draft).toBeVisible();
   await draft.fill(SECRET_MESSAGE);
   await page.locator('[data-track="chat-send"]').click();

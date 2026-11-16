@@ -41,6 +41,9 @@ test.describe('keyboard only', () => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/settings');
     await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+    // The shortcut listener is attached after hydration; the trigger gets
+    // aria-keyshortcuts in the same effect, so it is the ready signal.
+    await expect(page.getByRole('button', { name: 'Search and jump' })).toHaveAttribute('aria-keyshortcuts', 'Meta+K Control+K');
 
     await page.keyboard.press(PALETTE_KEYS);
     const combobox = palette(page).getByRole('combobox');

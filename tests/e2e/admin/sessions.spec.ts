@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+import { showTableFilters } from '../support/table-filters';
+
 /*
  * Sessions screen (phase 3 step 3.6). Spec: docs/admin/03-features/04-sessions.md.
  *
@@ -30,14 +32,17 @@ test.describe('signed out', () => {
 test.describe('signed in', () => {
   test.fixme(!OWNER, NO_SESSION_REASON);
 
-  test('filter and range in the URL survive reload and the back button', async ({ page, context, baseURL }) => {
+  // Phones: the filters are in the "Filters" sheet (08-tables.md "< 640 px"); showTableFilters opens it.
+  test('filter and range in the URL survive reload and the back button', async ({ page, context, baseURL }, testInfo) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/sessions?range=30d&device=mobile');
     await expect(page.getByRole('heading', { level: 1, name: 'Sessions' })).toBeVisible();
     const device = page.getByRole('combobox', { name: 'Device' });
+    await showTableFilters(page, testInfo);
     await expect(device).toHaveText(/Mobile/);
 
     await page.reload();
+    await showTableFilters(page, testInfo);
     await expect(device).toHaveText(/Mobile/);
     expect(new URL(page.url()).searchParams.get('range')).toBe('30d');
 
@@ -49,13 +54,15 @@ test.describe('signed in', () => {
 
     await page.goBack();
     await expect(page).toHaveURL(/device=mobile/);
+    await showTableFilters(page, testInfo);
     await expect(device).toHaveText(/Mobile/);
   });
 
-  test('a hand-made URL with two filters keeps the first and says so', async ({ page, context, baseURL }) => {
+  test('a hand-made URL with two filters keeps the first and says so', async ({ page, context, baseURL }, testInfo) => {
     await signIn(context, baseURL!, OWNER!);
     await page.goto('/admin/sessions?country=PK&device=mobile');
     await expect(page.getByText(/One filter works at a time/)).toBeVisible();
+    await showTableFilters(page, testInfo);
     await expect(page.getByRole('combobox', { name: 'Device' })).toHaveText(/All devices/);
   });
 

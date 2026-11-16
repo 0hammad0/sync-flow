@@ -65,6 +65,9 @@ export default function DateRangePicker() {
   const isCustom = params.range === 'custom' || (params.range === null && Boolean(params.from && params.to));
   const selected: RangePreset | 'custom' = isCustom ? 'custom' : (params.range ?? DEFAULT_RANGE);
   const label = labelFor(params.range, params.from, params.to);
+  // The name holds both visible texts (long from 640 px, short below), so it always
+  // contains what is on screen (WCAG 2.5.3; axe label-content-name-mismatch).
+  const name = label.short === label.long ? `Date range: ${label.long}` : `Date range: ${label.long}, ${label.short}`;
 
   const choosePreset = (preset: RangePreset) => {
     setOpen(false);
@@ -91,7 +94,7 @@ export default function DateRangePicker() {
         <button
           type="button"
           aria-busy={pending || undefined}
-          aria-label={`Date range: ${label.long}`}
+          aria-label={name}
           className={buttonClass({ variant: 'secondary', size: 'sm', className: 'max-w-[11rem] sm:max-w-none' })}
         >
           <CalendarDays aria-hidden="true" strokeWidth={1.75} className="size-3.5" />

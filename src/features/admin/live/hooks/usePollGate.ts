@@ -71,3 +71,18 @@ export function useMediaQuery(query: string, fallback = false): boolean {
     () => fallback,
   );
 }
+
+const noSubscribe = () => () => {};
+
+/**
+ * false while the server renders and while React hydrates its HTML, true
+ * after (and on client-only mounts). Lets a component render exactly what the
+ * server rendered first, even when a shared cache already holds newer data.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
+}

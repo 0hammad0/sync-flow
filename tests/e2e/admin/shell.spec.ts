@@ -85,7 +85,13 @@ test.describe('signed in', () => {
       const expected = expectedContentLeft(pin, widthOf(testInfo));
       expect(await contentLeft(page)).toBe(expected);
       await page.reload();
+      // `load` can fire before React reveals the streamed shell (the root
+      // loading.tsx is still on screen and #admin-content is hidden): wait for it.
+      await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
       expect(await contentLeft(page)).toBe(expected);
+      // Read CLS once the late content is in: the "N online" count arrives after
+      // hydration (top bar from 1024 px, the Overview badge at every width).
+      await expect(page.getByRole('link', { name: /online now$/ })).toBeVisible();
       expect(await page.evaluate(() => (window as unknown as { __cls: number }).__cls)).toBe(0);
     });
   }
@@ -107,7 +113,8 @@ test.describe('signed in', () => {
     await page.mouse.move(widthOf(testInfo) - 10, 400);
     await sidebar.hover({ position: { x: 32, y: 300 } });
     await expect(sidebar).toHaveAttribute('data-open', 'hover');
-    await expect(page.getByRole('link', { name: 'Sessions' })).toBeVisible();
+    // The sidebar's own link: Overview also has a "Sessions …" KPI link.
+    await expect(sidebar.getByRole('link', { name: 'Sessions', exact: true })).toBeVisible();
     expect(await contentLeft(page)).toBe(before); // overlay, does not push content
 
     await page.mouse.move(widthOf(testInfo) - 10, 400);
@@ -128,6 +135,10 @@ test.describe('signed in', () => {
     await signIn(context, baseURL!, OWNER!, 'rail');
     await page.goto('/admin');
     const shell = page.locator('.admin-shell');
+    // The shortcut listener exists once the shell has hydrated; a key pressed
+    // before that does nothing. The top-bar count renders only after hydration.
+    const hydrated = page.getByRole('link', { name: /^[\d,]+ online$/ });
+    await expect(hydrated).toBeVisible();
 
     await page.keyboard.press('Control+B');
     await expect(shell).toHaveAttribute('data-sidebar', 'pinned');
@@ -138,6 +149,7 @@ test.describe('signed in', () => {
 
     await page.reload();
     await expect(shell).toHaveAttribute('data-sidebar', 'pinned');
+    await expect(hydrated).toBeVisible();
 
     await page.evaluate(() => {
       const input = document.createElement('input');
@@ -188,7 +200,8 @@ test.describe('signed in', () => {
     await page.goto('/admin');
     await page.getByRole('button', { name: /^Account:/ }).filter({ visible: true }).first().click();
     const menu = page.getByRole('menu');
-    await expect(menu.getByText('Owner')).toBeVisible();
+    // Exact: the email above it (e2e-owner@…) also contains "owner".
+    await expect(menu.getByText('Owner', { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Back to site' })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
     await menu.getByRole('menuitem', { name: /Sign out everywhere/ }).click();

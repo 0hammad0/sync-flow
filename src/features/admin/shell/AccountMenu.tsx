@@ -27,14 +27,18 @@ type AccountMenuProps = {
 const ITEM =
   'flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-sm select-none pointer-coarse:h-11 data-[highlighted]:bg-surface-2 focus-visible:-outline-offset-2!';
 
+/**
+ * The initial is drawn with CSS `content`, not DOM text: it sits inside buttons
+ * named by `aria-label`, and visible text the name lacks fails WCAG 2.5.3
+ * (axe label-content-name-mismatch). The email and role beside it are the label.
+ */
 function Avatar({ email, className = '' }: { email: string | null; className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={`flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[11px] font-medium text-fg-muted ${className}`}
-    >
-      {initialsFor(email)}
-    </span>
+      data-initials={initialsFor(email)}
+      className={`flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[11px] font-medium text-fg-muted before:content-[attr(data-initials)] ${className}`}
+    />
   );
 }
 
@@ -70,7 +74,8 @@ export default function AccountMenu({ email, role, variant }: AccountMenuProps) 
         <span className="admin-sb-label flex min-w-0 flex-1 items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-left font-mono text-xs" title={shownEmail}>
             {shownEmail}
-          </span>
+          </span>{' '}
+          {/* The space keeps "email Role" two words for name matching; a flex gap draws none. */}
           <Badge tone={role === 'owner' ? 'brand' : 'neutral'}>{roleLabel(role)}</Badge>
         </span>
       </button>

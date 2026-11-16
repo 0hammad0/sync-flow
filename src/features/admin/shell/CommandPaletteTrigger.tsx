@@ -48,6 +48,9 @@ type CommandPaletteTriggerProps = {
   blockActor: AccessActorDto | null;
 };
 
+/** `aria-keyshortcuts` of the trigger, set once the key listener is attached. */
+const SHORTCUTS = 'Meta+K Control+K';
+
 /** ⌘K on Apple, Ctrl+K elsewhere (either is accepted). Works while typing (10-accessibility.md). */
 export function isPaletteShortcut(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): boolean {
   return (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k';
@@ -64,6 +67,7 @@ export default function CommandPaletteTrigger({ groups, actions, canSeeIp, block
   const [mounted, setMounted] = useState(false);
   const openRef = useRef(false);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const setPaletteOpen = useCallback((next: boolean) => {
     if (next) {
@@ -98,7 +102,16 @@ export default function CommandPaletteTrigger({ groups, actions, canSeeIp, block
       else setPaletteOpen(true);
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    // Advertise the shortcut only once it works: the server HTML has no listener,
+    // so ⌘K / Ctrl+K pressed before hydration does nothing. Set here, in the same
+    // tick as the listener, so the attribute is a true "shortcut is live" signal
+    // (the e2e specs wait for it before pressing keys).
+    const button = buttonRef.current;
+    button?.setAttribute('aria-keyshortcuts', SHORTCUTS);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      button?.removeAttribute('aria-keyshortcuts');
+    };
   }, [setPaletteOpen]);
 
   const preload = () => void loadPalette();
@@ -106,13 +119,13 @@ export default function CommandPaletteTrigger({ groups, actions, canSeeIp, block
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setPaletteOpen(true)}
         onPointerEnter={preload}
         onFocus={preload}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-keyshortcuts="Meta+K Control+K"
         aria-label="Search and jump"
         className={iconButtonClass('gap-2 lg:w-auto lg:border lg:border-edge lg:px-2')}
       >
@@ -121,7 +134,7 @@ export default function CommandPaletteTrigger({ groups, actions, canSeeIp, block
           Search
         </span>
         <span className="hidden lg:inline-flex">
-          <Kbd keys={['mod', 'K']} />
+          <Kbd keys={['mod', 'K']} decorative />
         </span>
       </button>
       {mounted && (
