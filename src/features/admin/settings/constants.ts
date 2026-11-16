@@ -39,7 +39,14 @@ export const SETTINGS_MESSAGES = {
   conflict: 'Settings were changed by someone else. Reload to see them.',
   subject: 'Enter an IP address or a user id.',
   confirm: 'Type the IP address or user id exactly to confirm.',
+  email: 'Enter the email address they sign in with.',
+  unknownEmail: 'No user with that email. They must sign in once first.',
+  self: 'You cannot change your own role. Ask another owner.',
 } as const;
+
+/** Roles the "Add admin" dialog offers (removing is a separate row action). */
+export const ADD_ADMIN_ROLES = ['viewer', 'moderator', 'owner'] as const;
+export type AddAdminRole = (typeof ADD_ADMIN_ROLES)[number];
 
 // ---------------------------------------------------------------------------
 // Danger zone subject: one IP address or one user id.

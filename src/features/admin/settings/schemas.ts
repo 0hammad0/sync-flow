@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { OWNER_CONFIRM } from '@/features/admin/users/constants';
 import {
+  ADD_ADMIN_ROLES,
   CONSENT_MODE_CHOICES,
   IP_RETENTION,
   RAW_RETENTION,
@@ -56,3 +58,19 @@ export const subjectPreviewSchema = z.object({ subject: subjectSchema });
 export const subjectDeleteSchema = z
   .object({ subject: subjectSchema, confirm: z.string(M.confirm).trim().max(200, M.confirm) })
   .refine((v) => v.confirm === v.subject.value, { path: ['confirm'], message: M.confirm });
+
+/**
+ * addAdmin (15-settings.md "Add admin"): an exact email, resolved to a uid on
+ * the server, and the role. Granting owner needs OWNER typed, as on Users.
+ */
+export const addAdminSchema = z
+  .object({
+    email: z.string(M.email).trim().toLowerCase().max(320, M.email).pipe(z.email(M.email)),
+    role: z.enum(ADD_ADMIN_ROLES, M.outOfRange),
+    confirm: z.string().trim().optional(),
+  })
+  .refine((v) => v.role !== 'owner' || v.confirm?.toUpperCase() === OWNER_CONFIRM, {
+    path: ['confirm'],
+    message: `Type ${OWNER_CONFIRM} to confirm.`,
+  });
+export type AddAdminInput = z.input<typeof addAdminSchema>;

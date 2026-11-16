@@ -7,6 +7,7 @@ import type {
   CronRunRepository,
   NewCronRun,
   RoleGrant,
+  RoleIndexRebuild,
   StorageRemover,
   StorageStats,
   UserAdmin,
@@ -98,6 +99,28 @@ export class MemoryUserRepository implements UserReader, UserAdmin {
     this.calls.push(`revoke:${uid}`);
     if (role) this.roles.set(uid, { role, email: grant.email, grantedBy: grant.grantedBy, at: grant.at });
     else this.roles.delete(uid);
+  }
+
+  async rebuildRoleIndex(grant: Omit<RoleGrant, 'email'>): Promise<RoleIndexRebuild> {
+    this.calls.push('rebuild-roles');
+    const claims = [...this.users.values()].filter((u) => u.role);
+    const next = new Map<string, { role: AdminRole; email: string | null; grantedBy: string; at: Date }>();
+    let added = 0;
+    let changed = 0;
+    for (const user of claims) {
+      const role = user.role!;
+      const prev = this.roles.get(user.uid);
+      if (!prev) added += 1;
+      else if (prev.role !== role) changed += 1;
+      next.set(
+        user.uid,
+        prev?.role === role ? { ...prev, email: user.email } : { role, email: user.email, grantedBy: grant.grantedBy, at: grant.at },
+      );
+    }
+    const removed = [...this.roles.keys()].filter((uid) => !next.has(uid)).length;
+    this.roles.clear();
+    for (const [uid, entry] of next) this.roles.set(uid, entry);
+    return { admins: next.size, added, removed, changed };
   }
 
   private mustGet(uid: string): AdminUser {

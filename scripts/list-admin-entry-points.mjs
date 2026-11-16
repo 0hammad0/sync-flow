@@ -2,34 +2,44 @@
 /**
  * Entry-point checks for CI (`npm run check:entry-points`).
  *
- * 1. Admin entry points (stdout, unchanged): every way into the admin, i.e.
- *    pages, route handlers and server actions, as a JSON array of
- *    { kind, path, export?, method? }. The integration test compares it with
- *    a hand-written manifest of required permissions.
+ * Parsing lives in ./admin-entry-points-lib.mjs (shared with the test, which
+ * also feeds it fixture sources). Fail closed: anything it cannot classify
+ * fails the run (check 4).
+ *
+ * 1. Admin entry points (stdout): every way into the admin, i.e. pages,
+ *    route handlers and server actions, as a JSON array of
+ *    { kind, path, export?, method? }. Pages under src/app/admin; route
+ *    handlers and every export of a 'use server' file (any file name, every
+ *    export form) under src/app/admin, src/app/api/admin and
+ *    src/features/admin; plus any page, route or 'use server' file elsewhere
+ *    that calls requireAdmin / requireAdminPage / requireAdminForRoute.
+ *    The integration test compares it with a hand-written manifest of
+ *    required guards and checks each guard runs first.
  *
  * 2. Visitor-block check (T-27, phase 1.5): every action entry point (each
- *    route handler under src/app/api and each export of a 'use server' file)
+ *    route handler under src/app and each export of a 'use server' file)
  *    must call `assertNotBlocked(` in its own body, or be on BLOCK_ALLOWLIST
  *    with a reason. Problems go to stderr and the script exits 1.
  *    The proxy blocks action requests anyway; this is the second check
  *    (T-6 style), so a matcher gap cannot silently open a route.
  *
- * 3. Admin write-limit check (phase 5.4): every export of a 'use server' file
- *    under src/features/admin must call `enforceAdminWriteLimit(` (30 writes
- *    a minute per admin), in its own body or in a function of the same file
- *    that it calls (users/actions.ts calls it once in its shared `run()`).
- *    A read-only action goes on WRITE_LIMIT_ALLOWLIST with a reason.
- *    Same stderr + exit 1 as check 2.
+ * 3. Admin write-limit check (phase 5.4): every export of an admin
+ *    'use server' file (the action entries of check 1) must call
+ *    `enforceAdminWriteLimit(` (30 writes a minute per admin), in its own
+ *    body or in a function of the same file that it calls (users/actions.ts
+ *    calls it once in its shared `run()`). A read-only action goes on
+ *    WRITE_LIMIT_ALLOWLIST with a reason. Same stderr + exit 1 as check 2.
+ *
+ * 4. Unclassifiable entry points: an inline 'use server' function anywhere
+ *    under src, or an export form whose body cannot be seen in a
+ *    'use server' or route file (`export * from`, `export { x } from`,
+ *    destructured exports, classes…). Same stderr + exit 1.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import ts from 'typescript';
+import { BLOCK_CHECK, WRITE_LIMIT, calls, scanSources } from './admin-entry-points-lib.mjs';
 
 const ROOT = process.cwd();
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-const BLOCK_CHECK = 'assertNotBlocked';
-const WRITE_LIMIT = 'enforceAdminWriteLimit';
-const ADMIN_ACTIONS = /^src\/features\/admin\//;
 
 /**
  * Admin server actions that may skip `enforceAdminWriteLimit()`: read-only
@@ -80,112 +90,6 @@ function walk(dir) {
 }
 
 const rel = (f) => relative(ROOT, f).split(sep).join('/');
-const exportsOf = (src) =>
-  [...src.matchAll(/export\s+(?:async\s+)?(?:function|const)\s+([A-Za-z0-9_]+)/g)].map((m) => m[1]);
-
-// ---------------------------------------------------------------------------
-// 1. Admin entry points (stdout)
-
-const entries = [];
-
-for (const file of walk(join(ROOT, 'src/app/admin'))) {
-  if (file.endsWith('page.tsx')) entries.push({ kind: 'page', path: rel(file) });
-}
-
-const routeFiles = [...walk(join(ROOT, 'src/app/admin')), ...walk(join(ROOT, 'src/app/api/admin'))].filter((f) =>
-  f.endsWith('route.ts')
-);
-for (const file of routeFiles) {
-  for (const name of exportsOf(readFileSync(file, 'utf8'))) {
-    if (METHODS.includes(name)) entries.push({ kind: 'route', path: rel(file), method: name });
-  }
-}
-
-for (const file of walk(join(ROOT, 'src/features/admin'))) {
-  if (!/actions\.tsx?$/.test(file)) continue;
-  for (const name of exportsOf(readFileSync(file, 'utf8'))) {
-    entries.push({ kind: 'action', path: rel(file), export: name });
-  }
-}
-
-entries.sort((a, b) => `${a.path}${a.method ?? a.export ?? ''}`.localeCompare(`${b.path}${b.method ?? b.export ?? ''}`));
-process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
-
-// ---------------------------------------------------------------------------
-// 2. Visitor-block check (parsed with the TypeScript compiler, so comments,
-//    strings and return types cannot fool it)
-
-/** A file whose first statement is the 'use server' directive. */
-function isServerActionFile(sf) {
-  const first = sf.statements[0];
-  return Boolean(
-    first && ts.isExpressionStatement(first) && ts.isStringLiteral(first.expression) && first.expression.text === 'use server'
-  );
-}
-
-const hasExport = (node) => (ts.getModifiers?.(node) ?? node.modifiers ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-
-/** Top-level functions and consts by name, and the exported names. */
-function declarations(sf) {
-  const locals = new Map();
-  const exported = [];
-  for (const stmt of sf.statements) {
-    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      locals.set(stmt.name.text, stmt);
-      if (hasExport(stmt)) exported.push(stmt.name.text);
-    } else if (ts.isVariableStatement(stmt)) {
-      for (const decl of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(decl.name)) continue;
-        locals.set(decl.name.text, decl);
-        if (hasExport(stmt)) exported.push(decl.name.text);
-      }
-    }
-  }
-  return { locals, exported };
-}
-
-/** The function body behind a name, following `const GET = handler` aliases. null = not a plain function. */
-function bodyOf(locals, name, seen = new Set()) {
-  if (seen.has(name)) return null;
-  seen.add(name);
-  const node = locals.get(name);
-  if (!node) return null;
-  if (ts.isFunctionDeclaration(node)) return node.body ?? null;
-  const init = node.initializer;
-  if (!init) return null;
-  if (ts.isIdentifier(init)) return bodyOf(locals, init.text, seen);
-  if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init.body;
-  return null;
-}
-
-/**
- * Whether `node` calls `fn(…)`. With `locals`, a call to another top-level
- * function of the same file is followed too (once each), so a check in a
- * shared helper counts for every export that calls the helper.
- */
-function calls(node, fn, locals = null, seen = new Set()) {
-  let found = false;
-  const visit = (n) => {
-    if (found) return;
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
-      const callee = n.expression.text;
-      if (callee === fn) {
-        found = true;
-        return;
-      }
-      if (locals && !seen.has(callee)) {
-        const body = bodyOf(locals, callee, seen);
-        if (body && calls(body, fn, locals, seen)) {
-          found = true;
-          return;
-        }
-      }
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(node);
-  return found;
-}
 
 function allowed(path, name, list = BLOCK_ALLOWLIST) {
   return list.find(
@@ -194,28 +98,22 @@ function allowed(path, name, list = BLOCK_ALLOWLIST) {
   );
 }
 
-const actionEntries = [];
-for (const file of walk(join(ROOT, 'src'))) {
-  if (!/\.(ts|tsx)$/.test(file)) continue;
-  const path = rel(file);
-  const src = readFileSync(file, 'utf8');
-  const isRoute = path.startsWith('src/app/') && /\/route\.ts$/.test(path);
-  // Cheap pre-filter: only parse files that can hold an entry point.
-  if (!isRoute && !src.includes('use server')) continue;
-  const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  if (!isRoute && !isServerActionFile(sf)) continue;
-  const { locals, exported } = declarations(sf);
-  for (const name of exported) {
-    if (isRoute && !METHODS.includes(name)) continue;
-    actionEntries.push({ kind: isRoute ? 'route' : 'action', path, name, body: bodyOf(locals, name), locals });
-  }
-}
+const files = walk(join(ROOT, 'src')).map((file) => ({ path: rel(file), src: readFileSync(file, 'utf8') }));
+const { entries, actionEntries, unknown } = scanSources(files);
+
+// ---------------------------------------------------------------------------
+// 1. Admin entry points (stdout)
+
+process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+
+// ---------------------------------------------------------------------------
+// 2 + 3. Visitor-block and admin write-limit checks
 
 const problems = [];
 const limitProblems = [];
 let adminActions = 0;
 for (const entry of actionEntries) {
-  if (entry.kind === 'action' && ADMIN_ACTIONS.test(entry.path)) {
+  if (entry.admin) {
     adminActions += 1;
     if (!allowed(entry.path, entry.name, WRITE_LIMIT_ALLOWLIST)) {
       if (!entry.body) {
@@ -249,6 +147,13 @@ if (limitProblems.length > 0) {
       '\n'
   );
 }
-if (problems.length > 0 || limitProblems.length > 0) process.exit(1);
+if (unknown.length > 0) {
+  process.stderr.write(
+    `\nEntry-point scan failed (${unknown.length}): these cannot be classified, so no check can see them:\n` +
+      unknown.map((p) => `  - ${p}`).join('\n') +
+      '\n'
+  );
+}
+if (problems.length > 0 || limitProblems.length > 0 || unknown.length > 0) process.exit(1);
 process.stderr.write(`Visitor-block check: ${actionEntries.length} action entry points, all checked or allowlisted.\n`);
 process.stderr.write(`Admin write-limit check: ${adminActions} admin actions, all limited or allowlisted.\n`);

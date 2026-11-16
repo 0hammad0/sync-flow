@@ -345,12 +345,21 @@ export interface UserReader {
 
 export type RoleGrant = { email: string | null; grantedBy: string; at: Date };
 
+/** What a rebuild of `admin_config/roles` changed. `admins`: entries in the new index. */
+export type RoleIndexRebuild = { admins: number; added: number; removed: number; changed: number };
+
 export interface UserAdmin {
   setDisabled(uid: string, disabled: boolean): Promise<void>;
   /** Ends every session at the next `verifySessionCookie(c, true)`. */
   revokeSessions(uid: string): Promise<void>;
   /** Sets the `role` claim (other claims kept) and updates the `admin_config/roles` index. null removes it. */
   setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<void>;
+  /**
+   * Rewrites the `admin_config/roles` index from the `role` claims (one full
+   * Auth scan; Firestore: 1 read + 1 write). Claims are not touched. An entry
+   * whose role is unchanged keeps its original grant; new or changed ones get `grant`.
+   */
+  rebuildRoleIndex(grant: Omit<RoleGrant, 'email'>): Promise<RoleIndexRebuild>;
 }
 
 export type BucketTotals = { objectCount: number; payloadBytes: number; measuredAt: Date };

@@ -7,13 +7,15 @@ import { isAdminRole } from '@/server/auth/permissions';
 import type { AdminRole } from '@/server/auth/types';
 import { ADMIN_CONFIG_DOCS, COLLECTIONS } from '@/server/firestore/collections';
 import type { QuotaMeter } from '@/server/quota/quota-guard';
-import type { AdminUser, RoleGrant, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
+import type { AdminUser, RoleGrant, RoleIndexRebuild, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
 import { guarded } from './quota-call';
 
 /** Firebase Auth's own cap for listUsers. */
 const MAX_LIMIT = 1_000;
 /** Firebase Auth's cap for getUsers. */
 const AUTH_BATCH = 100;
+/** Auth pages a role-index rebuild may scan (100k users) before it gives up without writing. */
+const MAX_SCAN_PAGES = 100;
 /** Keys of `admin_config/roles` are uids; anything else is ignored. */
 const UID_SHAPE = /^[A-Za-z0-9]{1,128}$/;
 
@@ -121,5 +123,46 @@ export class FirebaseUserRepository implements UserReader, UserAdmin {
         .set({ [uid]: entry }, { merge: true }),
     );
     this.quota.record('writes', 1);
+  }
+
+  async rebuildRoleIndex(grant: Omit<RoleGrant, 'email'>): Promise<RoleIndexRebuild> {
+    // 1. Every role claim, from one pass over Auth (Auth calls are not Firestore reads).
+    const claims = new Map<string, { role: AdminRole; email: string | null }>();
+    let pageToken: string | undefined;
+    for (let page = 0; ; page += 1) {
+      // Never write a half-scanned index: it would drop the admins not reached yet.
+      if (page >= MAX_SCAN_PAGES) throw new Error('role index rebuild: too many Auth users to scan');
+      const res = await this.auth.listUsers(MAX_LIMIT, pageToken);
+      for (const user of res.users) {
+        const role = user.customClaims?.role;
+        if (isAdminRole(role)) claims.set(user.uid, { role, email: user.email ?? null });
+      }
+      if (!res.pageToken) break;
+      pageToken = res.pageToken;
+    }
+
+    // 2. The current index (1 read), so unchanged entries keep who granted them and when.
+    const ref = this.db.collection(COLLECTIONS.adminConfig).doc(ADMIN_CONFIG_DOCS.roles);
+    const snap = await guarded(this.quota, () => ref.get());
+    this.quota.record('reads', 1);
+    const old = (snap.data() ?? {}) as Record<string, { role?: unknown; granted_by?: unknown; granted_at?: unknown } | undefined>;
+
+    // 3. One full overwrite (1 write): stale entries go, missing ones come in.
+    const next: Record<string, { email: string | null; role: AdminRole; granted_by: unknown; granted_at: unknown }> = {};
+    let added = 0;
+    let changed = 0;
+    for (const [uid, { role, email }] of claims) {
+      const prev = UID_SHAPE.test(uid) ? old[uid] : undefined;
+      if (!prev) added += 1;
+      else if (prev.role !== role) changed += 1;
+      const keep = prev?.role === role && prev.granted_by !== undefined && prev.granted_at !== undefined;
+      next[uid] = keep
+        ? { email, role, granted_by: prev.granted_by, granted_at: prev.granted_at }
+        : { email, role, granted_by: grant.grantedBy, granted_at: Timestamp.fromDate(grant.at) };
+    }
+    const removed = Object.keys(old).filter((uid) => !claims.has(uid)).length;
+    await guarded(this.quota, () => ref.set(next));
+    this.quota.record('writes', 1);
+    return { admins: claims.size, added, removed, changed };
   }
 }
