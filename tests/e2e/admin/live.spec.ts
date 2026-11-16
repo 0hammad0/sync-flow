@@ -145,7 +145,9 @@ test.describe('signed in', () => {
     const polls = await countLivePolls(page);
     await openLive(page);
     await page.clock.runFor(10 * 60_000);
-    const resume = page.getByRole('button', { name: 'Paused, click to resume' }).first();
+    // From 1024 px the top bar's count has its own "Paused, click to resume" button,
+    // first in the DOM; it refetches the count URL, not this poll. Click Live's own.
+    const resume = page.locator('#admin-content').getByRole('button', { name: 'Paused, click to resume' }).first();
     await expect(resume).toBeVisible();
     // The last tick can share its instant with the idle check; let that request land.
     await page.waitForTimeout(500);

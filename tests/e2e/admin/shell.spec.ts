@@ -42,11 +42,26 @@ async function signIn(context: BrowserContext, baseURL: string, session: string,
 /** Sums layout-shift entries from the first paint on. */
 async function trackLayoutShift(page: Page) {
   await page.addInitScript(() => {
-    const w = window as unknown as { __cls: number };
+    type Rect = { x: number; y: number; width: number; height: number };
+    type Shift = PerformanceEntry & { value: number; hadRecentInput: boolean; sources?: { node?: Node; previousRect: Rect; currentRect: Rect }[] };
+    const w = window as unknown as { __cls: number; __shifts: string[] };
     w.__cls = 0;
+    w.__shifts = [];
+    const describe = (node?: Node) => {
+      if (!(node instanceof Element)) return node?.nodeName ?? '?';
+      const id = node.id ? `#${node.id}` : '';
+      const cls = typeof node.className === 'string' ? `.${node.className.trim().split(/\s+/).slice(0, 3).join('.')}` : '';
+      const text = (node.textContent ?? '').trim().slice(0, 30);
+      return `${node.tagName.toLowerCase()}${id}${cls} "${text}"`;
+    };
+    const box = (r: Rect) => `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as PerformanceEntry[] & { value: number; hadRecentInput: boolean }[]) {
-        if (!entry.hadRecentInput) w.__cls += entry.value;
+      for (const entry of list.getEntries() as Shift[]) {
+        if (entry.hadRecentInput) continue;
+        w.__cls += entry.value;
+        for (const s of entry.sources ?? []) {
+          w.__shifts.push(`${entry.value.toFixed(4)} @${Math.round(entry.startTime)}ms ${describe(s.node)} ${box(s.previousRect)} -> ${box(s.currentRect)}`);
+        }
       }
     }).observe({ type: 'layout-shift', buffered: true });
   });
@@ -92,7 +107,12 @@ test.describe('signed in', () => {
       // Read CLS once the late content is in: the "N online" count arrives after
       // hydration (top bar from 1024 px, the Overview badge at every width).
       await expect(page.getByRole('link', { name: /online now$/ })).toBeVisible();
-      expect(await page.evaluate(() => (window as unknown as { __cls: number }).__cls)).toBe(0);
+      const { cls, shifts } = await page.evaluate(() => {
+        const w = window as unknown as { __cls: number; __shifts: string[] };
+        return { cls: w.__cls, shifts: w.__shifts };
+      });
+      // On failure the message names each moved element and its old -> new box.
+      expect(cls, `layout shifts:\n${shifts.join('\n')}`).toBe(0);
     });
   }
 

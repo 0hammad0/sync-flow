@@ -76,8 +76,12 @@ test.describe('axe: settings', () => {
         }),
       )
       .toBe(true);
-    await page.getByRole('button', { name: 'Add admin' }).click();
-    await expect(page.getByRole('alertdialog', { name: 'Add an admin?' })).toBeVisible();
+    // A click before the button's handler is attached does nothing: click again until it opens.
+    const dialog = page.getByRole('alertdialog', { name: 'Add an admin?' });
+    await expect(async () => {
+      if (!(await dialog.isVisible())) await page.getByRole('button', { name: 'Add admin' }).click();
+      await expect(dialog).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
     await expectNoAxeViolations(page, 'Add admin dialog');
   });
 

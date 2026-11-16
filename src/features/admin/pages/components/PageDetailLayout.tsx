@@ -28,6 +28,10 @@ function useMedia(query: string): boolean | null {
 
 /** The table's row link for a path, to return focus there after closing. */
 function rowLinkFor(path: string): HTMLAnchorElement | null {
+  // The open row's own link closes the panel, so its href has no `?path=`
+  // (PagesTable rowHref). It is the row marked aria-current.
+  const open = document.querySelector<HTMLAnchorElement>('a[data-row-link]:has([aria-current="true"])');
+  if (open) return open;
   const links = document.querySelectorAll<HTMLAnchorElement>('a[data-row-link], li a[href*="path="]');
   for (const link of links) {
     const href = link.getAttribute('href');
