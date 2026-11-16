@@ -1,4 +1,4 @@
-import type { TimelinePageDto } from '@/server/analytics/dto';
+import type { TimelineClickDto, TimelinePageDto } from '@/server/analytics/dto';
 import Tooltip from '@/shared/ui/Tooltip';
 import { durationLabel, formatClock, formatDuration, formatFullUtc, formatOffset, timelineItems } from '../format';
 
@@ -8,7 +8,41 @@ type SessionTimelineProps = {
   lastSeenAt: string;
   /** The tracker stopped at 100 page views. */
   pageCapReached: boolean;
+  /** The tracker stopped at 300 click events. */
+  clickCapReached?: boolean;
 };
+
+const KIND_TEXT: Record<TimelineClickDto['kind'], string | null> = { click: null, rage: 'Rage click', dead: 'Dead click' };
+
+/** Clicks on one page view (phase 4): time, label or target, and a text badge for rage / dead. */
+function PageClicks({ clicks }: { clicks: readonly TimelineClickDto[] }) {
+  if (clicks.length === 0) return null;
+  return (
+    <ul aria-label={`${clicks.length} ${clicks.length === 1 ? 'click' : 'clicks'}`} className="mt-1.5 flex flex-col gap-0.5 min-[400px]:pl-[76px]">
+      {clicks.map((c, i) => {
+        const badge = KIND_TEXT[c.kind];
+        return (
+          <li key={`${c.ts}-${i}`} className="flex flex-wrap items-baseline gap-x-2 text-xs text-fg-muted">
+            <time dateTime={c.ts} className="tabular-nums text-fg-faint">
+              {formatClock(c.ts)}
+            </time>
+            {badge && (
+              <span className={`rounded px-1 text-[11px] font-medium ${c.kind === 'rage' ? 'bg-warning/10 text-warning-text' : 'bg-surface-2 text-fg-muted'}`}>
+                {badge}
+              </span>
+            )}
+            <span className="min-w-0 break-all">
+              {c.kind === 'click' ? 'Clicked ' : 'On '}
+              {c.label ? <span className="text-fg">“{c.label}”</span> : null}
+              {c.label ? ' ' : null}
+              <code className="font-mono text-[11px] text-fg-faint">{c.target}</code>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function Dot({ hollow = false }: { hollow?: boolean }) {
   return (
@@ -24,7 +58,7 @@ function Dot({ hollow = false }: { hollow?: boolean }) {
  * path, time on page to the second, visible time and scroll depth. An `<ol>`
  * with one `<li>` per page view; the session's last event closes it.
  */
-export default function SessionTimeline({ pages, startedAt, lastSeenAt, pageCapReached }: SessionTimelineProps) {
+export default function SessionTimeline({ pages, startedAt, lastSeenAt, pageCapReached, clickCapReached = false }: SessionTimelineProps) {
   const items = timelineItems(pages, startedAt);
 
   if (items.length === 0) {
@@ -36,6 +70,11 @@ export default function SessionTimeline({ pages, startedAt, lastSeenAt, pageCapR
       {pageCapReached && (
         <p role="status" className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-text">
           This session hit the 100-page limit; later pages were not recorded.
+        </p>
+      )}
+      {clickCapReached && (
+        <p role="status" className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-text">
+          This session hit the 300-click limit; later clicks were not recorded.
         </p>
       )}
       <ol aria-label="Page views" className="ml-1.5 border-l border-edge">
@@ -72,6 +111,7 @@ export default function SessionTimeline({ pages, startedAt, lastSeenAt, pageCapR
               <span aria-hidden="true"> · </span>
               Scrolled {page.scrollMax}%
             </p>
+            <PageClicks clicks={page.clicks ?? []} />
           </li>
         ))}
         <li className="relative pl-5">

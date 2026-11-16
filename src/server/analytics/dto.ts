@@ -192,6 +192,16 @@ export type SessionListDto = {
   mode: 'range' | 'ip';
 };
 
+/** One click event on the session timeline (phase 4). */
+export type TimelineClickDto = {
+  ts: string;
+  /** `data-track` id or a short CSS selector. */
+  target: string;
+  /** Visible button / link text; null when dropped (inputs, `[data-private]`). */
+  label: string | null;
+  kind: 'click' | 'rage' | 'dead';
+};
+
 export type TimelinePageDto = {
   id: string;
   ts: string | null;
@@ -200,6 +210,8 @@ export type TimelinePageDto = {
   /** Next page view's ts − this ts; the last page uses last_seen_at. Null without a ts. */
   wallMs: number | null;
   scrollMax: number;
+  /** Clicks made on this page view, oldest first. */
+  clicks: TimelineClickDto[];
 };
 
 export type SessionDetailDto = SessionRowDto & {
@@ -214,6 +226,8 @@ export type SessionDetailDto = SessionRowDto & {
   pages: TimelinePageDto[];
   /** Tracker cap of 100 pages reached. */
   pageCapReached: boolean;
+  /** Tracker cap of 300 click events reached. */
+  clickCapReached: boolean;
 };
 
 export type LiveSessionDto = IpDto & {

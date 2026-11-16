@@ -38,7 +38,9 @@ import {
   toSessionRow,
   type SessionSample,
 } from '@/server/analytics/session-dto';
-import { encodeKey } from '@/server/firestore/encode-key';
+import { EMPTY_CLICK_SAMPLE, toClickSample, type ClickSample } from '@/server/analytics/click-sample';
+import type { RangeMeta } from '@/server/analytics/dto';
+import { decodeKey, encodeKey, FOLD_KEY } from '@/server/firestore/encode-key';
 import type { EventReader, SessionFilter } from '@/server/repositories/interfaces';
 
 export type { AnalyticsRange } from '@/server/analytics/rollup-window';
@@ -66,6 +68,15 @@ export interface SampleSource {
   sample(from: string, to: string, limit: number): Promise<SessionSample[]>;
 }
 
+/** Where click samples come from (cached in production). */
+export interface ClickSampleSource {
+  /** The clicks of the newest `limit` sessions started in [`from`, `to`), both ISO instants. */
+  clicks(from: string, to: string, limit: number): Promise<ClickSample>;
+}
+
+/** One tracked path for the clicks screen: views and click totals from the rollups. */
+export type ClickPathStats = { path: string; pageviews: number; clicks: { total: number; rage: number; dead: number } };
+
 type SessionReader = Pick<
   EventReader,
   'getSession' | 'listSessions' | 'countSessions' | 'findSessionsByIp' | 'countActiveSessions' | 'listActiveSessions'
@@ -74,6 +85,8 @@ type SessionReader = Pick<
 export type AnalyticsServiceDeps = {
   rollups: RollupSource;
   samples: SampleSource;
+  /** Phase 4 clicks screen. Absent = an empty sample (no reads). */
+  clickSamples?: ClickSampleSource;
   sessions: SessionReader;
   now?: () => number;
 };
@@ -226,6 +239,45 @@ export class AnalyticsService {
     return { ...browserVersions(samples, browser), sampleSize: samples.length, ...span };
   }
 
+  /** The clicks of the newest 500 sessions of the range (≤ 30 days), compact (click-sample.ts). */
+  async getClickSample(range: SessionRange): Promise<{ sample: ClickSample; from: string; to: string }> {
+    const span = this.sampleSpan(range);
+    if (!this.deps.clickSamples) return { sample: EMPTY_CLICK_SAMPLE, ...span };
+    const bounds = sessionBounds({ ...span, kind: range.kind }, this.now());
+    const sample = await this.deps.clickSamples.clicks(bounds.from.toISOString(), bounds.to.toISOString(), SAMPLE_SIZE);
+    return { sample, ...span };
+  }
+
+  /**
+   * Every tracked path with its views and click totals (`clicks.{p}`) over the
+   * whole range. Same cached rollup docs as Overview and Pages: no extra reads.
+   */
+  async getClickPaths(range: AnalyticsRange): Promise<{ rows: ClickPathStats[]; meta: RangeMeta }> {
+    const { window, set } = await this.current(range);
+    const rows = new Map<string, ClickPathStats>();
+    const row = (key: string) => {
+      const path = decodeKey(key);
+      let r = rows.get(path);
+      if (!r) {
+        r = { path, pageviews: 0, clicks: { total: 0, rage: 0, dead: 0 } };
+        rows.set(path, r);
+      }
+      return r;
+    };
+    for (const [key, stats] of Object.entries(set.merged.path)) if (key !== FOLD_KEY) row(key).pageviews += stats.views;
+    for (const [key, stats] of Object.entries(set.merged.clicks ?? {})) {
+      if (key === FOLD_KEY) continue;
+      const r = row(key);
+      r.clicks.total += stats.total ?? 0;
+      r.clicks.rage += stats.rage ?? 0;
+      r.clicks.dead += stats.dead ?? 0;
+    }
+    return {
+      rows: [...rows.values()].sort((a, b) => b.pageviews - a.pageviews || a.path.localeCompare(b.path)),
+      meta: metaOf(window, set),
+    };
+  }
+
   /**
    * One page of the sessions table: `started_at desc`, 25 rows, cursor
    * paging, one optional indexed filter, total via `count()`. An IP search
@@ -288,6 +340,16 @@ export class AnalyticsService {
     const count = await this.deps.sessions.countActiveSessions(new Date(now - ONLINE_WINDOW_MS));
     return { count, at: new Date(now).toISOString() };
   }
+}
+
+/** Click samples straight from the repository: ≤ `limit` reads. */
+export function clickSampleSourceFrom(reader: Pick<EventReader, 'listNewestSessions'>): ClickSampleSource {
+  return {
+    async clicks(from, to, limit) {
+      const docs = await reader.listNewestSessions({ from: new Date(from), to: new Date(to), limit });
+      return toClickSample(docs);
+    },
+  };
 }
 
 /** Samples straight from the repository: ≤ `limit` reads. */

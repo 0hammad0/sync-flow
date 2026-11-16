@@ -755,6 +755,7 @@ export default function UploadForm({ isAuthenticated = false }: UploadFormProps)
               variant="primary"
               size="lg"
               onClick={() => handleUpload()}
+              track="files-upload"
               disabled={files.length === 0 || uploading || !!maxDownloadsError}
               loading={uploading}
               loadingText={

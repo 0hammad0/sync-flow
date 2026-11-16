@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { PageEntry, SessionDoc } from '@/server/analytics/model';
+import { MAX_CLICKS_PER_SESSION, type ClickEntry, type PageEntry, type SessionDoc } from '@/server/analytics/model';
 import { maskIp } from '@/shared/lib/mask-ip';
 import type {
   FlowRow,
@@ -10,6 +10,7 @@ import type {
   SampleShareRow,
   SessionDetailDto,
   SessionRowDto,
+  TimelineClickDto,
   TimelinePageDto,
 } from './dto';
 
@@ -66,8 +67,31 @@ export function toSessionRow(s: SessionDoc): SessionRowDto {
   };
 }
 
+function toTimelineClick(c: ClickEntry): TimelineClickDto {
+  return { ts: c.ts.toISOString(), target: c.target, label: c.label, kind: c.rage ? 'rage' : c.dead ? 'dead' : 'click' };
+}
+
+/**
+ * Clicks per page view: each click goes to the newest page view that started
+ * at or before it (the first page view when it came earlier, e.g. a clock skew).
+ */
+function clicksByPage(pages: (PageEntry & { id: string })[], clicks: readonly ClickEntry[]): Map<string, TimelineClickDto[]> {
+  const out = new Map<string, TimelineClickDto[]>();
+  if (pages.length === 0) return out;
+  const sorted = [...clicks].sort((a, b) => a.ts.getTime() - b.ts.getTime());
+  for (const c of sorted) {
+    let owner = pages[0];
+    for (const p of pages) if (p.ts && p.ts.getTime() <= c.ts.getTime()) owner = p;
+    const list = out.get(owner.id) ?? [];
+    list.push(toTimelineClick(c));
+    out.set(owner.id, list);
+  }
+  return out;
+}
+
 export function toSessionDetail(s: SessionDoc): SessionDetailDto {
   const pages = orderedPages(s);
+  const clicks = clicksByPage(pages, s.clicks);
   const timeline: TimelinePageDto[] = pages.map((p, i) => {
     const next = pages[i + 1]?.ts ?? null;
     const end = next ?? (i === pages.length - 1 ? s.last_seen_at : null);
@@ -78,6 +102,7 @@ export function toSessionDetail(s: SessionDoc): SessionDetailDto {
       engagedMs: p.engaged_ms,
       wallMs: p.ts && end ? Math.max(0, end.getTime() - p.ts.getTime()) : null,
       scrollMax: p.scroll_max,
+      clicks: clicks.get(p.id) ?? [],
     };
   });
   return {
@@ -92,6 +117,7 @@ export function toSessionDetail(s: SessionDoc): SessionDetailDto {
     vitals: s.vitals,
     pages: timeline,
     pageCapReached: pages.length >= SESSION_PAGE_CAP,
+    clickCapReached: s.clicks.length >= MAX_CLICKS_PER_SESSION,
   };
 }
 

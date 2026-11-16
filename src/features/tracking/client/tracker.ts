@@ -6,7 +6,10 @@ import type { Vitals } from './vitals';
 /**
  * First-party tracker (phase 2). Loaded by `loader.ts` after the page is idle,
  * as its own chunk (< 2 KB gz). No libraries; `web-vitals` is a separate,
- * dynamic chunk for 1 in 10 sessions.
+ * dynamic chunk for 1 in 10 sessions. Click capture (phase 4: clicks, rage,
+ * dead) is its own lazy chunk too (`clicks.ts`), loaded once the tracker
+ * runs; it hands events to `click()` here, which adds them to the next flush.
+ * `web-vitals` is reached through that chunk (one loader stub here, not two).
  *
  * - Events stay in memory. One flush = one POST to `/api/e` = one Firestore
  *   write: on `visibilitychange → hidden`, on `pagehide` (`final: true`), and
@@ -57,6 +60,7 @@ type Session = {
 };
 
 type PageviewInput = Extract<TrackerEventInput, { type: 'pageview' }>;
+export type ClickInput = Extract<TrackerEventInput, { type: 'click' | 'rage' | 'dead' }>;
 
 const OFF = 0;
 const STARTING = 1;
@@ -69,6 +73,8 @@ let queue: TrackerEventInput[] = [];
 let pv: string | null = null;
 let lastPv: string | null = null;
 let lastRaw: string | null = null;
+/** Masked path of the current page view (clicks carry it). */
+let here = '';
 let ms = 0;
 let scroll: 0 | 25 | 50 | 75 | 100 = 0;
 let scrollSent = 0;
@@ -79,6 +85,8 @@ let scrollPending = false;
 /** Latest Web Vitals of a sampled session, until sent. */
 let vitals: Vitals | null = null;
 let watchingVitals = false;
+/** The second lazy chunk (`clicks.ts`): click capture, and the way to `web-vitals`. Fetched once. */
+let more: Promise<typeof import('./clicks')>;
 
 const now = () => Date.now();
 const visible = () => document.visibilityState === 'visible';
@@ -146,6 +154,7 @@ function pageview(raw: string): void {
   const path = pagePath(raw);
   if (!path || s.p >= MAX_PAGES) return;
   pv = lastPv = (++s.p).toString(36);
+  here = path;
   const event: PageviewInput = { type: 'pageview', t, pv, path, vw: innerWidth, vh: innerHeight };
   if (s.p === 1) {
     // Landing page of the session only: the referrer's host (never its path or
@@ -162,8 +171,13 @@ function pageview(raw: string): void {
       if (value) event[key] = value;
     }
   }
-  queue.push(event);
   save();
+  add(event);
+}
+
+/** Queues an event; flushes early when the batch is nearly full. */
+function add(event: TrackerEventInput): void {
+  queue.push(event);
   if (queue.length >= EARLY_FLUSH_EVENTS) flush();
 }
 
@@ -247,13 +261,14 @@ const HANDLERS: [EventTarget, string, (event: Event) => void][] = [
   ],
 ];
 
-/** 1 in 10 sessions: loads `web-vitals` (own chunk); the latest values ride on the next flush. */
+/**
+ * 1 in 10 sessions: loads `web-vitals` (own chunk, reached through the clicks
+ * chunk so its loader stub is not in this one); the latest values ride on the next flush.
+ */
 function loadVitals(): void {
   if (watchingVitals) return;
   watchingVitals = true;
-  import('./vitals')
-    .then((m) => m.watchVitals((latest) => (vitals = latest)))
-    .catch(() => {});
+  more.then((m) => m.vitals((latest) => (vitals = latest))).catch(() => {});
 }
 
 /** (Re)starts recording with `session`: listeners once, checkpoint timer once, first page view. */
@@ -272,6 +287,8 @@ function begin(session: Session): void {
       guard(() => visible() && flush()),
       CHECKPOINT_MS,
     );
+    more = import('./clicks');
+    more.then((m) => m.watch(click)).catch(() => {});
   }
   save();
   pageview(location.pathname);
@@ -323,10 +340,13 @@ export function stop(): void {
   vitals = null;
 }
 
-/** Phase 4 click capture asks before recording a click (cap 300 per session). */
-export function takeClick(): boolean {
-  if (phase !== ON || s.c >= MAX_CLICKS) return false;
+/**
+ * A click, rage or dead event from `clicks.ts`: rides on the next flush (no
+ * write of its own). Only on a recorded page, at most 300 per session.
+ */
+const click = guard((event: ClickInput) => {
+  if (!pv || s.c >= MAX_CLICKS) return;
   s.c++;
-  save();
-  return true;
-}
+  event.path = here;
+  add(event);
+});
