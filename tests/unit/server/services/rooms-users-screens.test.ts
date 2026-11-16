@@ -224,6 +224,9 @@ describe('UserService: screen guards', () => {
   });
 
   it('another owner may be demoted (the actor stays an owner, so there is always one)', async () => {
+    // The last-owner check reads the roles index; without one it refuses (see phase1-services.test.ts).
+    expect((await service.setUserRole(owner, other, 'moderator')).ok).toBe(false);
+    await service.rebuildAdminIndex(owner);
     expect((await service.setUserRole(owner, other, 'moderator')).ok).toBe(true);
     expect((await users.get(owner.uid))?.role).toBe('owner');
   });

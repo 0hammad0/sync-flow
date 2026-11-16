@@ -13,7 +13,9 @@ import { rangeWindows, rollupSourceFrom, type AnalyticsRange } from '@/server/an
 import { maskIpDto } from '@/server/analytics/session-dto';
 import { FOLD_KEY, encodeKey } from '@/server/firestore/encode-key';
 import { AnalyticsService, sampleSourceFrom } from '@/server/services/analytics-service';
+import { RollupService } from '@/features/tracking/server/rollup';
 import { MemoryEventRepository } from '../../../support/memory-event-repository';
+import { FakeQuota } from '../../../support/tracking';
 
 const NOW = Date.parse('2026-11-14T10:30:00.000Z');
 const range = (kind: string, from: string, to = '2026-11-14'): AnalyticsRange => ({
@@ -144,6 +146,20 @@ describe('KPIs and the rollup + today merge', () => {
     const kpis = await service.getKpis(r7);
     expect(kpis.current.sessions).toBe(1);
     expect(kpis.meta.fallbackDays).toEqual(['2026-11-13']);
+  });
+
+  it('an empty a_daily doc (day with no visits) reads as zero: no hourly fallback, 48 reads saved', async () => {
+    const rollup = new RollupService({ events: repo, quota: new FakeQuota(), recordCronRun: async () => {}, now: () => NOW });
+    expect(await rollup.buildDaily('2026-11-12')).toBe('empty');
+    expect(await rollup.buildDaily('2026-11-13')).toBe('empty');
+    repo.reads = 0;
+    const kpis = await service.getKpis(r7);
+    expect(kpis.current).toMatchObject({ visitors: 0, sessions: 0, pageviews: 0 });
+    expect(kpis.meta.fallbackDays).toEqual([]);
+    // Same as the full-data case: 6 daily + 11 hourly + 7 daily. Without the empty docs: + 2 × 24 hourly.
+    expect(repo.reads).toBe(24);
+    const trend = await service.getTrend(r7);
+    expect(trend.points.find((p) => p.key === '2026-11-13')).toMatchObject({ visitors: 0, pageviews: 0, missing: false, sampled: false });
   });
 
   it('flags sampled days', async () => {

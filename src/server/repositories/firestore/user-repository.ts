@@ -7,7 +7,15 @@ import { isAdminRole } from '@/server/auth/permissions';
 import type { AdminRole } from '@/server/auth/types';
 import { ADMIN_CONFIG_DOCS, COLLECTIONS } from '@/server/firestore/collections';
 import type { QuotaMeter } from '@/server/quota/quota-guard';
-import type { AdminUser, RoleGrant, RoleIndexRebuild, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
+import type {
+  AdminUser,
+  RoleChangeResult,
+  RoleGrant,
+  RoleIndexRebuild,
+  UserAdmin,
+  UserPage,
+  UserReader,
+} from '@/server/repositories/interfaces';
 import { guarded } from './quota-call';
 
 /** Firebase Auth's own cap for listUsers. */
@@ -46,7 +54,8 @@ export function toAdminUser(user: UserRecord): AdminUser {
  * Users live in Firebase Auth (docs/admin/03-features/13-users.md). Auth
  * calls do not touch the Firestore quota. The one Firestore write is the
  * `admin_config/roles` index on setRole (1 write, counted, never blocked:
- * role changes are admin actions); listAdmins reads that index (1 read).
+ * role changes are admin actions; removing an owner adds 1 read for the
+ * last-owner transaction); listAdmins reads that index (1 read).
  * The `role` claim stays the source of truth.
  */
 export class FirebaseUserRepository implements UserReader, UserAdmin {
@@ -104,25 +113,55 @@ export class FirebaseUserRepository implements UserReader, UserAdmin {
     await this.auth.revokeRefreshTokens(uid);
   }
 
-  async setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<void> {
+  /**
+   * Order matters, and differs by direction, so the index never lists an
+   * owner whose claim is not `owner` (it may list fewer owners, never more):
+   * - Removing an owner: transaction on the index first (count the other
+   *   owners; refuse at 0 or when the doc is missing), then the claim. Two
+   *   owners demoting each other at once serialize on that doc; the second
+   *   transaction re-reads and is refused. If the claim write then fails, the
+   *   index shows one owner too few: later checks get stricter, never looser,
+   *   and a retry (or "Rebuild from claims") brings it back in line.
+   * - Anything else (granting owner, non-owner changes): claim first, index
+   *   after, as before. If the index write fails, a new owner is missing from
+   *   the index, again the safe side.
+   */
+  async setRole(uid: string, role: AdminRole | null, grant: RoleGrant): Promise<RoleChangeResult> {
     const user = await this.auth.getUser(uid);
     const claims: Record<string, unknown> = { ...(user.customClaims ?? {}) };
     if (role) claims.role = role;
     else delete claims.role;
-    await this.auth.setCustomUserClaims(uid, claims);
-    // New claims reach the user only with a new token: end their sessions.
-    await this.auth.revokeRefreshTokens(uid);
-
+    const ref = this.db.collection(COLLECTIONS.adminConfig).doc(ADMIN_CONFIG_DOCS.roles);
     const entry = role
       ? { email: grant.email, role, granted_by: grant.grantedBy, granted_at: Timestamp.fromDate(grant.at) }
       : FieldValue.delete();
-    await guarded(this.quota, () =>
-      this.db
-        .collection(COLLECTIONS.adminConfig)
-        .doc(ADMIN_CONFIG_DOCS.roles)
-        .set({ [uid]: entry }, { merge: true }),
-    );
+
+    if (user.customClaims?.role === 'owner' && role !== 'owner') {
+      const refused = await guarded(this.quota, () =>
+        this.db.runTransaction(async (tx): Promise<'last_owner' | 'index_missing' | null> => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return 'index_missing';
+          const index = (snap.data() ?? {}) as Record<string, { role?: unknown } | undefined>;
+          const others = Object.entries(index).filter(([key, v]) => key !== uid && UID_SHAPE.test(key) && v?.role === 'owner');
+          if (others.length === 0) return 'last_owner';
+          tx.set(ref, { [uid]: entry }, { merge: true });
+          return null;
+        }),
+      );
+      this.quota.record('reads', 1);
+      if (refused) return { ok: false, reason: refused };
+      this.quota.record('writes', 1);
+      await this.auth.setCustomUserClaims(uid, claims);
+      // New claims reach the user only with a new token: end their sessions.
+      await this.auth.revokeRefreshTokens(uid);
+      return { ok: true };
+    }
+
+    await this.auth.setCustomUserClaims(uid, claims);
+    await this.auth.revokeRefreshTokens(uid);
+    await guarded(this.quota, () => ref.set({ [uid]: entry }, { merge: true }));
     this.quota.record('writes', 1);
+    return { ok: true };
   }
 
   async rebuildRoleIndex(grant: Omit<RoleGrant, 'email'>): Promise<RoleIndexRebuild> {

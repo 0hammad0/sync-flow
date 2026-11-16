@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminContext } from '@/server/auth/types';
-import { ForbiddenError, NotFoundError, ValidationError } from '@/server/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/server/errors';
 import { AuditService } from '@/server/services/audit-service';
 import { FileService } from '@/server/services/file-service';
 import { RoomService } from '@/server/services/room-service';
-import { UserService } from '@/server/services/user-service';
+import { ROLE_MESSAGES, UserService } from '@/server/services/user-service';
 import { MemoryAuditRepository } from '../../../support/memory-audit-repository';
 import { chatId, shareId, testFileIds } from '../../../support/file-ids';
 import { MemoryFileRepository } from '../../../support/in-memory/memory-file-repository';
@@ -231,6 +231,61 @@ describe('UserService', () => {
     expect(users.calls).toEqual([`role:${target}:moderator`, `revoke:${target}`]);
     expect(users.roles.get(target)).toMatchObject({ role: 'moderator', grantedBy: owner.uid });
     expect((await auditRows(auditRepo))[0]).toMatchObject({ action: 'role.set', before: { role: null }, after: { role: 'moderator' } });
+  });
+
+  describe('last owner (13-users.md edge case 7)', () => {
+    const owner2: AdminContext = { uid: target, email: 'sara@example.com', role: 'owner', authTime: 1 };
+    const grant = { grantedBy: 'uidScript', at: NOW };
+
+    beforeEach(() => {
+      users.users.get(target)!.role = 'owner';
+      users.roles.set(owner.uid, { role: 'owner', email: owner.email, ...grant });
+      users.roles.set(target, { role: 'owner', email: owner2.email, ...grant });
+    });
+
+    it('with two owners, demoting one goes through', async () => {
+      const result = await service.setUserRole(owner, target, 'viewer');
+      expect(result.ok && result.data.role).toBe('viewer');
+      expect(users.calls).toEqual([`role:${target}:viewer`, `revoke:${target}`]);
+      expect(users.roles.get(target)?.role).toBe('viewer');
+    });
+
+    it('demoting the last owner in the index is refused with the spec message, nothing written', async () => {
+      users.roles.delete(owner.uid); // the index lists only the target as owner
+      const result = await service.setUserRole(owner, target, null);
+      expect(!result.ok && result.error).toBeInstanceOf(ConflictError);
+      expect(!result.ok && result.error.message).toBe(ROLE_MESSAGES.lastOwner);
+      expect(users.calls).toEqual([]);
+      expect(users.users.get(target)?.role).toBe('owner');
+      expect(await auditRows(auditRepo)).toEqual([]);
+    });
+
+    it('a missing index refuses demoting an owner and points to Rebuild from claims', async () => {
+      users.roles.clear();
+      const result = await service.setUserRole(owner, target, 'moderator');
+      expect(!result.ok && result.error.message).toBe(ROLE_MESSAGES.indexMissing);
+      expect(ROLE_MESSAGES.indexMissing).toContain('Rebuild from claims');
+      expect(users.calls).toEqual([]);
+      // Non-owner changes still work, and after a rebuild the demotion does too.
+      users.addUser({ uid: 'uidThirdCCCCCCCCCCCCCCCCCCC', email: 'c@example.com' });
+      expect((await service.setUserRole(owner, 'uidThirdCCCCCCCCCCCCCCCCCCC', 'viewer')).ok).toBe(true);
+      users.roles.clear();
+      users.roleIndexWritten = false;
+      await service.rebuildAdminIndex(owner);
+      expect((await service.setUserRole(owner, target, 'moderator')).ok).toBe(true);
+    });
+
+    it('two owners demoting each other at once: exactly one wins, one owner is left', async () => {
+      const results = await Promise.all([service.setUserRole(owner, target, null), service.setUserRole(owner2, owner.uid, null)]);
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      const loser = results.find((r) => !r.ok);
+      expect(!loser?.ok && loser?.error.message).toBe(ROLE_MESSAGES.lastOwner);
+      const claimOwners = [...users.users.values()].filter((u) => u.role === 'owner');
+      const indexOwners = [...users.roles.values()].filter((e) => e.role === 'owner');
+      expect(claimOwners).toHaveLength(1);
+      expect(indexOwners).toHaveLength(1);
+      expect((await auditRows(auditRepo)).filter((r) => r.action === 'role.set')).toHaveLength(1);
+    });
   });
 
   it('unknown user is NotFound; find matches exact email or uid only', async () => {

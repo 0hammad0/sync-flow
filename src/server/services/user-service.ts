@@ -1,12 +1,18 @@
 import 'server-only';
 
 import type { AdminContext, AdminRole } from '@/server/auth/types';
-import { ForbiddenError, NotFoundError, err, ok, type Result } from '@/server/errors';
+import { ConflictError, ForbiddenError, NotFoundError, err, ok, type Result } from '@/server/errors';
 import type { AdminUser, RoleIndexRebuild, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
 import type { AuditRequestInfo, AuditService } from '@/server/services/audit-service';
 
 /** Firebase uids are 28 characters for email sign-in; accept the general shape. */
 const UID_PATTERN = /^[A-Za-z0-9]{20,128}$/;
+
+/** Shown when a role change would remove the last owner (13-users.md "Edge cases"). */
+export const ROLE_MESSAGES = {
+  lastOwner: 'This would leave no owner. Add another owner first.',
+  indexMissing: 'The admin list is missing, so the last-owner check cannot run. Use "Rebuild from claims" in Settings → Roles, then try again.',
+} as const;
 
 export type UserActionOptions = { reason?: string | null; request?: AuditRequestInfo };
 
@@ -77,7 +83,12 @@ export class UserService {
     return ok(target.data);
   }
 
-  /** `null` removes the role. Also ends the user's sessions (new claims need a new token). */
+  /**
+   * `null` removes the role. Also ends the user's sessions (new claims need a
+   * new token). Removing an owner is refused (`conflict`) when no other owner
+   * would be left, checked in a transaction on `admin_config/roles` so two
+   * owners demoting each other at once cannot both win.
+   */
   async setUserRole(
     ctx: AdminContext,
     uid: string,
@@ -86,7 +97,10 @@ export class UserService {
   ): Promise<Result<AdminUser>> {
     const target = await this.target(ctx, uid);
     if (!target.ok) return target;
-    await this.deps.admin.setRole(uid, role, { email: target.data.email, grantedBy: ctx.uid, at: this.now() });
+    const changed = await this.deps.admin.setRole(uid, role, { email: target.data.email, grantedBy: ctx.uid, at: this.now() });
+    if (!changed.ok) {
+      return err(new ConflictError(changed.reason === 'last_owner' ? ROLE_MESSAGES.lastOwner : ROLE_MESSAGES.indexMissing));
+    }
     await this.audit(ctx, 'role.set', target.data, { role: target.data.role }, { role }, opts);
     return ok({ ...target.data, role });
   }

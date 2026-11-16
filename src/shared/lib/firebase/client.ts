@@ -1,6 +1,6 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, sendSignInLinkToEmail, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { connectFirestoreEmulator, getFirestore, type Firestore } from 'firebase/firestore';
 import { getBaseUrl } from '@/shared/lib/utils';
 
 const firebaseConfig = {
@@ -28,8 +28,17 @@ export function clientAuth(): Auth {
   return auth;
 }
 
+// e2e only: `host:port` of the Firestore emulator, inlined at build time.
+// Set only by the CI e2e-signed-in build (never in Vercel), so a production
+// bundle always talks to real Firestore and this branch is dead code there.
+const FIRESTORE_EMULATOR = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST;
+
 export function clientDb(): Firestore {
-  if (!db) db = getFirestore(clientApp());
+  if (!db) {
+    db = getFirestore(clientApp());
+    const match = FIRESTORE_EMULATOR ? /^([\w.-]+):(\d+)$/.exec(FIRESTORE_EMULATOR) : null;
+    if (match) connectFirestoreEmulator(db, match[1], Number(match[2]));
+  }
   return db;
 }
 

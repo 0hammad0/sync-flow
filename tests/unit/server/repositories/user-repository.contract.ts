@@ -52,7 +52,7 @@ export function runUserRepositoryContract(name: string, make: (seed: UserSeed) =
 
     it('sets and removes the role claim', async () => {
       const grant = { email: b.email, grantedBy: a.uid, at: new Date('2026-11-13T00:00:00Z') };
-      await repo.setRole(b.uid, 'moderator', grant);
+      expect(await repo.setRole(b.uid, 'moderator', grant)).toEqual({ ok: true });
       expect((await repo.get(b.uid))?.role).toBe('moderator');
       await repo.setRole(b.uid, null, grant);
       expect((await repo.get(b.uid))?.role).toBeNull();
@@ -69,6 +69,39 @@ export function runUserRepositoryContract(name: string, make: (seed: UserSeed) =
       ]);
       await repo.setRole(b.uid, null, grant);
       expect((await repo.listAdmins()).map((u) => u.uid)).toEqual([a.uid]);
+    });
+
+    it('refuses to remove the last owner and writes nothing', async () => {
+      const grant = { email: null, grantedBy: b.uid, at: new Date('2026-11-13T00:00:00Z') };
+      await repo.setRole(a.uid, 'owner', grant);
+      expect(await repo.setRole(a.uid, null, grant)).toEqual({ ok: false, reason: 'last_owner' });
+      expect(await repo.setRole(a.uid, 'moderator', grant)).toEqual({ ok: false, reason: 'last_owner' });
+      expect((await repo.get(a.uid))?.role).toBe('owner');
+      expect((await repo.listAdmins()).map((u) => [u.uid, u.role])).toEqual([[a.uid, 'owner']]);
+    });
+
+    it('with two owners, removing one goes through', async () => {
+      const grant = { email: null, grantedBy: a.uid, at: new Date('2026-11-13T00:00:00Z') };
+      await repo.setRole(a.uid, 'owner', grant);
+      await repo.setRole(b.uid, 'owner', grant);
+      expect(await repo.setRole(b.uid, 'viewer', grant)).toEqual({ ok: true });
+      expect((await repo.get(b.uid))?.role).toBe('viewer');
+      expect((await repo.listAdmins()).map((u) => [u.uid, u.role])).toEqual([
+        [a.uid, 'owner'],
+        [b.uid, 'viewer'],
+      ]);
+    });
+
+    it('two owners removing each other at once: at most one wins, an owner is left', async () => {
+      const grant = { email: null, grantedBy: a.uid, at: new Date('2026-11-13T00:00:00Z') };
+      await repo.setRole(a.uid, 'owner', grant);
+      await repo.setRole(b.uid, 'owner', grant);
+      const results = await Promise.allSettled([repo.setRole(a.uid, null, grant), repo.setRole(b.uid, null, grant)]);
+      const wins = results.filter((r) => r.status === 'fulfilled' && r.value.ok);
+      expect(wins.length).toBeLessThanOrEqual(1);
+      const claimOwners = [(await repo.get(a.uid))?.role, (await repo.get(b.uid))?.role].filter((r) => r === 'owner');
+      expect(claimOwners.length).toBeGreaterThanOrEqual(1);
+      expect((await repo.listAdmins()).filter((u) => u.role === 'owner').length).toBeGreaterThanOrEqual(1);
     });
 
     it('rebuilds the roles index from the claims, with nothing to fix when they agree', async () => {
