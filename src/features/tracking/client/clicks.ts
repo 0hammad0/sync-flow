@@ -9,9 +9,11 @@ import type { Vitals } from './vitals';
  *
  * - One `pointerup` listener on `document`, `{ passive: true, capture: true }`.
  * - Matches `a, button, [role=button], [data-track]` with `closest()`.
- * - Label: the visible text (`textContent`, never `aria-label` or `innerText`)
- *   of the button or link, ≤ 40 chars; dropped inside `input, textarea,
- *   [contenteditable], [data-private]` (the chat message list is `data-private`).
+ * - Label: opt-in. Only an element that carries `data-track` itself gives its
+ *   visible text (`textContent`, never `aria-label` or `innerText`), ≤ 40 chars;
+ *   every other click has no label, so a link or button that shows user data
+ *   (room names, codes, received URLs) can never leak. Still dropped inside
+ *   `input, textarea, [contenteditable], [data-private]`.
  * - No layout reads per click: page width / height and the viewport width are
  *   read once per page view after idle and again on a debounced resize.
  * - Rage: ≥ 3 clicks within 600 ms within 30 px → one `rage` event per burst.
@@ -64,12 +66,13 @@ export function targetOf(el: Element): string {
 }
 
 /**
- * Visible text of the clicked button or link, ≤ 40 chars. `null` when the
- * click was inside (or the element holds) an input, textarea, contenteditable
- * or `[data-private]` region: typed and message text never leave the browser.
+ * Visible text of a clicked element that carries `data-track` itself, ≤ 40
+ * chars. `null` for every other element (labels are opt-in: text on public
+ * pages can be user data), and when the click was inside (or the element
+ * holds) an input, textarea, contenteditable or `[data-private]` region.
  */
 export function labelOf(el: Element, from: Element): string | null {
-  if (from.closest(PRIVATE) || el.closest(PRIVATE) || el.querySelector(PRIVATE)) return null;
+  if (!el.hasAttribute('data-track') || from.closest(PRIVATE) || el.closest(PRIVATE) || el.querySelector(PRIVATE)) return null;
   const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, LABEL_MAX).trim();
   return text || null;
 }

@@ -8,18 +8,24 @@
  * `{ route, firstLoadChunkPaths }`. Each chunk is gzipped (level 9) and summed.
  *
  * Budgets:
- * - Public routes: at most PUBLIC_MAX_BYTES. Baseline 2026-11-13: largest is
- *   484,800 B (`/`), so this catches a ~10 KB regression.
+ * - Public routes: at most PUBLIC_MAX_BYTES. Baseline 2026-11-16 (after the
+ *   Web Crypto change dropped the Node polyfills): largest is 360,346 B (`/`),
+ *   so this catches a ~10 KB regression.
  * - Admin routes: at most ADMIN_EXTRA_BYTES above the shared floor (the
  *   smallest route, i.e. what every page already loads). Lazy chunks
  *   (charts, map, calendar) are not first load and do not count.
+ * - Tracker (src/features/tracking/client/tracker.ts): its lazy chunk is at
+ *   most TRACKER_MAX_BYTES gzipped (07-tracker.md "< 2 KB"). Found as the one
+ *   chunk holding both the beacon endpoint and `sendBeacon`.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 const STATS = '.next/diagnostics/route-bundle-stats.json';
-const PUBLIC_MAX_BYTES = 495_000;
+const PUBLIC_MAX_BYTES = 370_000;
 const ADMIN_EXTRA_BYTES = 120 * 1024;
+const TRACKER_MAX_BYTES = 2048;
+const CHUNKS = '.next/static/chunks';
 
 if (!existsSync(STATS)) {
   console.error(`${STATS} not found. Run \`npm run build\` first (Next 16 Turbopack).`);
@@ -58,4 +64,21 @@ for (const { route, bytes } of rows) {
   console.log(`${over ? 'FAIL' : 'ok  '}  ${kib(bytes).padStart(10)}  / ${kib(limit).padEnd(10)} ${route}`);
 }
 console.log(`\nShared floor: ${kib(floor)}. ${rows.length} routes, ${failed} over budget.`);
+
+const trackerChunks = readdirSync(CHUNKS)
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => `${CHUNKS}/${f}`)
+  .filter((f) => {
+    const src = readFileSync(f, 'utf8');
+    return src.includes('"/api/e"') && src.includes('sendBeacon');
+  });
+if (trackerChunks.length !== 1) {
+  console.error(`Tracker chunk: expected 1 chunk with "/api/e" and sendBeacon, found ${trackerChunks.length}. Update the matcher.`);
+  failed++;
+} else {
+  const t = gz(trackerChunks[0]);
+  const over = t > TRACKER_MAX_BYTES;
+  if (over) failed++;
+  console.log(`Tracker chunk: ${t} B / ${TRACKER_MAX_BYTES} B ${over ? 'FAIL' : 'ok'} (${trackerChunks[0]})`);
+}
 process.exit(failed ? 1 : 0);

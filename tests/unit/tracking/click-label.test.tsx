@@ -19,24 +19,36 @@ const html = (markup: string) => {
 const q = (selector: string) => document.querySelector(selector)!;
 
 describe('labelOf', () => {
-  it('keeps the visible text of a button or link, whitespace collapsed, ≤ 40 chars', () => {
-    html(`<button id="b">  Start
-      a room </button><a id="a" href="/x">${'Long link text '.repeat(5)}</a>`);
+  it('keeps the visible text of a data-track element, whitespace collapsed, ≤ 40 chars', () => {
+    html(`<button id="b" data-track="room-create">  Start
+      a room </button><a id="a" data-track="x" href="/x">${'Long link text '.repeat(5)}</a>`);
     expect(labelOf(q('#b'), q('#b'))).toBe('Start a room');
     expect(labelOf(q('#a'), q('#a'))!.length).toBeLessThanOrEqual(40);
   });
 
+  it('labels are opt-in: a link or button without its own data-track has no label', () => {
+    // Recent-rooms link on /chat: the room name and code are user data.
+    html('<ul><li><a id="room" href="/chat/ABCD2345">Team standup ABCD2345 · 3h left</a></li></ul>');
+    expect(labelOf(q('#room'), q('#room'))).toBeNull();
+    // A received URL on /receive.
+    html('<a id="url" href="https://x.example/t/secret" target="_blank">https://x.example/t/secret</a>');
+    expect(labelOf(q('#url'), q('#url'))).toBeNull();
+    // A data-track container does not lend its opt-in to links inside it.
+    html('<div data-track="list"><a id="in" href="/chat/ABCD2345">Team standup</a></div>');
+    expect(labelOf(q('#in'), q('#in'))).toBeNull();
+  });
+
   it('never uses aria-label (it can hold a file name)', () => {
-    html('<button id="b" aria-label="Remove holiday-photos.zip"><svg></svg></button>');
+    html('<button id="b" data-track="x" aria-label="Remove holiday-photos.zip"><svg></svg></button>');
     expect(labelOf(q('#b'), q('#b'))).toBeNull();
   });
 
   it.each([
-    ['inside an input wrapper', '<label><input id="from"><button id="el">Go</button></label>', '#el', '#from'],
-    ['in a textarea', '<div role="button" id="el"><textarea id="from">typed secret</textarea></div>', '#el', '#from'],
-    ['in contenteditable', '<div contenteditable id="ce"><a href="/x" id="el">my note</a></div>', '#el', '#el'],
-    ['in [data-private]', '<section data-private><button id="el">Hello Ali, see you</button></section>', '#el', '#el'],
-    ['button holding a private part', '<button id="el"><span data-private>file.pdf</span> Download</button>', '#el', '#el'],
+    ['inside an input wrapper', '<label><input id="from"><button id="el" data-track="x">Go</button></label>', '#el', '#from'],
+    ['in a textarea', '<div role="button" id="el" data-track="x"><textarea id="from">typed secret</textarea></div>', '#el', '#from'],
+    ['in contenteditable', '<div contenteditable id="ce"><a href="/x" id="el" data-track="x">my note</a></div>', '#el', '#el'],
+    ['in [data-private]', '<section data-private><button id="el" data-track="x">Hello Ali, see you</button></section>', '#el', '#el'],
+    ['button holding a private part', '<button id="el" data-track="x"><span data-private>file.pdf</span> Download</button>', '#el', '#el'],
   ])('drops the label %s', (_, markup, el, from) => {
     html(markup);
     expect(labelOf(q(el), q(from))).toBeNull();
@@ -46,7 +58,7 @@ describe('labelOf', () => {
     const room = readFileSync(resolve(ROOT, 'src/features/chat/components/ChatRoom.tsx'), 'utf8');
     // The scroll container of the messages carries data-private.
     expect(room).toMatch(/data-chat-scroll[\s\S]{0,200}data-private/);
-    html(`<div data-chat-scroll data-private><div><p>meet at 5</p><a id="link" href="https://x.example">https://x.example/secret</a><button id="copy">Copy</button></div></div>`);
+    html(`<div data-chat-scroll data-private><div><p>meet at 5</p><a id="link" data-track="x" href="https://x.example">https://x.example/secret</a><button id="copy" data-track="link-copy">Copy</button></div></div>`);
     expect(labelOf(q('#link'), q('#link'))).toBeNull();
     expect(labelOf(q('#copy'), q('#copy'))).toBeNull();
   });

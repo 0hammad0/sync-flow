@@ -482,8 +482,9 @@ export class IngestService {
       return null;
     }
     if (existing?.rolled_up) return null;
-    // The final flush already reads the doc: hold the 300-click cap here too
-    // (the tracker enforces it; this catches a tampered client for free).
+    // The final flush already reads the doc: hold the 300-click cap here too.
+    // The tracker enforces it; non-final flushes are not trimmed (no read),
+    // so a tampered client can store more, but sessionRollup counts only 300.
     if (patch.clicks) {
       const room = Math.max(0, MAX_CLICKS_PER_SESSION - (existing?.clicks.length ?? 0));
       if (patch.clicks.length > room) {

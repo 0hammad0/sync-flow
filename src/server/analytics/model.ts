@@ -391,7 +391,9 @@ export function sessionRollup(session: SessionDoc): Rollup {
     r.city[key] = city;
   }
 
-  for (const click of session.clicks ?? []) {
+  // Only the first 300 count: a tampered client can push more through
+  // non-final flushes (the server trims only on the final one).
+  for (const click of (session.clicks ?? []).slice(0, MAX_CLICKS_PER_SESSION)) {
     const c = (r.clicks[encodeKey(click.path)] ??= { total: 0, rage: 0, dead: 0 });
     if (click.rage) c.rage += k;
     else if (click.dead) c.dead += k;

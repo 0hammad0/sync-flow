@@ -154,6 +154,9 @@ export function runEventRepositoryContract(name: string, makeRepo: () => Promise
       expect(s?.clicks[2].target).toHaveLength(120);
       expect(s?.clicks[2].label).toHaveLength(40);
       expect(sessionRollup(s!).clicks[encodeKey('/chat/[code]')]).toEqual({ total: 1, rage: 1, dead: 1 });
+      // A tampered client can store more than 300 (non-final flushes are not trimmed); the rollup counts 300.
+      const flooded = { ...s!, clicks: Array.from({ length: 350 }, () => s!.clicks[0]) };
+      expect(sessionRollup(flooded).clicks[encodeKey('/chat/[code]')]).toEqual({ total: 300, rage: 0, dead: 0 });
 
       const d = delta(1);
       d.clicks[encodeKey('/chat/[code]')] = { total: 1, rage: 1, dead: 1 };
