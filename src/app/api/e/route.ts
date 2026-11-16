@@ -17,7 +17,7 @@ import { siteUrl } from '@/shared/lib/site';
  * `GET` is the loader's region / kill-switch probe: it sets the `sf_cr`
  * cookie (`eu`, `ok` or `off`) and nothing else. The loader calls it after
  * idle, at most once a day per visitor (once an hour while tracking is off).
- * It reads the kill switch from ingest's 60 s cache (≤ 1 read per 60 s per
+ * It reads the kill switch and consent mode from ingest's 60 s cache (≤ 1 read per 60 s per
  * instance); the visitor waits for nothing, the page is already idle.
  *
  * Not behind requireAdmin: public by design, like the tracker that calls it.
@@ -43,8 +43,9 @@ const isSecure = (request: NextRequest) => request.nextUrl.protocol === 'https:'
 export async function GET(request: NextRequest): Promise<Response> {
   let region: Region = 'off';
   try {
-    if (await getIngest().trackingEnabled()) {
-      region = regionFor(request.headers.get('x-vercel-ip-country'), Boolean(process.env.VERCEL));
+    const settings = await getIngest().probeSettings();
+    if (settings.trackingEnabled) {
+      region = regionFor(request.headers.get('x-vercel-ip-country'), Boolean(process.env.VERCEL), settings.consentMode);
     }
   } catch (error) {
     // Fail closed: no settings, no tracker.

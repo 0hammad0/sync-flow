@@ -58,7 +58,7 @@ describe.skipIf(!hasFirestoreEmulator)('Firestore emulator: analytics data', { t
 
     it('reads the tracking settings doc, with code defaults for missing fields', async () => {
       await env.db.doc('admin_config/settings').set({ tracking_enabled: true, ip_retention_days: 7, quota: { writes_cap: 1 } });
-      expect(await repo.readTrackingSettings()).toEqual({ trackingEnabled: true, ipRetentionDays: 7, rawRetentionDays: 90 });
+      expect(await repo.readTrackingSettings()).toEqual({ trackingEnabled: true, consentMode: 'eu_uk', ipRetentionDays: 7, rawRetentionDays: 90 });
       await env.db.doc('admin_config/settings').set({ tracking_enabled: 'yes' });
       expect((await repo.readTrackingSettings()).trackingEnabled).toBe(false);
     });

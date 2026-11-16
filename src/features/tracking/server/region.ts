@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { OFF_MAX_AGE_S, REGION_COOKIE, REGION_MAX_AGE_S, type Region } from '@/features/tracking/cookies';
+import type { ConsentMode } from '@/server/analytics/model';
 
 /**
  * Where visit statistics need opt-in consent (mode A): the EU, the EEA and
@@ -21,8 +22,17 @@ const CONSENT_COUNTRIES = new Set(
  * `eu` (ask) or `ok` (no consent needed). On Vercel the country header is
  * always set; when it is missing there we cannot tell, so we ask. Off Vercel
  * (local runs) a missing header means "not a consent region".
+ *
+ * `consentMode` (admin_config/settings, 15-settings.md): `eu_uk` (default)
+ * asks EU/EEA/UK visitors only, `all` asks everyone, `none` asks nobody.
  */
-export function regionFor(country: string | null, onVercel: boolean): Exclude<Region, 'off'> {
+export function regionFor(
+  country: string | null,
+  onVercel: boolean,
+  consentMode: ConsentMode = 'eu_uk',
+): Exclude<Region, 'off'> {
+  if (consentMode === 'all') return 'eu';
+  if (consentMode === 'none') return 'ok';
   const code = country?.trim().toUpperCase() ?? '';
   if (!/^[A-Z]{2}$/.test(code)) return onVercel ? 'eu' : 'ok';
   return CONSENT_COUNTRIES.has(code) ? 'eu' : 'ok';

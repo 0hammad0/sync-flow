@@ -359,6 +359,12 @@ export class IngestService {
     return (await this.settings.get()).trackingEnabled;
   }
 
+  /** Kill switch + consent mode for `GET /api/e`, from the same 60 s cache. */
+  async probeSettings(): Promise<Pick<TrackingSettings, 'trackingEnabled' | 'consentMode'>> {
+    const { trackingEnabled, consentMode } = await this.settings.get();
+    return { trackingEnabled, consentMode };
+  }
+
   /** The cached kill switch without a read, or `null` before the first read. Safe before the 204. */
   peekTrackingEnabled(): boolean | null {
     return this.settings.peek()?.trackingEnabled ?? null;
