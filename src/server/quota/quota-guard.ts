@@ -16,12 +16,33 @@ import { ADMIN_CONFIG_DOCS, COLLECTIONS } from '@/server/firestore/collections';
  *   canWrite(); +1 read of admin_config/settings at most every 5 min.
  * - 1 write (one FieldValue.increment set) at most every 5 min, or after 200
  *   counted operations, only while there is something to flush.
+ *
+ * The same write also carries the blocklist measurement fields
+ * (`blocklist_reads`, `blocklist_loads.<instanceId>`): 0 extra writes.
  */
 
 export type QuotaKind = 'reads' | 'writes' | 'deletes';
 export type QuotaDecision = 'ok' | 'sample' | 'stop';
 export type QuotaCounts = Record<QuotaKind, number>;
 export type QuotaCaps = QuotaCounts;
+/**
+ * Optional label on `record()` for counts measured on their own as well.
+ * `'blocklist_load'`: the reads of one blocklist cache load. They still count
+ * in `reads`, and also in `blocklist_reads`; the call counts one load in
+ * `blocklist_loads.<instanceId>`.
+ */
+export type QuotaSource = 'blocklist_load';
+
+/**
+ * Measurement-only fields of `a_counters/{day}`, written in the same increment
+ * as the totals. Never capped, never read by the guard.
+ */
+export type QuotaExtra = {
+  /** `blocklist_reads`: reads made by blocklist cache loads (already inside `reads_used`). */
+  blocklistReads: number;
+  /** `blocklist_loads.<instanceId>`: blocklist cache loads per server instance. */
+  blocklistLoads: Record<string, number>;
+};
 
 export const DEFAULT_QUOTA_CAPS: Readonly<QuotaCaps> = { reads: 10_000, writes: 5_000, deletes: 5_000 };
 /** Share of the write cap at which new tracker sessions are sampled 1 in 2. */
@@ -54,7 +75,7 @@ export class QuotaExceededError extends Error {
 /** What a Firestore repository needs from the guard (interface segregation). */
 export interface QuotaMeter {
   /** Count operations that already happened. Never blocks, never throws. */
-  record(kind: QuotaKind, count?: number): void;
+  record(kind: QuotaKind, count?: number, source?: QuotaSource): void;
   /** Ask before an operation that may be skipped or degraded. */
   canWrite(kind: QuotaKind): Promise<QuotaDecision>;
   /** Like canWrite, but throws QuotaExceededError on 'stop'. */
@@ -67,13 +88,15 @@ export interface QuotaMeter {
 export interface QuotaStore {
   /** Reads a_counters/{day} and, when `withCaps`, admin_config/settings in the same call. */
   read(day: string, withCaps: boolean): Promise<{ used: QuotaCounts; caps: Partial<QuotaCaps> | null }>;
-  /** One write: increments a_counters/{day} by `delta`. */
-  add(day: string, delta: QuotaCounts): Promise<void>;
+  /** One write: increments a_counters/{day} by `delta` (and the `extra` fields, if any). */
+  add(day: string, delta: QuotaCounts, extra?: QuotaExtra): Promise<void>;
 }
 
 export type QuotaGuardOptions = {
   now?: () => number;
   logger?: Pick<Console, 'warn'>;
+  /** Key under `blocklist_loads`. Defaults to this process's PROCESS_INSTANCE_ID. */
+  instanceId?: string;
 };
 
 export type QuotaSnapshot = {
@@ -85,6 +108,19 @@ export type QuotaSnapshot = {
 };
 
 const KINDS: readonly QuotaKind[] = ['reads', 'writes', 'deletes'];
+
+/**
+ * Random id for this server process (12 hex chars), fixed for its life. Only
+ * used as the `blocklist_loads` key, so loads can be told apart per instance.
+ */
+export const PROCESS_INSTANCE_ID = globalThis.crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+
+/** Unflushed counts for one UTC day. */
+type PendingDay = { counts: QuotaCounts; blocklistReads: number; blocklistLoads: number };
+
+function emptyDay(): PendingDay {
+  return { counts: zero(), blocklistReads: 0, blocklistLoads: 0 };
+}
 
 function zero(): QuotaCounts {
   return { reads: 0, writes: 0, deletes: 0 };
@@ -188,11 +224,18 @@ export class FirestoreQuotaStore implements QuotaStore {
     };
   }
 
-  async add(day: string, delta: QuotaCounts) {
-    const update: Record<string, FieldValue> = {};
+  async add(day: string, delta: QuotaCounts, extra?: QuotaExtra) {
+    const update: Record<string, FieldValue | Record<string, FieldValue>> = {};
     for (const kind of KINDS) {
       if (delta[kind] > 0) update[`${kind}_used`] = FieldValue.increment(delta[kind]);
     }
+    if (extra && extra.blocklistReads > 0) update.blocklist_reads = FieldValue.increment(extra.blocklistReads);
+    const loads: Record<string, FieldValue> = {};
+    for (const [id, n] of Object.entries(extra?.blocklistLoads ?? {})) {
+      if (n > 0) loads[id] = FieldValue.increment(n);
+    }
+    // A nested map (not a dotted key): set() with merge only merges maps, it never parses paths.
+    if (Object.keys(loads).length > 0) update.blocklist_loads = loads;
     if (Object.keys(update).length === 0) return;
     await this.db.collection(COLLECTIONS.aCounters).doc(day).set(update, { merge: true });
   }
@@ -206,9 +249,10 @@ function parseCounters(data: unknown): QuotaCounts {
 export class QuotaGuard implements QuotaMeter {
   private readonly now: () => number;
   private readonly logger: Pick<Console, 'warn'>;
+  private readonly instanceId: string;
 
   /** Unflushed counts per UTC day (normally one entry). */
-  private pending = new Map<string, QuotaCounts>();
+  private pending = new Map<string, PendingDay>();
   private eventsSinceFlush = 0;
   private lastFlushAt: number;
   private flushing: Promise<void> | null = null;
@@ -230,16 +274,19 @@ export class QuotaGuard implements QuotaMeter {
   ) {
     this.now = options.now ?? Date.now;
     this.logger = options.logger ?? console;
+    this.instanceId = options.instanceId ?? PROCESS_INSTANCE_ID;
     this.lastFlushAt = this.now();
   }
 
-  record(kind: QuotaKind, count = 1): void {
+  record(kind: QuotaKind, count = 1, source?: QuotaSource): void {
     const n = Math.ceil(count);
     if (!(n > 0)) return;
-    const day = utcDay(this.now());
-    const counts = this.pending.get(day) ?? zero();
-    counts[kind] += n;
-    this.pending.set(day, counts);
+    const pending = this.pendingDay(utcDay(this.now()));
+    pending.counts[kind] += n;
+    if (source === 'blocklist_load') {
+      if (kind === 'reads') pending.blocklistReads += n;
+      pending.blocklistLoads += 1;
+    }
     this.eventsSinceFlush += n;
     if (this.flushDue()) void this.flush();
   }
@@ -315,7 +362,7 @@ export class QuotaGuard implements QuotaMeter {
   }
 
   private used(kind: QuotaKind, day: string): number {
-    const local = this.pending.get(day)?.[kind] ?? 0;
+    const local = this.pending.get(day)?.counts[kind] ?? 0;
     if (this.usageDay !== day) return local;
     return this.remoteUsed[kind] + this.flushedSinceRead[kind] + local;
   }
@@ -326,34 +373,51 @@ export class QuotaGuard implements QuotaMeter {
     this.eventsSinceFlush = 0;
     this.lastFlushAt = this.now();
 
-    for (const [day, delta] of batch) {
+    for (const [day, entry] of batch) {
+      const delta = entry.counts;
       if (total(delta) === 0) continue;
       try {
-        await this.store.add(day, delta);
+        await this.store.add(day, delta, this.extraFor(entry));
         if (day === this.usageDay) {
           for (const kind of KINDS) this.flushedSinceRead[kind] += delta[kind];
         }
         // The flush is itself a write: count it (always allowed).
-        this.addPending(utcDay(this.now()), { reads: 0, writes: 1, deletes: 0 });
+        this.pendingDay(utcDay(this.now())).counts.writes += 1;
       } catch (error) {
         this.noteError(error);
         this.logger.warn('[quota] counter flush failed; counts kept for the next flush', error);
-        this.restorePending(day, delta);
+        this.restorePending(day, entry);
       }
     }
   }
 
-  /** Puts counts back after a failed flush. Drops days older than yesterday. */
-  private restorePending(day: string, delta: QuotaCounts): void {
-    const yesterday = utcDay(this.now() - 86_400_000);
-    if (day < yesterday) return;
-    this.addPending(day, delta);
+  /** The measurement fields for one day's flush, or undefined when there are none. */
+  private extraFor(entry: PendingDay): QuotaExtra | undefined {
+    if (entry.blocklistReads === 0 && entry.blocklistLoads === 0) return undefined;
+    return {
+      blocklistReads: entry.blocklistReads,
+      blocklistLoads: entry.blocklistLoads > 0 ? { [this.instanceId]: entry.blocklistLoads } : {},
+    };
   }
 
-  private addPending(day: string, delta: QuotaCounts): void {
-    const counts = this.pending.get(day) ?? zero();
-    for (const kind of KINDS) counts[kind] += delta[kind];
-    this.pending.set(day, counts);
+  /** Puts counts back after a failed flush. Drops days older than yesterday. */
+  private restorePending(day: string, entry: PendingDay): void {
+    const yesterday = utcDay(this.now() - 86_400_000);
+    if (day < yesterday) return;
+    const pending = this.pendingDay(day);
+    for (const kind of KINDS) pending.counts[kind] += entry.counts[kind];
+    pending.blocklistReads += entry.blocklistReads;
+    pending.blocklistLoads += entry.blocklistLoads;
+  }
+
+  /** The pending entry for `day`, created empty if missing. */
+  private pendingDay(day: string): PendingDay {
+    let pending = this.pending.get(day);
+    if (!pending) {
+      pending = emptyDay();
+      this.pending.set(day, pending);
+    }
+    return pending;
   }
 
   private refreshIfStale(): Promise<void> {

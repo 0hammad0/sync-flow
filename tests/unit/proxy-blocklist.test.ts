@@ -94,8 +94,14 @@ describe('proxy: blocked IP [T-27]', () => {
     const page = await proxy(req('/admin/access', { cookie: 'owner' }));
     expect(page.status).toBe(200);
     expect(page.headers.get('location')).toBeNull();
-    const action = await proxy(req('/admin/access', { method: 'POST', cookie: 'owner', headers: { 'next-action': 'x' } }));
+    const action = await proxy(req('/admin/sessions', { method: 'POST', cookie: 'owner', headers: { 'next-action': 'x' } }));
     expect(action.status).toBe(403);
+  });
+
+  it('owner lockout: POST /admin/access passes the proxy; the actions there check blocks themselves', async () => {
+    const action = await proxy(req('/admin/access', { method: 'POST', cookie: 'owner', headers: { 'next-action': 'x' } }));
+    expect(passes(action)).toBe(true);
+    expect(readBlocklist).not.toHaveBeenCalled();
   });
 
   it('IPv4-mapped IPv6 from the platform still matches', async () => {
@@ -154,5 +160,21 @@ describe('proxy matcher: page views never invoke the proxy', () => {
       unstable_doesMiddlewareMatch({ config, url: '/x', headers: { 'content-type': 'application/x-www-form-urlencoded' } }),
     ).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, url: '/x', headers: { 'content-type': 'application/json' } })).toBe(false);
+  });
+});
+
+describe('proxy: Server-Timing', () => {
+  // Only the proxy's own duration: no block id, ref, IP or path in the header.
+  const TIMING = /^proxy;dur=\d+\.\d$/;
+
+  it.each([
+    ['a blocked /api call (403 JSON)', req('/api/upload/presign', { method: 'POST' })],
+    ['a blocked server action (403 text)', req('/share/tok', { method: 'POST', headers: { 'next-action': 'abc123' } })],
+    ['an unblocked /api call (pass-through)', req('/api/upload/presign', { method: 'POST', ip: '198.51.100.1' })],
+    ['a signed-out session page (redirect)', req('/admin/files', { ip: '198.51.100.1' })],
+    ['a signed-in session page (pass-through)', req('/dashboard', { cookie: 'owner' })],
+  ])('is set on %s', async (_label, request) => {
+    const res = await proxy(request);
+    expect(res.headers.get('server-timing')).toMatch(TIMING);
   });
 });
