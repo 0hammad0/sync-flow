@@ -6,15 +6,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DropdownMenu as MenuPrimitive } from 'radix-ui';
 import { ArrowLeft, LogOut, MonitorSmartphone } from 'lucide-react';
-import { signOut } from 'firebase/auth';
 import Badge from '@/shared/ui/Badge';
 import type { ConfirmResult } from '@/shared/ui/ConfirmDialog';
-import { clientAuth } from '@/shared/lib/firebase/client';
-import { clearAuthHint } from '@/shared/lib/auth-state';
 import type { AdminRole } from '@/server/auth/types';
 import { ADMIN_SIGN_IN, initialsFor, roleLabel, signInHref } from './account';
 import { iconButtonClass } from '@/shared/ui/button-styles';
 import { SIDEBAR_ROW } from './styles';
+import { endSession, toastError } from './sign-out';
 
 // Loaded on first "Sign out everywhere", not with the shell.
 const ConfirmDialog = dynamic(() => import('@/shared/ui/ConfirmDialog'), { ssr: false });
@@ -28,43 +26,6 @@ type AccountMenuProps = {
 
 const ITEM =
   'flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-sm select-none pointer-coarse:h-11 data-[highlighted]:bg-surface-2 focus-visible:-outline-offset-2!';
-
-type SignOutResult = { ok: true } | { ok: false; message: string };
-
-/** Persistent error toast. sonner loads lazily (LazyToaster), so import it on use. */
-async function toastError(title: string, description: string) {
-  const { toast } = await import('sonner');
-  toast.error(title, { description, duration: Infinity });
-}
-
-/**
- * Ends this browser's admin session (`DELETE /api/session`), or every session
- * with `?everywhere=1`. Also signs the Firebase client out, like the public
- * header does, so the site and the sign-in page see a signed-out user.
- */
-async function endSession(everywhere: boolean): Promise<SignOutResult> {
-  let response: Response;
-  try {
-    response = await fetch(everywhere ? '/api/session?everywhere=1' : '/api/session', { method: 'DELETE' });
-  } catch {
-    return { ok: false, message: 'The connection dropped. You are still signed in.' };
-  }
-  if (!response.ok) {
-    return {
-      ok: false,
-      message: everywhere
-        ? "Other devices couldn't be signed out. You are still signed in."
-        : 'The server hit an error. You are still signed in.',
-    };
-  }
-  try {
-    await signOut(clientAuth());
-  } catch {
-    // The session cookie is gone, which is what protects /admin.
-  }
-  clearAuthHint();
-  return { ok: true };
-}
 
 function Avatar({ email, className = '' }: { email: string | null; className?: string }) {
   return (

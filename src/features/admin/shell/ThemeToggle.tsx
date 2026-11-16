@@ -18,22 +18,23 @@ function subscribe(onChange: () => void) {
 const getSnapshot = () => document.documentElement.classList.contains('dark');
 const getServerSnapshot = () => false;
 
+/** Flips light ↔ dark and remembers it. Also run by the command palette. */
+export function toggleTheme() {
+  const next = !document.documentElement.classList.contains('dark');
+  document.documentElement.classList.toggle('dark', next);
+  try {
+    window.localStorage.setItem(THEME_KEY, next ? 'dark' : 'light');
+  } catch {
+    // Storage blocked: the theme still applies to this page.
+  }
+}
+
 /** "Dark theme" on/off. The icon is picked by CSS (`dark:`), so it is right before hydration. */
 export default function ThemeToggle() {
   const dark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const toggle = () => {
-    const next = !document.documentElement.classList.contains('dark');
-    document.documentElement.classList.toggle('dark', next);
-    try {
-      window.localStorage.setItem(THEME_KEY, next ? 'dark' : 'light');
-    } catch {
-      // Storage blocked: the theme still applies to this page.
-    }
-  };
-
   return (
-    <button type="button" onClick={toggle} aria-pressed={dark} className={SIDEBAR_ROW}>
+    <button type="button" onClick={toggleTheme} aria-pressed={dark} className={SIDEBAR_ROW}>
       <SunMedium aria-hidden="true" strokeWidth={1.75} className="size-4 shrink-0 dark:hidden" />
       <MoonStar aria-hidden="true" strokeWidth={1.75} className="hidden size-4 shrink-0 dark:block" />
       <span className="admin-sb-label truncate">Dark theme</span>

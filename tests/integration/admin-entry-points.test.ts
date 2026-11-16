@@ -52,6 +52,7 @@ const MANIFEST: Record<string, Guard> = {
   ['action src/features/admin/files/actions.ts deleteFile']: action('files:delete'),
   ['action src/features/admin/files/actions.ts deleteFiles']: action('files:delete'),
   ['action src/features/admin/rooms/actions.ts closeRoom']: action('rooms:close'),
+  ['action src/features/admin/shell/actions.ts searchAdmin']: action('analytics:read'),
   ['action src/features/admin/users/actions.ts disableUser']: userStep('users:disable'),
   ['action src/features/admin/users/actions.ts enableUser']: userStep('users:disable'),
   ['action src/features/admin/users/actions.ts revokeUserSessions']: userStep('users:revoke'),
