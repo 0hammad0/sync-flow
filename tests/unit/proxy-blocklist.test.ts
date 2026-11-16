@@ -139,11 +139,11 @@ describe('proxy matcher: page views never invoke the proxy', () => {
     },
   );
 
-  it.each(['/api/upload', '/api/chat/ABC/messages', '/api/session', '/api/admin/files', '/api/events', '/api/e2'])('runs on %s', (url) => {
+  it.each(['/api/upload', '/api/chat/ABC/messages', '/api/session', '/api/admin/files', '/api/events', '/api/e2', '/api/csp-reports'])('runs on %s', (url) => {
     expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
   });
 
-  it.each(['/api/e', '/api/e/batch', '/api/cleanup', '/api/admin/cron', '/api/admin/cron/rollup'])(
+  it.each(['/api/e', '/api/e/batch', '/api/csp-report', '/api/cleanup', '/api/admin/cron', '/api/admin/cron/rollup'])(
     'skips never-blocked %s',
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);

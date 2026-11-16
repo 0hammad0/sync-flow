@@ -14,14 +14,18 @@ export function isProtectedAdminPath(path: string): boolean {
   return path !== ADMIN_SIGN_IN_PATH && !path.startsWith(`${ADMIN_SIGN_IN_PATH}/`);
 }
 
-export async function updateSession(request: NextRequest) {
+/**
+ * `passThrough` builds the "carry on" response. The proxy passes one that
+ * forwards extra request headers (the admin CSP nonce); redirects never use it.
+ */
+export async function updateSession(request: NextRequest, passThrough: () => NextResponse = () => NextResponse.next()) {
   const path = request.nextUrl.pathname;
   const isDashboard = path.startsWith('/dashboard');
   const isLogin = path === '/login';
   const isAdmin = isProtectedAdminPath(path);
 
   // Nothing below acts on other paths, so skip the cookie verify for them.
-  if (!isDashboard && !isLogin && !isAdmin) return NextResponse.next();
+  if (!isDashboard && !isLogin && !isAdmin) return passThrough();
 
   const cookie = request.cookies.get(SESSION_COOKIE)?.value;
 
@@ -66,5 +70,5 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  return passThrough();
 }

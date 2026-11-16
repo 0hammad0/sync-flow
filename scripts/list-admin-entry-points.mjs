@@ -50,6 +50,11 @@ const BLOCK_ALLOWLIST = [
   { path: 'src/app/api/cleanup/route.ts', reason: 'CRON_SECRET cron: never blocked (T-27)' },
   { path: /^src\/app\/api\/admin\/cron\//, reason: 'CRON_SECRET cron: never blocked (T-27)' },
   { path: /^src\/app\/api\/e\//, reason: 'tracker: drops a blocked visitor itself with findBlock() and answers 204 (T-27)' },
+  {
+    path: 'src/app/api/csp-report/route.ts',
+    name: 'POST',
+    reason: 'browser CSP reports: rate-limited console log only, no data read or written, always 204; a blocklist read per report would cost more than the report',
+  },
   { path: 'src/app/api/session/route.ts', name: 'DELETE', reason: 'sign-out must always work (T-27)' },
   { path: 'src/app/blocked/route.ts', name: 'GET', reason: 'the blocked explainer: a page view that must never read the blocklist' },
   { path: 'src/app/api/ai/route.ts', name: 'GET', reason: 'read-only feature discovery, no data; the proxy still checks it' },
