@@ -40,3 +40,8 @@ export type SubjectDeleteDto = {
   stopped: 'cap' | 'error' | null;
   errorId: string | null;
 };
+
+export type AddAdminDto = { uid: string; email: string | null; role: 'owner' | 'moderator' | 'viewer' };
+
+/** Rebuild from claims: entries in the new index and what changed. */
+export type RebuildAdminsDto = { admins: number; added: number; removed: number; changed: number };

@@ -70,5 +70,19 @@ export function runUserRepositoryContract(name: string, make: (seed: UserSeed) =
       await repo.setRole(b.uid, null, grant);
       expect((await repo.listAdmins()).map((u) => u.uid)).toEqual([a.uid]);
     });
+
+    it('rebuilds the roles index from the claims, with nothing to fix when they agree', async () => {
+      const grant = { email: null, grantedBy: a.uid, at: new Date('2026-11-13T00:00:00Z') };
+      expect(await repo.rebuildRoleIndex({ grantedBy: a.uid, at: new Date() })).toEqual({ admins: 0, added: 0, removed: 0, changed: 0 });
+      await repo.setRole(a.uid, 'owner', grant);
+      await repo.setRole(b.uid, 'viewer', grant);
+      expect(await repo.rebuildRoleIndex({ grantedBy: a.uid, at: new Date() })).toEqual({ admins: 2, added: 0, removed: 0, changed: 0 });
+      expect((await repo.listAdmins()).map((u) => [u.email, u.role])).toEqual([
+        [a.email, 'owner'],
+        [b.email, 'viewer'],
+      ]);
+      // Claims are untouched by a rebuild.
+      expect((await repo.get(b.uid))?.role).toBe('viewer');
+    });
   });
 }

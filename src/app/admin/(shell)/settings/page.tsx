@@ -59,7 +59,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
               <ErrorState size="panel" title="Could not load settings." reason="Retry in a moment." errorId={settings.errorId} />
             </section>
           )}
-          <RolesSection roles={roles} selfUid={ctx.uid} canManage={can(ctx.role, 'roles:write')} />
+          <RolesSection roles={roles} selfUid={ctx.uid} canManage={can(ctx.role, 'roles:write')} adminEmail={ctx.email} />
           <DangerZone
             rawRetentionDays={settings.state === 'ok' ? settings.settings.rawRetentionDays : null}
             ipRetentionDays={settings.state === 'ok' ? settings.settings.ipRetentionDays : null}

@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { AdminContext, AdminRole } from '@/server/auth/types';
 import { ForbiddenError, NotFoundError, err, ok, type Result } from '@/server/errors';
-import type { AdminUser, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
+import type { AdminUser, RoleIndexRebuild, UserAdmin, UserPage, UserReader } from '@/server/repositories/interfaces';
 import type { AuditRequestInfo, AuditService } from '@/server/services/audit-service';
 
 /** Firebase uids are 28 characters for email sign-in; accept the general shape. */
@@ -89,6 +89,15 @@ export class UserService {
     await this.deps.admin.setRole(uid, role, { email: target.data.email, grantedBy: ctx.uid, at: this.now() });
     await this.audit(ctx, 'role.set', target.data, { role: target.data.role }, { role }, opts);
     return ok({ ...target.data, role });
+  }
+
+  /**
+   * "Rebuild from claims" (15-settings.md): rewrites the `admin_config/roles`
+   * index from the role claims. Claims are not changed, so no `role.set` row
+   * (spec: "read + index write, not a permission change").
+   */
+  rebuildAdminIndex(ctx: AdminContext): Promise<RoleIndexRebuild> {
+    return this.deps.admin.rebuildRoleIndex({ grantedBy: ctx.uid, at: this.now() });
   }
 
   private async target(ctx: AdminContext, uid: string): Promise<Result<AdminUser>> {
