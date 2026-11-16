@@ -74,6 +74,6 @@ describe('OnlineNow hydration', () => {
 
   it('the top-bar slot is in the server HTML and hidden under 1024 px by CSS', () => {
     const html = renderToString(<OnlineNowDot />);
-    expect(html).toMatch(/class="hidden min-w-28 items-center justify-end lg:flex"/);
+    expect(html).toMatch(/class="hidden h-8 min-w-28 items-center justify-end lg:flex"/);
   });
 });

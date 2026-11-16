@@ -90,7 +90,14 @@ test.describe('signed in', () => {
     if (widthOf(testInfo) >= 1280) await expect(page.locator('#page-detail-title')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page).not.toHaveURL(/path=/);
-    if (widthOf(testInfo) >= 1280) await expect(page.locator('a[data-row-link]:focus')).toHaveCount(1);
+    if (widthOf(testInfo) >= 1280) {
+      await expect(page.locator('a[data-row-link]:focus'))
+        .toHaveCount(1)
+        .catch(async (error: Error) => {
+          const focused = await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 160));
+          throw new Error(`${error.message}\nfocused instead: ${focused}`);
+        });
+    }
   });
 
   test('no horizontal scroll', async ({ page, context, baseURL }) => {

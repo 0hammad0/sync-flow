@@ -79,7 +79,7 @@ function TopBarCount() {
   // aside (no layout shift on first paint). Under 1024 px it is hidden and
   // nothing is fetched.
   return (
-    <div className="hidden min-w-28 items-center justify-end lg:flex">
+    <div className="hidden h-8 min-w-28 items-center justify-end lg:flex">
       {desktop ? <OnlineCount variant="topbar" enabled poll /> : <CountSkeleton variant="topbar" />}
     </div>
   );

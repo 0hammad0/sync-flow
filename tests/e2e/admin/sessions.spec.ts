@@ -71,8 +71,16 @@ test.describe('signed in', () => {
     await page.setViewportSize({ width: 320, height: 640 });
     await page.goto('/admin/sessions');
     await expect(page.getByRole('heading', { level: 1, name: 'Sessions' })).toBeVisible();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow).toBeLessThanOrEqual(0);
+    const { overflow, wide } = await page.evaluate(() => {
+      const width = document.documentElement.clientWidth;
+      // On failure, name the elements that stick out past the right edge.
+      const wide = [...document.querySelectorAll('body *')]
+        .filter((el) => el.getBoundingClientRect().right > width + 0.5)
+        .slice(0, 8)
+        .map((el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}.${String(el.className).trim().split(/\s+/).slice(0, 4).join('.')} right=${Math.round(el.getBoundingClientRect().right)}`);
+      return { overflow: document.documentElement.scrollWidth - width, wide };
+    });
+    expect(overflow, `wider than the viewport:\n${wide.join('\n')}`).toBeLessThanOrEqual(0);
   });
 
   test('a bad session id is a 404 page; an unknown one says it may be older than 90 days', async ({ page, context, baseURL }) => {

@@ -127,6 +127,9 @@ test.describe('signed in', () => {
     test.skip(isTouch(testInfo) || widthOf(testInfo) < 768, 'hover-open is pointer-fine, ≥ 768 px only');
     await signIn(context, baseURL!, OWNER!, 'rail');
     await page.goto('/admin');
+    // `load` can fire while the loading fallback is still on screen and
+    // #admin-content is hidden (its left edge reads 0): wait for the page.
+    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     const sidebar = page.locator('.admin-sidebar');
     const before = await contentLeft(page);
 
