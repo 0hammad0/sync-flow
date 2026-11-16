@@ -13,9 +13,15 @@ import { encodeKey, FOLD_KEY } from '@/server/firestore/encode-key';
 // Settings (admin_config/settings)
 // ---------------------------------------------------------------------------
 
+/** Who sees the consent banner (15-settings.md). `eu_uk` = EU/EEA/UK visitors only. */
+export const CONSENT_MODES = ['none', 'eu_uk', 'all'] as const;
+export type ConsentMode = (typeof CONSENT_MODES)[number];
+
 export type TrackingSettings = {
   /** Kill switch. A missing doc or field means OFF. */
   trackingEnabled: boolean;
+  /** Consent banner scope. A missing or unknown value means `eu_uk`. */
+  consentMode: ConsentMode;
   /** Full IP kept this many days after the session was last seen, then nulled. */
   ipRetentionDays: number;
   /** `a_sessions` kept this many days after last seen, then deleted. */
@@ -25,6 +31,7 @@ export type TrackingSettings = {
 /** Code defaults. `admin_config/settings` is not created by phase 2: missing = these. */
 export const DEFAULT_TRACKING_SETTINGS: Readonly<TrackingSettings> = {
   trackingEnabled: false,
+  consentMode: 'eu_uk',
   ipRetentionDays: 30,
   rawRetentionDays: 90,
 };

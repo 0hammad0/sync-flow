@@ -19,6 +19,7 @@ import type {
   TrendDto,
 } from '@/server/analytics/dto';
 import { DEFAULT_TRACKING_SETTINGS, type TrackingSettings } from '@/server/analytics/model';
+import { SETTINGS_TAG } from '@/features/admin/settings/constants';
 import {
   concatSets,
   EMPTY_SET,
@@ -167,7 +168,8 @@ const cachedSettings = unstable_cache(
     return reader().readTrackingSettings();
   },
   ['admin-analytics-settings'],
-  { tags: [ROLLUPS_TAG], revalidate: SETTINGS_TTL_S },
+  // SETTINGS_TAG: a save on the Settings screen clears it at once on that instance.
+  { tags: [ROLLUPS_TAG, SETTINGS_TAG], revalidate: SETTINGS_TTL_S },
 );
 
 /**

@@ -19,6 +19,15 @@ describe('regionFor (mode A consent regions)', () => {
     expect(regionFor(' de ', true)).toBe('eu');
   });
 
+  it('consent mode: all → always eu, none → always ok, eu_uk → by country (default)', () => {
+    expect(regionFor('PK', true, 'all')).toBe('eu');
+    expect(regionFor(null, false, 'all')).toBe('eu');
+    expect(regionFor('DE', true, 'none')).toBe('ok');
+    expect(regionFor(null, true, 'none')).toBe('ok');
+    expect(regionFor('DE', true, 'eu_uk')).toBe('eu');
+    expect(regionFor('PK', true, 'eu_uk')).toBe('ok');
+  });
+
   it('missing or junk country: ask on Vercel, not off Vercel (local runs)', () => {
     for (const country of [null, '', 'XYZ', '1']) {
       expect(regionFor(country, true)).toBe('eu');
@@ -53,6 +62,14 @@ describe('IngestService kill-switch accessors (for GET /api/e)', () => {
     expect(await h.service.trackingEnabled()).toBe(true);
     expect(h.repo.reads).toBe(1);
     expect(h.service.peekTrackingEnabled()).toBe(true);
+  });
+
+  it('probeSettings returns the kill switch and consent mode from the same cache', async () => {
+    const h = ingestHarness();
+    h.repo.settings = { trackingEnabled: true, consentMode: 'all' };
+    expect(await h.service.probeSettings()).toEqual({ trackingEnabled: true, consentMode: 'all' });
+    expect(await h.service.trackingEnabled()).toBe(true);
+    expect(h.repo.reads).toBe(1);
   });
 
   it('a failed read means off (fail closed)', async () => {

@@ -20,6 +20,7 @@ export const AUDIT_ACTION_LIST = [
   'role.set',
   'settings.update',
   'analytics.delete',
+  'data.delete',
   'export.csv',
 ] as const;
 
@@ -43,6 +44,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditActionName, string> = {
   'role.set': 'Changed role',
   'settings.update': 'Changed settings',
   'analytics.delete': 'Deleted analytics',
+  'data.delete': 'Deleted visitor data',
   'export.csv': 'Exported CSV',
 };
 

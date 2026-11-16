@@ -9,6 +9,7 @@ import { DEFAULT_QUOTA_CAPS, QuotaExceededError } from '@/server/quota/quota-gua
 import type { CronJob, CronResultValue, CronRun } from '@/server/repositories/interfaces';
 import type { CronRunDto } from './cron-status';
 import type { IngestCounts, QuotaUsageDto } from './tracking-status';
+import { SETTINGS_TAG } from '@/features/admin/settings/constants';
 
 /** Rows shown on Health (the "last 14 runs" list). */
 export const CRON_RUNS_SHOWN = 14;
@@ -121,7 +122,7 @@ const cachedTrackingHealth = unstable_cache(
     };
   },
   ['admin-health-tracking'],
-  { tags: [HEALTH_CACHE_TAG], revalidate: 60 },
+  { tags: [HEALTH_CACHE_TAG, SETTINGS_TAG], revalidate: 60 },
 );
 
 /**

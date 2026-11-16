@@ -22,6 +22,7 @@ export const AUDIT_ACTIONS = [
   'role.set',
   'settings.update',
   'analytics.delete',
+  'data.delete',
   'export.csv',
 ] as const;
 

@@ -11,6 +11,7 @@ import {
 import { z } from 'zod';
 
 import {
+  CONSENT_MODES,
   DEFAULT_TRACKING_SETTINGS,
   DIM_MAPS,
   ROLLUP_MAP_FIELDS,
@@ -116,6 +117,7 @@ const sessionDoc = z.object({
 
 const settingsDoc = z.object({
   tracking_enabled: z.boolean().optional().catch(undefined),
+  consent_mode: z.enum(CONSENT_MODES).optional().catch(undefined),
   ip_retention_days: z.number().int().positive().optional().catch(undefined),
   raw_retention_days: z.number().int().positive().optional().catch(undefined),
 });
@@ -269,6 +271,7 @@ export class FirestoreEventRepository implements EventRepository {
     const d = settingsDoc.parse(snap.data() ?? {});
     return {
       trackingEnabled: d.tracking_enabled ?? DEFAULT_TRACKING_SETTINGS.trackingEnabled,
+      consentMode: d.consent_mode ?? DEFAULT_TRACKING_SETTINGS.consentMode,
       ipRetentionDays: d.ip_retention_days ?? DEFAULT_TRACKING_SETTINGS.ipRetentionDays,
       rawRetentionDays: d.raw_retention_days ?? DEFAULT_TRACKING_SETTINGS.rawRetentionDays,
     };
