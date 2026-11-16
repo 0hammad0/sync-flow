@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
 import Logo from '@/shared/components/Logo';
 import OfflineBanner from '@/shared/ui/OfflineBanner';
-import { can } from '@/server/auth/permissions';
+import { can, type Permission } from '@/server/auth/permissions';
 import type { AdminContext } from '@/server/auth/types';
+import type { AccessActorDto } from '@/features/admin/access/types';
 import AccountMenu from './AccountMenu';
+import CommandPaletteTrigger from './CommandPaletteTrigger';
+import { allowedPaletteActions } from './command-registry';
 import PinToggle from './PinToggle';
 import ShellFrame from './ShellFrame';
 import Sidebar from './Sidebar';
@@ -20,6 +23,8 @@ type AdminShellProps = {
   sidebarMode: SidebarMode;
   /** Thin site-wide notice under the top bar, e.g. the Firestore budget bar. */
   notice?: ReactNode;
+  /** Who is acting, for the palette's Block dialog. null unless the role has `blocks:write`. */
+  blockActor: AccessActorDto | null;
   children: ReactNode;
 };
 
@@ -28,9 +33,11 @@ type AdminShellProps = {
  * content column. Server Component; only the interactive leaves are client.
  * Spec: docs/admin/02-design/03-layout-and-sidebar.md.
  */
-export default function AdminShell({ ctx, sidebarMode, notice, children }: AdminShellProps) {
+export default function AdminShell({ ctx, sidebarMode, notice, blockActor, children }: AdminShellProps) {
   // Items the role cannot use are hidden, not disabled. The pages still check.
-  const groups = filterNav(NAV_GROUPS, (permission) => can(ctx.role, permission));
+  // The command palette lists the same groups, so the two can never disagree.
+  const isAllowed = (permission: Permission) => can(ctx.role, permission);
+  const groups = filterNav(NAV_GROUPS, isAllowed);
 
   return (
     <ShellFrame initialMode={sidebarMode}>
@@ -59,6 +66,14 @@ export default function AdminShell({ ctx, sidebarMode, notice, children }: Admin
           role={ctx.role}
           drawerNav={<SidebarNav groups={groups} idPrefix="drawer" />}
           drawerFooter={<ThemeToggle />}
+          search={
+            <CommandPaletteTrigger
+              groups={groups}
+              actions={allowedPaletteActions(isAllowed)}
+              canSeeIp={isAllowed('ip:read')}
+              blockActor={isAllowed('blocks:write') ? blockActor : null}
+            />
+          }
         />
         <OfflineBanner />
         {notice}
